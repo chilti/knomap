@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   build: {
-    outDir: path.resolve(__dirname, '../backend/src/LabSOM.Desktop/wwwroot'),
+    outDir: path.resolve(__dirname, '../backend/src/LabSOM.Backend.Core/wwwroot'),
     emptyOutDir: true,
   },
   server: {

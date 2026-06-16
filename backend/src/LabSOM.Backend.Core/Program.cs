@@ -5,6 +5,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System.Diagnostics;
 
+using System.IO;
+
+// Ensure the working directory is the executable's directory (crucial for Start Menu shortcuts)
+Directory.SetCurrentDirectory(System.AppContext.BaseDirectory);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -22,7 +27,14 @@ builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServe
 // Enable CORS for local SPA frontends (Vite runs on localhost)
 builder.Services.AddCors();
 
+// Listen on a dynamic local port to avoid collisions
+builder.WebHost.UseUrls("http://127.0.0.1:0");
+
 var app = builder.Build();
+
+// Serve the compiled React frontend from wwwroot
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // Enable CORS
 app.UseCors(policy => policy
@@ -233,4 +245,77 @@ app.MapPost("/api/semantic/cluster", async (SemanticClusterRequest request, Sema
 // Health check
 app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", app = "newLabSOM Local API" }));
 
-app.Run();
+// Start the ASP.NET Core web server in the background
+await app.StartAsync();
+
+// Retrieve the dynamically assigned local port
+var server = app.Services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>();
+var addressFeature = server.Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>();
+var localUrl = addressFeature?.Addresses.FirstOrDefault() ?? "http://127.0.0.1:5000";
+
+Console.WriteLine($"[Backend] API Server running at {localUrl}");
+
+// Initialize Photino native desktop window on an STA thread (required for Windows UI)
+var windowThread = new System.Threading.Thread(() =>
+{
+    var window = new Photino.NET.PhotinoWindow()
+        .SetTitle("Sinapsis Map")
+        .SetUseOsDefaultLocation(false)
+        .SetUseOsDefaultSize(false)
+        .SetSize(1280, 800)
+        .Center()
+        .SetIconFile("wwwroot/icon.ico")
+        .SetChromeless(true)
+        .RegisterWebMessageReceivedHandler((object sender, string message) => {
+            var w = (Photino.NET.PhotinoWindow)sender;
+            if (message == "window:minimize") w.SetMinimized(true);
+            if (message == "window:maximize") {
+                if (WindowDragger.IsZoomed(w.WindowHandle))
+                    WindowDragger.ShowWindow(w.WindowHandle, WindowDragger.SW_RESTORE);
+                else
+                    WindowDragger.ShowWindow(w.WindowHandle, WindowDragger.SW_MAXIMIZE);
+            }
+            if (message == "window:close") w.Close();
+            if (message == "window:drag") {
+                WindowDragger.ReleaseCapture();
+                WindowDragger.DefWindowProc(w.WindowHandle, WindowDragger.WM_SYSCOMMAND, (UIntPtr)WindowDragger.MOUSE_MOVE, IntPtr.Zero);
+            }
+        })
+        .Load(localUrl);
+
+#if DEBUG
+    window.SetDevToolsEnabled(true);
+#else
+    window.SetDevToolsEnabled(false);
+#endif
+
+    window.WaitForClose();
+});
+
+windowThread.SetApartmentState(System.Threading.ApartmentState.STA);
+windowThread.Start();
+windowThread.Join();
+
+// Gracefully stop the backend server when the window is closed
+await app.StopAsync();
+
+public static class WindowDragger
+{
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    public static extern IntPtr DefWindowProc(IntPtr hWnd, uint uMsg, UIntPtr wParam, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    public static extern bool IsZoomed(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    public const uint WM_SYSCOMMAND = 0x0112;
+    public const uint MOUSE_MOVE = 0xF012;
+    public const int SW_MAXIMIZE = 3;
+    public const int SW_RESTORE = 9;
+}
