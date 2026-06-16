@@ -27,8 +27,14 @@ builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServe
 // Enable CORS for local SPA frontends (Vite runs on localhost)
 builder.Services.AddCors();
 
-// Listen on a dynamic local port to avoid collisions
-builder.WebHost.UseUrls("http://127.0.0.1:0");
+bool isHeadless = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" || args.Contains("--headless");
+
+// Listen on a dynamic local port to avoid collisions ONLY for desktop UI
+if (!isHeadless)
+{
+    builder.WebHost.UseUrls("http://127.0.0.1:0");
+}
+
 
 var app = builder.Build();
 
@@ -255,7 +261,6 @@ var localUrl = addressFeature?.Addresses.FirstOrDefault() ?? "http://127.0.0.1:5
 
 Console.WriteLine($"[Backend] API Server running at {localUrl}");
 
-bool isHeadless = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" || args.Contains("--headless");
 
 if (isHeadless)
 {
