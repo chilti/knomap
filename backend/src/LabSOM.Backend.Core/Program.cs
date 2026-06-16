@@ -255,49 +255,63 @@ var localUrl = addressFeature?.Addresses.FirstOrDefault() ?? "http://127.0.0.1:5
 
 Console.WriteLine($"[Backend] API Server running at {localUrl}");
 
-// Initialize Photino native desktop window on an STA thread (required for Windows UI)
-var windowThread = new System.Threading.Thread(() =>
+bool isHeadless = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" || args.Contains("--headless");
+
+if (isHeadless)
 {
-    var window = new Photino.NET.PhotinoWindow()
-        .SetTitle("Sinapsis Map")
-        .SetUseOsDefaultLocation(false)
-        .SetUseOsDefaultSize(false)
-        .SetSize(1280, 800)
-        .Center()
-        .SetIconFile("wwwroot/icon.ico")
-        .SetChromeless(true)
-        .RegisterWebMessageReceivedHandler((object sender, string message) => {
-            var w = (Photino.NET.PhotinoWindow)sender;
-            if (message == "window:minimize") w.SetMinimized(true);
-            if (message == "window:maximize") {
-                if (WindowDragger.IsZoomed(w.WindowHandle))
-                    WindowDragger.ShowWindow(w.WindowHandle, WindowDragger.SW_RESTORE);
-                else
-                    WindowDragger.ShowWindow(w.WindowHandle, WindowDragger.SW_MAXIMIZE);
-            }
-            if (message == "window:close") w.Close();
-            if (message == "window:drag") {
-                WindowDragger.ReleaseCapture();
-                WindowDragger.DefWindowProc(w.WindowHandle, WindowDragger.WM_SYSCOMMAND, (UIntPtr)WindowDragger.MOUSE_MOVE, IntPtr.Zero);
-            }
-        })
-        .Load(localUrl);
+    Console.WriteLine("[Backend] Running in headless mode. Press Ctrl+C to shut down.");
+    await app.WaitForShutdownAsync();
+}
+else
+{
+    // Initialize Photino native desktop window on an STA thread (required for Windows UI)
+    var windowThread = new System.Threading.Thread(() =>
+    {
+        var window = new Photino.NET.PhotinoWindow()
+            .SetTitle("Sinapsis Map")
+            .SetUseOsDefaultLocation(false)
+            .SetUseOsDefaultSize(false)
+            .SetSize(1280, 800)
+            .Center()
+            .SetIconFile("wwwroot/icon.ico")
+            .SetChromeless(true)
+            .RegisterWebMessageReceivedHandler((object sender, string message) => {
+                var w = (Photino.NET.PhotinoWindow)sender;
+                if (message == "window:minimize") w.SetMinimized(true);
+                if (message == "window:maximize") {
+                    if (WindowDragger.IsZoomed(w.WindowHandle))
+                        WindowDragger.ShowWindow(w.WindowHandle, WindowDragger.SW_RESTORE);
+                    else
+                        WindowDragger.ShowWindow(w.WindowHandle, WindowDragger.SW_MAXIMIZE);
+                }
+                if (message == "window:close") w.Close();
+                if (message == "window:drag") {
+                    WindowDragger.ReleaseCapture();
+                    WindowDragger.DefWindowProc(w.WindowHandle, WindowDragger.WM_SYSCOMMAND, (UIntPtr)WindowDragger.MOUSE_MOVE, IntPtr.Zero);
+                }
+            })
+            .Load(localUrl);
 
 #if DEBUG
-    window.SetDevToolsEnabled(true);
+        window.SetDevToolsEnabled(true);
 #else
-    window.SetDevToolsEnabled(false);
+        window.SetDevToolsEnabled(false);
 #endif
 
-    window.WaitForClose();
-});
+        window.WaitForClose();
+    });
 
-windowThread.SetApartmentState(System.Threading.ApartmentState.STA);
-windowThread.Start();
-windowThread.Join();
+    if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+    {
+        windowThread.SetApartmentState(System.Threading.ApartmentState.STA);
+    }
+    
+    windowThread.Start();
+    windowThread.Join();
 
-// Gracefully stop the backend server when the window is closed
-await app.StopAsync();
+    // Gracefully stop the backend server when the window is closed
+    await app.StopAsync();
+}
 
 public static class WindowDragger
 {
