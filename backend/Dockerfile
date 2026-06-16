@@ -48,6 +48,7 @@ COPY --from=build /app/publish /app/backend
 
 # Configure ASP.NET Core to listen on port 5123
 ENV ASPNETCORE_URLS=http://+:5123
+ENV DOTNET_RUNNING_IN_CONTAINER=true
 
 EXPOSE 5123
 
