@@ -153,7 +153,7 @@ export default function App() {
             {isSidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
           </button>
 
-          <div className={`flex flex-col space-y-8 p-6 ${isDesktopApp ? 'pt-10' : ''}`}>
+          <div className={`flex flex-col flex-1 space-y-8 p-6 ${isDesktopApp ? 'pt-10' : ''}`}>
             {/* Logo Header (Only shown in Browser) */}
             {!isDesktopApp && (
               <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'space-x-3 pt-2 pb-4'}`}>
@@ -238,6 +238,24 @@ export default function App() {
               </button>
             </nav>
           </div>
+
+          {/* Added Lab Links */}
+          {!isSidebarCollapsed && (
+            <div className="px-6 pb-6 flex flex-col space-y-2 text-[9px] text-gray-500">
+              <a href="https://www.dynamics.unam.mx/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity mb-2 block">
+                <img src="https://www.dynamics.unam.mx/images/logos/ldnl-logo.png" alt="Laboratorio de Dinámica no Lineal" className="h-9 w-auto object-contain" />
+              </a>
+              <div className="flex flex-col space-y-1 border-l-2 border-gray-800 pl-3 ml-1 mt-1">
+                <span className="font-bold text-gray-400 mb-0.5">Authors:</span>
+                <a href="https://www.dynamics.unam.mx/integrantes/humberto-carrillo/" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">
+                  Dr. Humberto Andrés Carrillo Calvet
+                </a>
+                <a href="https://scholar.google.com/citations?user=C9Z2wNAAAAAJ&hl=es" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">
+                  Dr. José Luis Jiménez Andrade
+                </a>
+              </div>
+            </div>
+          )}
 
           {/* System footer */}
           <div className={`p-6 border-t border-gray-800 bg-gray-950 flex ${isSidebarCollapsed ? 'justify-center' : 'flex-col'}`}>
