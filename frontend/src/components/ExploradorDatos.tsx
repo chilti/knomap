@@ -21,7 +21,8 @@ import {
 import { BoxPlot } from './BoxPlot';
 import { MallaHexagonal, type Trajectory } from './MallaHexagonal';
 import { UmapHeatmap } from './UmapHeatmap';
-import { ClusterMetricsModal } from './ClusterMetricsModal';
+import { ClusterMetricsPanel } from './ClusterMetricsPanel';
+import type { MetricResult } from './ClusterMetricsPanel';
 import { parseTrajectoryEntity } from '../utils/timeSeries';
 
 export const ExploradorDatos: React.FC = () => {
@@ -77,7 +78,10 @@ export const ExploradorDatos: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [labelIndex, setLabelIndex] = useState(0);
   const [hoveredUmapDot, setHoveredUmapDot] = useState<number | null>(null);
-  const [showClusterMetrics, setShowClusterMetrics] = useState(false);
+  
+  const [clusterMetricsData, setClusterMetricsData] = useState<MetricResult[] | null>(null);
+  const [isAnalyzingClusters, setIsAnalyzingClusters] = useState(false);
+  const [clusterMetricsError, setClusterMetricsError] = useState<string | null>(null);
   
   const [umapHeatmapScale, setUmapHeatmapScale] = useState(1); // 1 = 240x200, 1.5 = 360x300, 2 = 480x400
 
@@ -120,6 +124,32 @@ export const ExploradorDatos: React.FC = () => {
     svg.addEventListener('wheel', handleWheel, { passive: false });
     return () => svg.removeEventListener('wheel', handleWheel);
   }, []);
+
+  const analyzeClusters = async () => {
+    if (!result || !result.weights) return;
+    setIsAnalyzingClusters(true);
+    setClusterMetricsError(null);
+    try {
+      const payload = { weights: result.weights, max_k: 15 };
+      const apiUrl = getApiUrl('/api/som/evaluate_clusters');
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (json.success) {
+        setClusterMetricsData(json.metrics);
+      } else {
+        const errMsg = json.error || json.title || json.detail || JSON.stringify(json);
+        setClusterMetricsError(typeof errMsg === 'string' ? errMsg : "Unknown error occurred.");
+      }
+    } catch (e: any) {
+      setClusterMetricsError(e.message || "Network error");
+    } finally {
+      setIsAnalyzingClusters(false);
+    }
+  };
 
   // --- PATHSOM STATE ---
   // State is now managed globally in useSomStore() to persist across tabs.
@@ -474,8 +504,6 @@ export const ExploradorDatos: React.FC = () => {
     const displayCanvas = document.createElement('canvas');
     displayCanvas.width = W; displayCanvas.height = H;
     const dCtx = displayCanvas.getContext('2d')!;
-    dCtx.fillStyle = '#050508';
-    dCtx.fillRect(0, 0, W, H);
     dCtx.imageSmoothingEnabled = true;
     dCtx.imageSmoothingQuality = 'high';
     dCtx.drawImage(offCanvas, 0, 0, W, H);
@@ -626,6 +654,31 @@ export const ExploradorDatos: React.FC = () => {
     const a = document.createElement('a');
     a.href = url;
     a.download = `${fileName ? fileName.replace('.csv', '') : 'dataset'}_clustered.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportReferenceVectors = () => {
+    if (!result || !result.weights) {
+      alert("No trained SOM weights available.");
+      return;
+    }
+
+    // LabSOM2D_2019 Format: first line has feature names separated by ';'
+    // Subsequent lines have weights separated by ';'
+    const lines = [];
+    lines.push(compNames.join(';'));
+
+    for (let i = 0; i < result.weights.length; i++) {
+      lines.push(result.weights[i].join(';'));
+    }
+
+    const fileContent = lines.join('\n');
+    const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName ? fileName.replace('.csv', '') : 'som'}_weights.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1381,13 +1434,22 @@ export const ExploradorDatos: React.FC = () => {
                 </button>
                 {config.clusteringAlgorithm === 'agglomerative' && (
                   <button
-                    onClick={() => setShowClusterMetrics(true)}
-                    disabled={!result || dataMatrix.length === 0}
+                    onClick={analyzeClusters}
+                    disabled={!result || dataMatrix.length === 0 || isAnalyzingClusters}
                     title="Train the SOM first to calculate clustering metrics"
-                    className="px-6 py-3.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 w-full md:w-auto"
+                    className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 border border-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 w-full md:w-auto"
                   >
-                    <Activity className="w-4 h-4" />
-                    <span>Analyze Optimal Clusters</span>
+                    {isAnalyzingClusters ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Analyzing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Activity className="w-4 h-4" />
+                        <span>Analyze Optimal Clusters</span>
+                      </>
+                    )}
                   </button>
                 )}
                 
@@ -1395,7 +1457,7 @@ export const ExploradorDatos: React.FC = () => {
                   onClick={handleRecluster}
                   disabled={!result || dataMatrix.length === 0}
                   title="Apply clustering parameters without retraining"
-                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer disabled:bg-gray-800 disabled:text-gray-600 w-full md:w-auto shadow-md shadow-emerald-900/20"
+                  className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 border border-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 w-full md:w-auto shadow-md shadow-indigo-900/20"
                 >
                   <Activity className="w-3.5 h-3.5" />
                   <span>Apply Fast Re-Clustering</span>
@@ -1439,6 +1501,11 @@ export const ExploradorDatos: React.FC = () => {
                 Photino hybrid engine dynamically hooks local system resources to optimize computational neural map iterations.
               </p>
             </div>
+
+            {/* Clustering Metrics Panel (only visible when Agglomerative) */}
+            {config.clusteringAlgorithm === 'agglomerative' && (
+              <ClusterMetricsPanel data={clusterMetricsData} loading={isAnalyzingClusters} error={clusterMetricsError} />
+            )}
           </div>
         )}
 
@@ -1608,12 +1675,20 @@ export const ExploradorDatos: React.FC = () => {
                       <div id="comp-viewport-clustering" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[420px]">
                         <div className="absolute top-4 right-4 z-20 flex space-x-2">
                           <button
+                            onClick={exportReferenceVectors}
+                            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl transition cursor-pointer shadow-lg flex items-center space-x-2 text-[10px] font-bold uppercase tracking-wider border border-gray-700"
+                            title="Export Reference Vectors (Weights)"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Export Vectores Ref.</span>
+                          </button>
+                          <button
                             onClick={exportClusteredData}
                             className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition cursor-pointer shadow-lg shadow-indigo-900/20 flex items-center space-x-2 text-[10px] font-bold uppercase tracking-wider"
                             title="Export Data with Cluster Column"
                           >
                             <Download className="w-3.5 h-3.5" />
-                            <span>Export CSV</span>
+                            <span>Export Data+Cluster</span>
                           </button>
                           <button
                             onClick={() => openMapPopup('comp-viewport-clustering', 'Clustering Map')}
@@ -2007,10 +2082,6 @@ export const ExploradorDatos: React.FC = () => {
           )}
         </div>
       </div>
-
-      {showClusterMetrics && (
-        <ClusterMetricsModal onClose={() => setShowClusterMetrics(false)} />
-      )}
     </>
   );
 };

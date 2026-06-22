@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import chroma from 'chroma-js';
 import { line, curveCatmullRom } from 'd3-shape';
 import { useSomStore } from '../store/somStore';
-import { RefreshCw, ZoomIn, ZoomOut, Tags } from 'lucide-react';
+import { RefreshCw, ZoomIn, ZoomOut, Tags, Download } from 'lucide-react';
 
 export interface Trajectory {
   name: string;
@@ -55,6 +55,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
 
   const [scale, setScale] = useState(calculatedScale); // pixel scale factor
   const [selectedNeuron, setSelectedNeuron] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   
   // Local state to control filters modal visibility
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
@@ -269,6 +270,39 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
     return showLabels;
   };
 
+  const handleDownload = (format: 'svg' | 'png') => {
+    if (!svgRef.current) return;
+    const serializer = new XMLSerializer();
+    let source = serializer.serializeToString(svgRef.current);
+    if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+      source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+    const svgData = "data:image/svg+xml;charset=utf-8," + encodeURIComponent('<?xml version="1.0" standalone="no"?>\r\n' + source);
+
+    if (format === 'svg') {
+      const a = document.createElement("a");
+      a.href = svgData;
+      a.download = `sinapsis_map_${visualizationMode}.svg`;
+      a.click();
+    } else {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const scaleFactor = 3; // High res
+      canvas.width = widthPx * scaleFactor;
+      canvas.height = heightPx * scaleFactor;
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const a = document.createElement("a");
+        a.href = canvas.toDataURL("image/png", 1.0);
+        a.download = `sinapsis_map_${visualizationMode}_highres.png`;
+        a.click();
+      };
+      img.src = svgData;
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl relative">
       {/* Visual Controls Toolbar */}
@@ -330,12 +364,33 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
             )}
           </div>
         )}
+
+        {/* Download actions */}
+        <div className="flex items-center space-x-2 ml-auto">
+          <button
+            onClick={() => handleDownload('png')}
+            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold rounded-lg transition flex items-center space-x-1.5"
+            title="Save as High-Res PNG"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>PNG</span>
+          </button>
+          <button
+            onClick={() => handleDownload('svg')}
+            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold rounded-lg transition flex items-center space-x-1.5"
+            title="Save as Vector SVG"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>SVG</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Canvas SVG Drawing */}
       <div className="flex-1 relative overflow-hidden flex flex-row items-stretch bg-gray-950">
         <div className="relative flex-1 flex justify-center items-center overflow-auto p-4 min-w-0">
           <svg
+            ref={svgRef}
             width={widthPx}
             height={heightPx}
             viewBox={viewboxStr}
@@ -504,7 +559,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
             className="flex flex-col items-center justify-center px-3 py-4 border-l border-gray-800 bg-gray-900 bg-opacity-40"
             style={{ flexShrink: 0, width: '65px', maxWidth: '65px' }}
           >
-            <span className="text-10 font-bold text-gray-300 mb-2" title="Maximum Value (Original)">{compMax.toFixed(2)}</span>
+            <span className="text-[10px] font-bold text-gray-300 mb-2" title="Maximum Value (Original)">{compMax.toFixed(2)}</span>
             
             <div 
               className="relative rounded-full shadow-inner my-1"
@@ -519,7 +574,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                     : 'linear-gradient(to bottom, #ffea46, #b9ad71, #7c7b78, #414d6b, #00204d)'
               }}
             >
-              {/* Avg indicator */}
+              {/* Avg indicator (line only) */}
               <div 
                 className="absolute bg-white z-10 rounded-full" 
                 style={{ 
@@ -528,24 +583,16 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                   left: '-4px', 
                   top: `${Math.max(0, Math.min(100, 100 - ((compAvg - compMin) / (compMax - compMin || 1)) * 100))}%` 
                 }}
+                title={`Average: μ = ${compAvg.toFixed(2)}`}
               ></div>
-              <div 
-                className="absolute text-white bg-gray-800 border border-gray-600 rounded shadow-lg whitespace-nowrap"
-                style={{ 
-                  fontSize: '9px',
-                  fontWeight: 900,
-                  padding: '2px 6px',
-                  left: '18px',
-                  top: `${Math.max(0, Math.min(100, 100 - ((compAvg - compMin) / (compMax - compMin || 1)) * 100))}%`,
-                  transform: 'translateY(-50%)'
-                }}
-                title="Average Value (Original)"
-              >
-                μ = {compAvg.toFixed(2)}
-              </div>
             </div>
             
-            <span className="text-10 font-bold text-gray-300 mt-2" title="Minimum Value (Original)">{compMin.toFixed(2)}</span>
+            <span className="text-[10px] font-bold text-gray-300 mt-2" title="Minimum Value (Original)">{compMin.toFixed(2)}</span>
+            
+            <div className="mt-3 pt-2 border-t border-gray-700 w-full flex flex-col items-center" title="Average Value (Original)">
+              <span className="text-[7px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Media</span>
+              <span className="text-[8px] font-bold text-gray-300">μ={compAvg.toFixed(2)}</span>
+            </div>
           </div>
         )}
       </div>

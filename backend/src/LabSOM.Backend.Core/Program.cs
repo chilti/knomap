@@ -278,7 +278,7 @@ else
             .SetUseOsDefaultSize(false)
             .SetSize(1280, 800)
             .Center()
-            .SetIconFile("wwwroot/icon.ico")
+            // .SetIconFile("wwwroot/icon.ico")
             .SetChromeless(true)
             .RegisterWebMessageReceivedHandler((object sender, string message) => {
                 var w = (Photino.NET.PhotinoWindow)sender;

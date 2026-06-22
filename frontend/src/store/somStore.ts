@@ -271,7 +271,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
     init: 'pca',
     metric: 'euclidean',
     learningRate: 0.5,
-    clusteringAlgorithm: 'dbscan',
+    clusteringAlgorithm: 'agglomerative',
     nClusters: 4,
     eps: 1.5,
     minSamples: 2,
