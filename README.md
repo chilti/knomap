@@ -40,7 +40,7 @@ Si prefieres alojar la plataforma en la web para múltiples usuarios, la forma r
 
 ### Requisitos Previos
 
-- Docker y Docker Compose
+- Docker (con el plugin Compose V2)
 - Nvidia Container Toolkit (opcional, recomendado para aceleración CUDA)
 
 ### Instalación Rápida
@@ -54,7 +54,7 @@ Si prefieres alojar la plataforma en la web para múltiples usuarios, la forma r
 2. Levanta los contenedores:
 
    ```bash
-   docker-compose up -d --build
+   docker compose up -d --build
    ```
 3. El sistema estará disponible internamente en el puerto `5015`. Si usas Nginx como proxy inverso en tu servidor, simplemente crea un `proxy_pass` hacia `http://localhost:5015`.
 
