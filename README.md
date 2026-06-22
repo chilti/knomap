@@ -14,9 +14,29 @@ LabSOM cuenta con una arquitectura de microservicios heterogénea optimizada par
 
 ---
 
+## 💻 Instalación (Versión de Escritorio)
+
+La forma más sencilla de utilizar LabSOM es a través de su aplicación nativa de escritorio, disponible para Windows, macOS y Linux.
+
+Para instalar la aplicación, dirígete a la sección de **Releases** del repositorio y descarga el paquete correspondiente a tu sistema operativo:
+
+### Windows
+Descarga y ejecuta el archivo `SinapsisMap_Installer_Lite.exe`. Sigue las instrucciones del asistente de instalación para completar el proceso.
+
+### macOS (Intel y Apple Silicon)
+1. Descarga el archivo `SinapsisMap_Mac_Intel.zip` o `SinapsisMap_Mac_Silicon.zip` según el procesador de tu Mac.
+2. Descomprime el archivo y arrastra la aplicación `SinapsisMap.app` a tu carpeta de Aplicaciones.
+
+*(Nota importante: Dado que la aplicación se distribuye en un ZIP externo, macOS podría revocar los permisos de ejecución por seguridad. Si la aplicación no abre, revisa el archivo `INSTRUCCIONES_MAC.txt` incluido en el ZIP para solucionarlo en un paso).*
+
+### Linux
+Descarga el archivo `SinapsisMap_Linux.zip`, extrae su contenido y ejecuta el binario principal.
+
+---
+
 ## 📦 Despliegue en Servidor (Producción)
 
-La forma recomendada de desplegar LabSOM en producción (ej. Servidor Ubuntu) es mediante **Docker**. El ecosistema está preparado para aprovechar la GPU (Nvidia/CUDA) del servidor anfitrión para acelerar el entrenamiento.
+Si prefieres alojar la plataforma en la web para múltiples usuarios, la forma recomendada de desplegar LabSOM en producción (ej. Servidor Ubuntu) es mediante **Docker**. El ecosistema está preparado para aprovechar la GPU (Nvidia/CUDA) del servidor anfitrión para acelerar el entrenamiento.
 
 ### Requisitos Previos
 
