@@ -28,8 +28,12 @@ echo   - Compilando para Linux...
 dotnet publish -c Release -r linux-x64 --self-contained true -o ..\..\..\publish_linux
 if %errorlevel% neq 0 exit /b %errorlevel%
 
-echo   - Compilando para Mac (Intel/Apple Silicon)...
-dotnet publish -c Release -r osx-x64 --self-contained true -o ..\..\..\publish_mac
+echo   - Compilando para Mac (Intel)...
+dotnet publish -c Release -r osx-x64 --self-contained true -o ..\..\..\publish_mac_intel
+if %errorlevel% neq 0 exit /b %errorlevel%
+
+echo   - Compilando para Mac (Apple Silicon / ARM64)...
+dotnet publish -c Release -r osx-arm64 --self-contained true -o ..\..\..\publish_mac_arm
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 cd ..\..\..\
@@ -45,12 +49,25 @@ xcopy publish_linux\* Output\SinapsisMap_Linux\ /s /e /y /q >nul
 robocopy engine Output\SinapsisMap_Linux\engine /s /e /xd __pycache__ .venv venv temp >nul
 powershell -Command "Compress-Archive -Path 'Output\SinapsisMap_Linux\*' -DestinationPath 'Output\SinapsisMap_Linux.zip' -Force"
 
-echo   - Creando empaquetado para Mac...
-if exist Output\SinapsisMap_Mac rmdir /s /q Output\SinapsisMap_Mac
-mkdir Output\SinapsisMap_Mac
-xcopy publish_mac\* Output\SinapsisMap_Mac\ /s /e /y /q >nul
-robocopy engine Output\SinapsisMap_Mac\engine /s /e /xd __pycache__ .venv venv temp >nul
-powershell -Command "Compress-Archive -Path 'Output\SinapsisMap_Mac\*' -DestinationPath 'Output\SinapsisMap_Mac.zip' -Force"
+echo   - Creando empaquetado para Mac (Intel)...
+if exist Output\SinapsisMap_Mac_Intel rmdir /s /q Output\SinapsisMap_Mac_Intel
+mkdir Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\MacOS
+mkdir Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\Resources
+copy backend\src\LabSOM.Backend.Core\Info.plist Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\Info.plist >nul
+xcopy publish_mac_intel\* Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\MacOS\ /s /e /y /q >nul
+robocopy engine Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\MacOS\engine /s /e /xd __pycache__ .venv venv temp >nul
+powershell -Command "Out-File -FilePath 'Output\SinapsisMap_Mac_Intel\INSTRUCCIONES_MAC.txt' -Encoding utf8 -InputObject \"==============================================`nINSTRUCCIONES DE INSTALACION PARA MAC`n==============================================`n`nDado que la aplicacion se ha comprimido en formato ZIP, macOS puede revocar el permiso de ejecucion.`nSi al abrir 'SinapsisMap' aparece un mensaje indicando que esta danada o no se puede abrir,`nabre la Terminal en esta carpeta y ejecuta:`n`nchmod +x SinapsisMap.app/Contents/MacOS/LabSOM.Backend.Core`n`nLuego podras abrirla normalmente haciendo doble clic en el icono.\""
+powershell -Command "Compress-Archive -Path 'Output\SinapsisMap_Mac_Intel\*' -DestinationPath 'Output\SinapsisMap_Mac_Intel.zip' -Force"
+
+echo   - Creando empaquetado para Mac (Apple Silicon)...
+if exist Output\SinapsisMap_Mac_Arm rmdir /s /q Output\SinapsisMap_Mac_Arm
+mkdir Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\MacOS
+mkdir Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\Resources
+copy backend\src\LabSOM.Backend.Core\Info.plist Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\Info.plist >nul
+xcopy publish_mac_arm\* Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\MacOS\ /s /e /y /q >nul
+robocopy engine Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\MacOS\engine /s /e /xd __pycache__ .venv venv temp >nul
+powershell -Command "Out-File -FilePath 'Output\SinapsisMap_Mac_Arm\INSTRUCCIONES_MAC.txt' -Encoding utf8 -InputObject \"==============================================`nINSTRUCCIONES DE INSTALACION PARA MAC`n==============================================`n`nDado que la aplicacion se ha comprimido en formato ZIP, macOS puede revocar el permiso de ejecucion.`nSi al abrir 'SinapsisMap' aparece un mensaje indicando que esta danada o no se puede abrir,`nabre la Terminal en esta carpeta y ejecuta:`n`nchmod +x SinapsisMap.app/Contents/MacOS/LabSOM.Backend.Core`n`nLuego podras abrirla normalmente haciendo doble clic en el icono.\""
+powershell -Command "Compress-Archive -Path 'Output\SinapsisMap_Mac_Arm\*' -DestinationPath 'Output\SinapsisMap_Mac_Silicon.zip' -Force"
 echo.
 
 echo [4/4] Empaquetando el Instalador de Windows (Inno Setup)...
@@ -67,9 +84,11 @@ if %errorlevel% neq 0 (
 :: Limpiar carpetas temporales
 rmdir /s /q publish
 rmdir /s /q publish_linux
-rmdir /s /q publish_mac
+rmdir /s /q publish_mac_intel
+rmdir /s /q publish_mac_arm
 rmdir /s /q Output\SinapsisMap_Linux
-rmdir /s /q Output\SinapsisMap_Mac
+rmdir /s /q Output\SinapsisMap_Mac_Intel
+rmdir /s /q Output\SinapsisMap_Mac_Arm
 echo.
 
 echo ==============================================
@@ -77,6 +96,7 @@ echo  EXITO: Paquetes compilados correctamente.
 echo  Rutas:
 echo   - Windows: Output\SinapsisMap_Installer_Lite.exe
 echo   - Linux:   Output\SinapsisMap_Linux.zip
-echo   - Mac:     Output\SinapsisMap_Mac.zip
+echo   - Mac (Intel):   Output\SinapsisMap_Mac_Intel.zip
+echo   - Mac (Silicon): Output\SinapsisMap_Mac_Silicon.zip
 echo ==============================================
 pause
