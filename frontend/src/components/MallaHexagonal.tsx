@@ -34,6 +34,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
     result, 
     config: somConfig,
     originalDataMatrix,
+    labels,
     // Label Filters Zustand states & actions
     showLabels,
     labelSearchQuery,
@@ -496,6 +497,29 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                         style={{ filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.5))' }}
                       />
                     ))}
+                    
+                    {/* Trajectory specific labels */}
+                    {coords.map((c, i) => {
+                      const dataIndex = traj.points[i].dataIndex;
+                      const labelText = labels[dataIndex];
+                      if (!labelText) return null;
+                      return (
+                        <text
+                          key={`traj_lbl_${idx}_${i}`}
+                          x={c[0]}
+                          y={c[1] - (traj.width || 2) * 1.5 - 4}
+                          textAnchor="middle"
+                          dominantBaseline="bottom"
+                          fill={traj.color}
+                          fontSize="10px"
+                          fontWeight="900"
+                          className="font-sans select-none pointer-events-none uppercase tracking-tight"
+                          style={{ textShadow: '0px 0px 4px rgba(0,0,0,0.9), 0px 0px 1px rgba(255,255,255,0.5)' }}
+                        >
+                          {labelText}
+                        </text>
+                      );
+                    })}
                   </g>
                 );
               })}

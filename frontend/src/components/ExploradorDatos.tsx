@@ -553,8 +553,12 @@ export const ExploradorDatos: React.FC = () => {
     // Draw active trajectories
     for (const traj of activeTrajs) {
       const pts = traj.points
-        .map(p => coordMap.get(p.dataIndex))
-        .filter(Boolean) as {cx: number, cy: number}[];
+        .map(p => {
+          const coords = coordMap.get(p.dataIndex);
+          if (!coords) return null;
+          return { ...coords, dataIndex: p.dataIndex };
+        })
+        .filter(Boolean) as {cx: number, cy: number, dataIndex: number}[];
       if (pts.length < 2) continue;
 
       const curveGen = line<{cx: number, cy: number}>()
@@ -589,6 +593,25 @@ export const ExploradorDatos: React.FC = () => {
         dCtx.arc(pt.cx, pt.cy, 2, 0, Math.PI * 2);
         dCtx.fillStyle = '#fff';
         dCtx.fill();
+      }
+
+      // Trajectory Labels
+      dCtx.font = '900 11px ui-sans-serif, system-ui, sans-serif';
+      dCtx.textAlign = 'center';
+      for (const pt of pts) {
+        const labelText = labels[pt.dataIndex];
+        if (!labelText) continue;
+        
+        const yOffset = pt.cy - (traj.width || 2) - 6;
+        
+        // Shadow for contrast
+        dCtx.lineWidth = 3;
+        dCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+        dCtx.strokeText(labelText, pt.cx, yOffset);
+        
+        // Colored text matching trajectory
+        dCtx.fillStyle = traj.color;
+        dCtx.fillText(labelText, pt.cx, yOffset);
       }
     }
 
