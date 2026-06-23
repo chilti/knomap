@@ -543,6 +543,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
         };
         
         xhr.onerror = () => reject(new Error("Local API Connection failed. Make sure the backend is booted."));
+        xhr.timeout = 3600000; // 1 hour timeout (3600000 ms)
         xhr.ontimeout = () => reject(new Error("Request timed out"));
         
         xhr.open('POST', getApiUrl(`/api/preprocess/bibliometrics`));

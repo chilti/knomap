@@ -31,7 +31,7 @@ namespace LabSOM.Backend.Core.Services
             _enginePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine");
         }
 
-        private async Task<TResult> RunPythonActionAsync<TRequest, TResult>(string action, TRequest request, int timeoutMinutes = 5)
+        private async Task<TResult> RunPythonActionAsync<TRequest, TResult>(string action, TRequest request, int timeoutMinutes = 60)
             where TResult : class, new()
         {
             var scriptPath = Path.GetFullPath(Path.Combine(_enginePath, "semantic_engine.py"));
@@ -161,17 +161,17 @@ namespace LabSOM.Backend.Core.Services
 
         public async Task<SemanticEmbedResult> GenerateEmbeddingsAsync(SemanticEmbedRequest request)
         {
-            return await RunPythonActionAsync<SemanticEmbedRequest, SemanticEmbedResult>("embed", request, timeoutMinutes: 15);
+            return await RunPythonActionAsync<SemanticEmbedRequest, SemanticEmbedResult>("embed", request, timeoutMinutes: 60);
         }
 
         public async Task<SemanticReduceResult> ReduceDimensionAsync(SemanticReduceRequest request)
         {
-            return await RunPythonActionAsync<SemanticReduceRequest, SemanticReduceResult>("reduce", request, timeoutMinutes: 10);
+            return await RunPythonActionAsync<SemanticReduceRequest, SemanticReduceResult>("reduce", request, timeoutMinutes: 60);
         }
 
         public async Task<SemanticClusterResult> ClusterSemanticAsync(SemanticClusterRequest request)
         {
-            return await RunPythonActionAsync<SemanticClusterRequest, SemanticClusterResult>("cluster", request, timeoutMinutes: 10);
+            return await RunPythonActionAsync<SemanticClusterRequest, SemanticClusterResult>("cluster", request, timeoutMinutes: 60);
         }
     }
 

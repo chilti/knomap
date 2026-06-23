@@ -68,8 +68,8 @@ namespace LabSOM.Backend.Core.Services
                 var stdoutTask = process.StandardOutput.ReadToEndAsync();
                 var stderrTask = process.StandardError.ReadToEndAsync();
                 
-                // Apply a generous timeout for large training runs (10 minutes)
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                // Apply a generous timeout for large training runs (60 minutes)
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(60));
                 try
                 {
                     await process.WaitForExitAsync(cts.Token);
@@ -80,7 +80,7 @@ namespace LabSOM.Backend.Core.Services
                     return new SOMTrainingResult
                     {
                         Success = false,
-                        Error = "Training timed out after 10 minutes. Consider reducing dataset size, grid dimensions, or iterations."
+                        Error = "Training timed out after 60 minutes. Consider reducing dataset size, grid dimensions, or iterations."
                     };
                 }
                 
@@ -173,7 +173,7 @@ namespace LabSOM.Backend.Core.Services
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
             
-            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(60));
             try
             {
                 await process.WaitForExitAsync(cts.Token);
@@ -246,7 +246,7 @@ namespace LabSOM.Backend.Core.Services
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
             
-            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(60));
             try
             {
                 await process.WaitForExitAsync(cts.Token);
@@ -319,7 +319,7 @@ namespace LabSOM.Backend.Core.Services
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
             
-            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(60));
             try
             {
                 await process.WaitForExitAsync(cts.Token);
@@ -389,7 +389,7 @@ namespace LabSOM.Backend.Core.Services
                 var stdoutTask = process.StandardOutput.ReadToEndAsync();
                 var stderrTask = process.StandardError.ReadToEndAsync();
                 
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(60));
                 try
                 {
                     await process.WaitForExitAsync(cts.Token);
@@ -463,7 +463,7 @@ namespace LabSOM.Backend.Core.Services
                 var stdoutTask = process.StandardOutput.ReadToEndAsync();
                 var stderrTask = process.StandardError.ReadToEndAsync();
                 
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(60));
                 try
                 {
                     await process.WaitForExitAsync(cts.Token);
