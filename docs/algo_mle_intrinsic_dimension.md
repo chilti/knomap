@@ -12,7 +12,9 @@ Si modelamos la distribución de las distancias desde $x$ a sus vecinos más cer
 
 Sea $T_j(x)$ la distancia euclidiana desde $x$ hasta su $j$-ésimo vecino más cercano, ordenadas de tal forma que $T_1(x) \le T_2(x) \le \dots \le T_k(x)$.
 La dimensión intrínseca local $\hat{m}_k(x)$ para un tamaño de vecindad $k$ se estima como:
-$$ \hat{m}_k(x) = \left[ \frac{1}{k-1} \sum_{j=1}^{k-1} \log \frac{T_k(x)}{T_j(x)} \right]^{-1} $$
+```math
+\hat{m}_k(x) = \left[ \frac{1}{k-1} \sum_{j=1}^{k-1} \log \frac{T_k(x)}{T_j(x)} \right]^{-1}
+```
 
 ### 2.2 Estimación Global en LabSOM
 El cálculo anterior se realiza para cada documento (punto) en el corpus. Dado que los conjuntos de datos pueden tener densidades variables, LabSOM agrega estas dimensiones locales extrayendo un estadístico robusto. En concreto, utiliza el **Percentil 95 (P95)** de todas las estimaciones locales. Esto asegura que el espacio destino tenga suficientes dimensiones para albergar el $95\%$ de las estructuras complejas del corpus sin recurrir a la dimensionalidad original.

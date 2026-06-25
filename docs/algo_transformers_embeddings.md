@@ -8,7 +8,9 @@ Los "Embeddings" son representaciones vectoriales densas de un texto. A diferenc
 ### 2.1 El Mecanismo de Auto-Atención (Self-Attention)
 El corazón de los Transformers es la "Atención Autodirigida". Para una secuencia de tokens, se proyectan tres matrices: Consultas ($Q$), Claves ($K$) y Valores ($V$).
 La atención se calcula mediante un producto punto escalado:
-$$ \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V $$
+```math
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+```
 Donde $d_k$ es la dimensión de las claves. La función `softmax` transforma los puntajes brutos en una distribución de probabilidad, indicando cuánta "atención" debe prestar un token a los demás en la misma secuencia.
 
 ### 2.2 Codificación a Vector de Documento
@@ -16,9 +18,13 @@ Los modelos tipo BERT procesan el documento a través de múltiples capas de ate
 
 ### 2.3 Similitud Semántica
 Para garantizar que la distancia matemática equivalga a la similitud semántica, el vector se normaliza (Norma L2):
-$$ \hat{\mathbf{v}}_i = \frac{\mathbf{v}_i}{\|\mathbf{v}_i\|_2} $$
+```math
+\hat{\mathbf{v}}_i = \frac{\mathbf{v}_i}{\|\mathbf{v}_i\|_2}
+```
 Esto permite calcular la similitud entre dos artículos $i$ y $j$ mediante la similitud del coseno:
-$$ \cos(\theta) = \hat{\mathbf{v}}_i \cdot \hat{\mathbf{v}}_j $$
+```math
+\cos(\theta) = \hat{\mathbf{v}}_i \cdot \hat{\mathbf{v}}_j
+```
 
 ## 3. Comparativa de Modelos Utilizados: SPECTER2 vs Nomic
 

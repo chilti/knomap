@@ -8,7 +8,9 @@ HDBSCAN es una evolución del clásico algoritmo DBSCAN. Es un método de agrupa
 ### 2.1 Distancia de Alcance Mutuo (Mutual Reachability Distance)
 HDBSCAN combate el ruido "alejando" artificialmente los puntos esporádicos para evitar que formen puentes falsos entre clústeres reales. 
 Define la **Distancia Central** (*Core Distance*), $\text{core}_k(x)$, como la distancia desde $x$ a su $k$-ésimo vecino más cercano. Con base en esto, transforma el espacio de distancias original $d(a,b)$ en una nueva métrica llamada Distancia de Alcance Mutuo:
-$$ d_{\text{mreach}-k}(a, b) = \max\{\text{core}_k(a), \text{core}_k(b), d(a,b)\} $$
+```math
+d_{\text{mreach}-k}(a, b) = \max\{\text{core}_k(a), \text{core}_k(b), d(a,b)\}
+```
 Si dos puntos están en zonas densas, su distancia mreach es igual a la real. Si alguno está en una zona dispersa, la distancia mreach equivale a su Core Distance, empujándolo lejos.
 
 ### 2.2 Árbol de Recubrimiento Mínimo (MST)

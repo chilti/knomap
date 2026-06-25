@@ -11,18 +11,24 @@ El valor de TF-IDF se compone del producto de dos métricas independientes: la F
 
 ### 2.1 Frecuencia de Término (TF)
 Mide la frecuencia bruta con la que ocurre un término $t$ en un documento específico $d$. Existen múltiples variantes de normalización, pero matemáticamente la más sencilla es:
-$$ \text{tf}(t, d) = \frac{f_{t,d}}{\sum_{t' \in d} f_{t',d}} $$
+```math
+\text{tf}(t, d) = \frac{f_{t,d}}{\sum_{t' \in d} f_{t',d}}
+```
 Donde $f_{t,d}$ es el número de apariciones de la palabra $t$ en el documento $d$.
 
 ### 2.2 Frecuencia Inversa de Documento (IDF)
 Mide cuánta información proporciona el término, asignando un peso menor a términos frecuentes y mayor a términos raros.
-$$ \text{idf}(t, D) = \log\left(\frac{N}{|\{d \in D : t \in d\}|}\right) $$
+```math
+\text{idf}(t, D) = \log\left(\frac{N}{|\{d \in D : t \in d\}|}\right)
+```
 - $N$: Número total de documentos en el corpus $D$.
 - $|\{d \in D : t \in d\}|$: Número de documentos donde aparece el término $t$.
 
 ### 2.3 Ponderación Final
 La estadística final es el producto algebraico de ambas métricas:
-$$ \text{tf-idf}(t, d, D) = \text{tf}(t, d) \cdot \text{idf}(t, D) $$
+```math
+\text{tf-idf}(t, d, D) = \text{tf}(t, d) \cdot \text{idf}(t, D)
+```
 LabSOM calcula estos valores para todos los títulos y resúmenes de los artículos pertenecientes a un clúster específico. Los términos con los valores TF-IDF más altos se consideran las **Keywords** representativas y son enviadas al LLM generativo como contexto léxico para bautizar al clúster.
 
 ## 3. Referencias
