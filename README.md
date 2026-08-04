@@ -1,46 +1,46 @@
-# Sinapsis Map ó LabSOM
+Ôªø# Sinapsis Map ‚Äî LabSOM
 
-**Sinapsis Map** (tambiÈn conocido como **LabSOM**) es una plataforma analÌtica avanzada de escritorio y web desarrollada por el Laboratorio de Din·mica No Lineal de la UNAM. Permite explorar, procesar y visualizar datos multidimensionales, redes bibliomÈtricas e indicadores institucionales mediante Mapas Auto-organizados (SOM), an·lisis sem·ntico y reducciÛn de dimensionalidad.
+**Sinapsis Map** (also known as **LabSOM**) is an advanced analytical desktop and web platform developed by the Non-Linear Dynamics Laboratory at UNAM (Mexico). It enables researchers to explore, process, and visualize multidimensional data, bibliometric networks, and institutional indicators through Self-Organizing Maps (SOM), semantic analysis, and dimensionality reduction.
 
 ---
 
-## ?? Arquitectura del Sistema
+## üöÄ System Architecture
 
-La plataforma sigue una arquitectura de tres capas heterogÈnea optimizada para rendimiento local:
+The platform uses a three-layer heterogeneous architecture optimized for local performance:
 
-| Capa | TecnologÌa | DescripciÛn |
+| Layer | Technology | Description |
 |---|---|---|
-| **Frontend** | React + TypeScript + Vite | Interfaz interactiva con visualizaciones SVG, Recharts y D3.js |
-| **Backend API** | C# (.NET 8) + Photino.NET | Servidor REST local + ventana nativa de escritorio |
-| **Motor AnalÌtico** | Python 3 | Parseo, cÛmputo matem·tico y modelos de IA (scikit-learn, UMAP, etc.) |
+| **Frontend** | React + TypeScript + Vite | Interactive UI with SVG, Recharts, and D3.js visualizations |
+| **Backend API** | C# (.NET 8) + Photino.NET | Local REST server + native desktop window |
+| **Analytical Engine** | Python 3 | Parsing, mathematical computation, and AI models (scikit-learn, UMAP, etc.) |
 
-El backend act˙a como orquestador: sirve la interfaz React como archivos est·ticos e invoca al motor Python como subproceso bajo demanda. Los datos pesados **jam·s viajan completos al frontend**: el motor escribe los resultados en disco y la interfaz los solicita por unidad a travÈs de la API REST.
+The backend acts as an orchestrator: it serves the React interface as static files and invokes the Python engine as a subprocess on demand. Heavy data payloads **never travel all at once to the frontend** ‚Äî the engine writes results to disk and the interface fetches them per unit via REST API.
 
 ---
 
-## ?? InstalaciÛn (VersiÛn de Escritorio)
+## üíª Installation (Desktop Version)
 
-La versiÛn de escritorio **no requiere instalar Python, Node.js ni .NET** por separado. Todo est· empaquetado en el instalador.
+The desktop version **does not require installing Python, Node.js, or .NET** separately. Everything is bundled in the installer.
 
 ### Windows
-Descarga y ejecuta `SinapsisMap_Installer_Lite.exe` desde la secciÛn **Releases** del repositorio y sigue el asistente de instalaciÛn.
+Download and run `SinapsisMap_Installer_Lite.exe` from the **Releases** section of this repository and follow the installation wizard.
 
-### macOS (Intel y Apple Silicon)
-1. Descarga `SinapsisMap_Mac_Intel.zip` o `SinapsisMap_Mac_Silicon.zip`.
-2. Descomprime y arrastra `SinapsisMap.app` a tu carpeta de Aplicaciones.
+### macOS (Intel and Apple Silicon)
+1. Download `SinapsisMap_Mac_Intel.zip` or `SinapsisMap_Mac_Silicon.zip`.
+2. Unzip and drag `SinapsisMap.app` to your Applications folder.
 
-> ?? Si macOS bloquea la apertura (seguridad Gatekeeper), consulta el archivo `INSTRUCCIONES_MAC.txt` incluido en el ZIP.
+> ‚ö†Ô∏è If macOS blocks the app (Gatekeeper security), refer to `INSTRUCCIONES_MAC.txt` included in the ZIP.
 
 ### Linux
-Descarga `SinapsisMap_Linux.zip`, extrae el contenido y ejecuta el binario principal.
+Download `SinapsisMap_Linux.zip`, extract the contents, and run the main binary.
 
 ---
 
-## ?? Despliegue en Servidor (ProducciÛn Web)
+## üì¶ Server Deployment (Web Production)
 
-Para alojar la plataforma en un servidor y darle acceso a m˙ltiples usuarios:
+To host the platform on a server and provide access to multiple users:
 
-**Requisitos:** Docker con el plugin Compose V2. Nvidia Container Toolkit (opcional, recomendado).
+**Requirements:** Docker with the Compose V2 plugin. Nvidia Container Toolkit (optional, recommended).
 
 ```bash
 git clone https://github.com/chilti/newLabSOM.git
@@ -48,26 +48,26 @@ cd newLabSOM
 docker compose up -d --build
 ```
 
-La plataforma quedar· disponible en el puerto `5015`. Configura un proxy inverso Nginx hacia `http://localhost:5015`.
+The platform will be available on port `5015`. Configure an Nginx reverse proxy to `http://localhost:5015`.
 
 ---
 
-## ?? Entorno de Desarrollo (Local)
+## üõ† Development Environment (Local)
 
-### 1. Iniciar el Backend (.NET + Python)
+### 1. Start the Backend (.NET + Python)
 
-Requisitos: SDK de .NET 8 y Python 3 con las dependencias del motor.
+Requirements: .NET 8 SDK and Python 3 with the engine dependencies installed.
 
 ```powershell
 cd backend/src/LabSOM.Backend.Core
 dotnet run
 ```
 
-El backend se inicializa en `http://localhost:5123` y abre la ventana de escritorio.
+The backend initializes at `http://localhost:5123` and opens the desktop window.
 
-### 2. Iniciar el Frontend en modo Dev
+### 2. Start the Frontend in Dev Mode
 
-Requisitos: Node.js.
+Requirements: Node.js.
 
 ```powershell
 cd frontend
@@ -75,83 +75,83 @@ npm install
 npm run dev
 ```
 
-La aplicaciÛn React se conectar· al backend en `http://localhost:5123`.
+The React application will connect to the backend at `http://localhost:5123`.
 
-### 3. Compilar el Frontend para ProducciÛn
+### 3. Build the Frontend for Production
 
 ```powershell
 cd frontend
 npm run build
 ```
 
-El artefacto compilado se copia autom·ticamente a `backend/src/LabSOM.Backend.Core/wwwroot/`, que es lo que sirve la aplicaciÛn de escritorio.
+The compiled artifact is automatically copied to `backend/src/LabSOM.Backend.Core/wwwroot/`, which is what the desktop application serves.
 
 ---
 
-## ?? MÛdulos y CaracterÌsticas
+## ‚öôÔ∏è Modules and Features
 
-### ?? Bibliometrics
-Procesamiento de archivos exportados desde **Web of Science** o **PubMed** para generar redes de co-ocurrencia de tÈrminos.
+### üîµ Bibliometrics
+Processing of files exported from **Web of Science** or **PubMed** to generate co-occurrence networks.
 
-- **Tipos de red soportados:** Co-ocurrencia (keywords, MeSH, campos personalizados), Co-autorÌa, Co-citaciÛn, CitaciÛn, Acoplamiento Bibliogr·fico, Bipartita (dos campos distintos).
-- **Modo temporal:** Genera una serie de redes por aÒo para analizar evoluciÛn tem·tica.
-- **IntegraciÛn con SOM:** Un botÛn transfiere la red calculada directamente al mÛdulo "Data & SOM" para entrenamiento.
+- **Supported network types:** Co-occurrence (keywords, MeSH terms, custom fields), Co-authorship, Co-citation, Citation, Bibliographic Coupling, Bipartite (two custom fields).
+- **Temporal mode:** Generates a network series by year to analyze thematic evolution over time.
+- **SOM Integration:** A button transfers the calculated network directly to the "Data & SOM" module for training.
 
-### ?? InCites Data
-Explorador de indicadores institucionales exportados desde **Clarivate InCites**.
+### üîµ InCites Data
+Explorer for institutional indicators exported from **Clarivate InCites**.
 
-- **Carga:** Acepta archivos Excel (`.xlsx`) individuales o m˙ltiples, o un archivo **ZIP** completo con todos los indicadores de una instituciÛn.
-- **DetecciÛn autom·tica de unidades:** Identifica el tipo de unidad (Researchers, Organizations, Locations, Publication Sources, Funding Agencies, WoS Categories, ESI, SDG, Macro/Meso/Micro Topics, Patentometrics) a partir del nombre del archivo.
-- **Carga por demanda (lazy loading):** El procesamiento se ejecuta en Python, que escribe los resultados en disco. La interfaz descarga **˙nicamente la unidad activa** en cada momento para evitar saturar la memoria del navegador.
-- **Visualizaciones por unidad:**
-  - **Tabla de perfil** multidimensional con hasta 1,500 entidades (Top por producciÛn).
-  - **Gr·fica de series de tiempo** con suavizado ECMA-3 y ECMA-5, mostrando el Top 20 de entidades.
-  - **DistribuciÛn de cuartiles** (Q1ñQ4) por entidad.
-- **Exportar a SOM:** Selecciona un subconjunto de indicadores y entrena directamente una red neuronal SOM sobre las entidades de la unidad activa.
+- **Loading:** Accepts individual or multiple Excel (`.xlsx`) files, or a full **ZIP** archive containing all indicators for an institution.
+- **Automatic unit detection:** Identifies the unit type (Researchers, Organizations, Locations, Publication Sources, Funding Agencies, WoS Categories, ESI, SDG, Macro/Meso/Micro Topics, Patentometrics) from the filename.
+- **Lazy loading:** Python processes all files and writes results to disk. The interface downloads **only the active unit** at any time to avoid overloading browser memory.
+- **Per-unit visualizations:**
+  - **Multidimensional profile table** with up to 1,500 entities (Top by production).
+  - **Time series chart** with ECMA-3 and ECMA-5 smoothing, showing the Top 20 entities.
+  - **Quartile distribution chart** (Q1‚ÄìQ4) per entity.
+- **Export to SOM:** Select a subset of indicators and train a SOM neural network directly on the entities of the active unit.
 
-### ?? Data & SOM
-Panel principal de entrenamiento y exploraciÛn del **Mapa Auto-organizado (SOM)**.
+### üîµ Data & SOM
+The main panel for training and exploring the **Self-Organizing Map (SOM)**.
 
-- **ImportaciÛn de datos:** CSV/Excel o transferencia directa desde los mÛdulos Bibliometrics e InCites.
-- **NormalizaciÛn:** AplicaciÛn y reversiÛn de transformaciones sobre la matriz de datos.
-- **Entrenamiento en lote (Batch SOM):** InicializaciÛn PCA o aleatoria, con visualizaciÛn en tiempo real del error de cuantizaciÛn.
-- **Malla hexagonal interactiva:** VisualizaciÛn del mapa con colores por indicador, contornos de cl˙ster y etiquetas de entidades. Permite mover etiquetas arrastrando.
-- **Re-clusterizaciÛn:** Ajuste din·mico del n˙mero de grupos sin reentrenar.
-- **ProyecciÛn UMAP:** VisualizaciÛn de similitud entre neuronas en un espacio 2D superpuesto al SOM.
-- **ExportaciÛn de proyecto:** Guarda y carga el estado completo del an·lisis (`.json`).
+- **Data import:** CSV/Excel files or direct transfer from the Bibliometrics and InCites modules.
+- **Normalization:** Apply and revert transformations on the data matrix.
+- **Batch SOM training:** PCA or random initialization, with real-time quantization error visualization.
+- **Interactive hexagonal grid:** Map visualization with color-coding by indicator, cluster contours, and entity labels. Labels can be repositioned by dragging.
+- **Re-clustering:** Dynamic adjustment of the number of groups without retraining.
+- **UMAP projection:** Visualization of neuron similarity in a 2D space overlaid on the SOM.
+- **Project export:** Save and load the complete analysis state (`.json`).
 
-### ?? Dim Reduction
-MÛdulo independiente de **reducciÛn de dimensionalidad**.
+### üîµ Dim Reduction
+Independent **dimensionality reduction** module.
 
-- EstimaciÛn de la dimensiÛn intrÌnseca del conjunto de datos.
-- ReducciÛn a dimensiÛn objetivo mediante algoritmos disponibles en el motor Python.
-- VisualizaciÛn y exportaciÛn de la matriz reducida para uso en el mÛdulo SOM.
+- Estimation of the intrinsic dimension of the dataset.
+- Reduction to a target dimension using algorithms available in the Python engine.
+- Visualization and export of the reduced matrix for use in the SOM module.
 
-### ?? Semantic Bibliometrics
-An·lisis **sem·ntico profundo** de artÌculos cientÌficos exportados desde Web of Science.
+### üîµ Semantic Bibliometrics
+**Deep semantic analysis** of scientific articles exported from Web of Science.
 
-- **Preprocesamiento:** Extrae y combina tÌtulos, res˙menes, palabras clave y tÈrminos MeSH de cada documento.
-- **GeneraciÛn de embeddings:** VectorizaciÛn de documentos usando modelos de lenguaje (Nomic Embed, SPECTER).
-- **EstimaciÛn de dimensiÛn intrÌnseca:** An·lisis del espacio sem·ntico de los documentos.
-- **ReducciÛn de dimensiÛn:** CompresiÛn del espacio sem·ntico para entrenamiento SOM.
-- **ClusterizaciÛn sem·ntica:** Agrupamiento jer·rquico multinivel de documentos por contenido tem·tico.
-
----
-
-## ?? Interfaz de Usuario
-
-- **Barra lateral colapsable** con navegaciÛn entre los 5 mÛdulos.
-- **Barra de tÌtulo personalizada** (modo escritorio) con controles nativos de minimizar, maximizar y cerrar.
-- **Redimensionamiento de ventana** con el ratÛn y atajos de teclado (Win + ? / ?, etc.).
-- **Indicador de hardware** en la barra lateral: detecta autom·ticamente si hay GPU NVIDIA disponible para acelerar los c·lculos.
-- **Persistencia de proyectos:** Exporta e importa el an·lisis completo en formato `.json` para continuar sesiones posteriores.
+- **Preprocessing:** Extracts and combines titles, abstracts, keywords, and MeSH terms from each document.
+- **Embedding generation:** Document vectorization using language models (Nomic Embed, SPECTER).
+- **Intrinsic dimension estimation:** Analysis of the semantic space of documents.
+- **Dimensionality reduction:** Compression of the semantic space for SOM training.
+- **Semantic clustering:** Multi-level hierarchical grouping of documents by thematic content.
 
 ---
 
-## ?? Desarrollado por
+## üñ• User Interface
 
-- **Laboratorio de Din·mica No Lineal** ó Departamento de Matem·ticas, Facultad de Ciencias, UNAM
-- **Dr. JosÈ Luis JimÈnez Andrade**
-- **Dr. Humberto AndrÈs Carrillo Calvet**
+- **Collapsible sidebar** for navigation between the 5 modules.
+- **Custom title bar** (desktop mode) with native minimize, maximize, and close controls.
+- **Window resizing** with the mouse and keyboard shortcuts (Win + ‚Üê / ‚Üí, etc.).
+- **Hardware indicator** in the sidebar: automatically detects if an NVIDIA GPU is available to accelerate computations.
+- **Project persistence:** Export and import the complete analysis in `.json` format to resume sessions later.
 
-?? [www.dynamics.unam.mx](https://www.dynamics.unam.mx/)
+---
+
+## üë• Developed by
+
+- **Non-Linear Dynamics Laboratory** ‚Äî Department of Mathematics, Faculty of Sciences, UNAM
+- **Dr. Jos√© Luis Jim√©nez Andrade**
+- **Dr. Humberto Andr√©s Carrillo Calvet**
+
+üîó [www.dynamics.unam.mx](https://www.dynamics.unam.mx/)
