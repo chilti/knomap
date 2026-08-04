@@ -4,7 +4,8 @@ import { RedBibliometrica } from './components/RedBibliometrica';
 import { ExploradorDatos } from './components/ExploradorDatos';
 import { DimReduction } from './components/DimReduction';
 import { SemanticBibliometrics } from './components/SemanticBibliometrics';
-import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, Layers, Compass } from 'lucide-react';
+import { InCitesExplorer } from './components/InCitesExplorer';
+import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, Layers, Compass, BarChart2 } from 'lucide-react';
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
 
@@ -54,7 +55,7 @@ export default function App() {
     fetchSystemStatus();
   }, []);
 
-  const handleTabChange = (newTab: 'multidimensional' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics') => {
+  const handleTabChange = (newTab: 'multidimensional' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites') => {
     const state = useSomStore.getState();
     if (newTab === 'multidimensional' && state.activeTab === 'bibliometrics') {
       if (state.pendingNetworkCsv) {
@@ -185,6 +186,22 @@ export default function App() {
                   <span className="flex items-center">
                     <Share2 className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'}`} />
                     {!isSidebarCollapsed && <span>Bibliometrics</span>}
+                  </span>
+                  {!isSidebarCollapsed && <ArrowRight className="w-3.5 h-3.5 opacity-50" />}
+                </button>
+
+                <button
+                  onClick={() => handleTabChange('incites')}
+                  title={isSidebarCollapsed ? "InCites Data" : undefined}
+                  className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'justify-between px-4 py-3'
+                    } rounded-xl text-sm font-semibold transition-all ${activeTab === 'incites'
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950 shadow-opacity-50'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                    }`}
+                >
+                  <span className="flex items-center">
+                    <BarChart2 className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'}`} />
+                    {!isSidebarCollapsed && <span>InCites Data</span>}
                   </span>
                   {!isSidebarCollapsed && <ArrowRight className="w-3.5 h-3.5 opacity-50" />}
                 </button>
@@ -344,8 +361,12 @@ export default function App() {
               {activeTab === 'dimreduction' && <DimReduction />}
 
               {/* Tab 4: Semantic Bibliometrics */}
-              {activeTab === 'semantic_bibliometrics' && <SemanticBibliometrics />}
-              {/* Tab 3: Bibliometrics Preprocessor */}
+              {activeTab === 'semantic_bibliometrics' && (
+                <SemanticBibliometrics />
+              )}
+              {activeTab === 'incites' && (
+                <InCitesExplorer />
+              )}{/* Tab 3: Bibliometrics Preprocessor */}
               {activeTab === 'bibliometrics' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
                   {/* Bibliometric input form */}

@@ -72,7 +72,7 @@ interface SOMState {
   isGeneratingUmap: boolean;
   isPreprocessing: boolean;
   uploadProgress: number | null;
-  activeTab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics';
+  activeTab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites';
   
   // Semantic Bibliometrics State
   semanticRecords: SemanticRecord[] | null;
@@ -181,7 +181,7 @@ interface SOMState {
   
   // Setters & Actions
   setConfig: (config: Partial<SOMConfig>) => void;
-  setActiveTab: (tab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics') => void;
+  setActiveTab: (tab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites') => void;
   fetchSystemStatus: () => Promise<void>;
   loadCsvData: (csvText: string, labelColIndex?: number, ignoreCols?: number[], origin?: 'csv' | 'monothematic' | 'bipartite', fileName?: string) => void;
   applyNormalization: (type: NormalizationType) => void;

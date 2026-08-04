@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from hardware_detector import detect_hardware
 from bibliometrics_parser import read_and_generate_bibliometrics
 from som_solver import SOMSolver, run_umap
+from incites_parser import extract_and_parse_incites
 
 def handle_detect():
     hw = detect_hardware()
@@ -320,22 +321,44 @@ def main():
         
     if action == "preprocess":
         res = handle_preprocess(params)
+        print(json.dumps(res))
+    elif action == "incites_preprocess":
+        # Run the full parse
+        result = extract_and_parse_incites(payload_raw)
+        output_file = params.get("output_file", "")
+        
+        if output_file:
+            # Write the big result to disk — do NOT print it to stdout
+            import warnings; warnings.filterwarnings("ignore")
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(result, f, ensure_ascii=False)
+            # Print only a tiny status to stdout so C# knows it worked
+            unit_names = list(result.get("units", {}).keys())
+            print(json.dumps({"success": result.get("success", True), "unit_names": unit_names}))
+        else:
+            # Fallback: old behavior (print everything)
+            print(json.dumps(result))
     elif action == "train":
         res = handle_train(params)
+        print(json.dumps(res))
     elif action == "evaluate_clusters":
         res = handle_evaluate_clusters(params)
+        print(json.dumps(res))
     elif action == "recluster":
         res = handle_recluster(params)
+        print(json.dumps(res))
     elif action == "umap":
         res = handle_umap(params)
+        print(json.dumps(res))
     elif action == "estimate_dim":
         res = handle_estimate_dim(params)
+        print(json.dumps(res))
     elif action == "reduce_dim":
         res = handle_reduce_dim(params)
+        print(json.dumps(res))
     else:
-        res = {"success": False, "error": f"Unknown action: {action}"}
-        
-    print(json.dumps(res))
+        print(json.dumps({"success": False, "error": f"Unknown action: {action}"}))
+
 
 if __name__ == "__main__":
     main()

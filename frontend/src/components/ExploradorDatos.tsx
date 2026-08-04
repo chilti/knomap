@@ -23,6 +23,7 @@ import { MallaHexagonal, type Trajectory } from './MallaHexagonal';
 import { UmapHeatmap } from './UmapHeatmap';
 import { ClusterMetricsPanel } from './ClusterMetricsPanel';
 import type { MetricResult } from './ClusterMetricsPanel';
+import { TrainingErrorPanel } from './TrainingErrorPanel';
 import { parseTrajectoryEntity } from '../utils/timeSeries';
 
 export const ExploradorDatos: React.FC = () => {
@@ -1524,6 +1525,11 @@ export const ExploradorDatos: React.FC = () => {
                 Photino hybrid engine dynamically hooks local system resources to optimize computational neural map iterations.
               </p>
             </div>
+
+            {/* Training Error Panel (visible when training result has errors) */}
+            {result && result.errors && result.errors.length > 0 && (
+              <TrainingErrorPanel errors={result.errors} />
+            )}
 
             {/* Clustering Metrics Panel (only visible when Agglomerative) */}
             {config.clusteringAlgorithm === 'agglomerative' && (

@@ -15,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddSingleton<HardwareDetectorService>();
 builder.Services.AddSingleton<PreprocessService>();
+builder.Services.AddSingleton<InCitesService>();
 builder.Services.AddSingleton<SOMEngineService>();
 builder.Services.AddSingleton<SemanticService>();
 
@@ -83,6 +84,39 @@ app.MapPost("/api/preprocess/bibliometrics", async (HttpRequest req, PreprocessS
     }
     return Results.Ok(result);
 });
+
+// 2.5a InCites Upload & Process — returns ONLY unit names (tiny payload)
+app.MapPost("/api/incites/process", async (HttpRequest req, InCitesService service) =>
+{
+    if (!req.HasFormContentType || req.Form.Files.Count == 0)
+    {
+        return Results.BadRequest(new { success = false, error = "No files uploaded." });
+    }
+
+    var files = req.Form.Files.ToList();
+    var result = await service.ProcessInCitesFilesAsync(files);
+    
+    if (!result.Success)
+    {
+        return Results.Json(result, statusCode: 500);
+    }
+    return Results.Ok(result); // { success, unit_names: [...] }
+});
+
+// 2.5b InCites Get Unit Data — returns ONE unit on demand (small payload)
+app.MapGet("/api/incites/unit/{unitName}", async (string unitName, InCitesService service) =>
+{
+    var result = await service.GetUnitDataAsync(unitName);
+    if (!result.Success)
+    {
+        return Results.Json(new { success = false, error = result.Error }, statusCode: 404);
+    }
+    // Stream the raw JSON directly to avoid double-serialization overhead
+    return Results.Content(
+        $"{{\"success\":true,\"unit_name\":\"{unitName}\",\"unit\":{result.UnitDataRaw}}}",
+        "application/json");
+});
+
 
 // 3. SOM and UMAP Training Endpoint
 app.MapPost("/api/som/train", async (SOMTrainingRequest request, SOMEngineService engine) =>
@@ -303,6 +337,21 @@ else
         window.SetDevToolsEnabled(false);
 #endif
 
+        window.RegisterWindowCreatedHandler((object sender, EventArgs e) => 
+        {
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+            {
+                var w = (Photino.NET.PhotinoWindow)sender;
+                var hWnd = w.WindowHandle;
+                int style = WindowDragger.GetWindowLong(hWnd, WindowDragger.GWL_STYLE);
+                style |= WindowDragger.WS_MINIMIZEBOX | WindowDragger.WS_MAXIMIZEBOX | WindowDragger.WS_THICKFRAME;
+                WindowDragger.SetWindowLong(hWnd, WindowDragger.GWL_STYLE, style);
+
+                int useImmersiveDarkMode = 1;
+                WindowDragger.DwmSetWindowAttribute(hWnd, WindowDragger.DWMWA_USE_IMMERSIVE_DARK_MODE, ref useImmersiveDarkMode, sizeof(int));
+            }
+        });
+
         window.WaitForClose();
     });
 
@@ -333,8 +382,24 @@ public static class WindowDragger
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
     public const uint WM_SYSCOMMAND = 0x0112;
     public const uint MOUSE_MOVE = 0xF012;
     public const int SW_MAXIMIZE = 3;
     public const int SW_RESTORE = 9;
+    
+    public const int GWL_STYLE = -16;
+    public const int WS_MINIMIZEBOX = 0x00020000;
+    public const int WS_MAXIMIZEBOX = 0x00010000;
+    public const int WS_THICKFRAME = 0x00040000;
+    
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
 }

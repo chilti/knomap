@@ -1,83 +1,73 @@
-# LabSOM: Advanced Bibliometric & Multidimensional Data Explorer
+# Sinapsis Map ó LabSOM
 
-**LabSOM** es una plataforma anal√≠tica avanzada dise√±ada para procesar, entrenar y visualizar datos multidimensionales y m√©tricas bibliogr√°ficas a trav√©s de Mapas Auto-organizados (Self-Organizing Maps) y Redes de Co-ocurrencia.
-
-![LabSOM Interface](frontend/public/icon.png)
-
-## üöÄ Arquitectura del Sistema
-
-LabSOM cuenta con una arquitectura de microservicios heterog√©nea optimizada para alto rendimiento:
-
-1. **Frontend**: Aplicaci√≥n Web React interactiva potenciada por **Vite**, **TypeScript** y **TailwindCSS**. Soporta renderizado de gr√°ficos avanzados con D3.js.
-2. **Backend API**: Servidor RESTful de alto desempe√±o escrito en **C# (.NET 8)**.
-3. **Motor Anal√≠tico**: Subsistema en **Python 3** equipado con `scikit-learn`, `networkx`, `umap-learn` y `metaknowledge` para el procesamiento matem√°tico pesado (Reducci√≥n de Dimensionalidad y Parseo Bibliom√©trico).
+**Sinapsis Map** (tambiÈn conocido como **LabSOM**) es una plataforma analÌtica avanzada de escritorio y web desarrollada por el Laboratorio de Din·mica No Lineal de la UNAM. Permite explorar, procesar y visualizar datos multidimensionales, redes bibliomÈtricas e indicadores institucionales mediante Mapas Auto-organizados (SOM), an·lisis sem·ntico y reducciÛn de dimensionalidad.
 
 ---
 
-## üíª Instalaci√≥n (Versi√≥n de Escritorio)
+## ?? Arquitectura del Sistema
 
-La forma m√°s sencilla de utilizar LabSOM es a trav√©s de su aplicaci√≥n nativa de escritorio, disponible para Windows, macOS y Linux.
+La plataforma sigue una arquitectura de tres capas heterogÈnea optimizada para rendimiento local:
 
-Para instalar la aplicaci√≥n, dir√≠gete a la secci√≥n de **Releases** del repositorio y descarga el paquete correspondiente a tu sistema operativo:
+| Capa | TecnologÌa | DescripciÛn |
+|---|---|---|
+| **Frontend** | React + TypeScript + Vite | Interfaz interactiva con visualizaciones SVG, Recharts y D3.js |
+| **Backend API** | C# (.NET 8) + Photino.NET | Servidor REST local + ventana nativa de escritorio |
+| **Motor AnalÌtico** | Python 3 | Parseo, cÛmputo matem·tico y modelos de IA (scikit-learn, UMAP, etc.) |
+
+El backend act˙a como orquestador: sirve la interfaz React como archivos est·ticos e invoca al motor Python como subproceso bajo demanda. Los datos pesados **jam·s viajan completos al frontend**: el motor escribe los resultados en disco y la interfaz los solicita por unidad a travÈs de la API REST.
+
+---
+
+## ?? InstalaciÛn (VersiÛn de Escritorio)
+
+La versiÛn de escritorio **no requiere instalar Python, Node.js ni .NET** por separado. Todo est· empaquetado en el instalador.
 
 ### Windows
-Descarga y ejecuta el archivo `SinapsisMap_Installer_Lite.exe`. Sigue las instrucciones del asistente de instalaci√≥n para completar el proceso.
+Descarga y ejecuta `SinapsisMap_Installer_Lite.exe` desde la secciÛn **Releases** del repositorio y sigue el asistente de instalaciÛn.
 
 ### macOS (Intel y Apple Silicon)
-1. Descarga el archivo `SinapsisMap_Mac_Intel.zip` o `SinapsisMap_Mac_Silicon.zip` seg√∫n el procesador de tu Mac.
-2. Descomprime el archivo y arrastra la aplicaci√≥n `SinapsisMap.app` a tu carpeta de Aplicaciones.
+1. Descarga `SinapsisMap_Mac_Intel.zip` o `SinapsisMap_Mac_Silicon.zip`.
+2. Descomprime y arrastra `SinapsisMap.app` a tu carpeta de Aplicaciones.
 
-*(Nota importante: Dado que la aplicaci√≥n se distribuye en un ZIP externo, macOS podr√≠a revocar los permisos de ejecuci√≥n por seguridad. Si la aplicaci√≥n no abre, revisa el archivo `INSTRUCCIONES_MAC.txt` incluido en el ZIP para solucionarlo en un paso).*
+> ?? Si macOS bloquea la apertura (seguridad Gatekeeper), consulta el archivo `INSTRUCCIONES_MAC.txt` incluido en el ZIP.
 
 ### Linux
-Descarga el archivo `SinapsisMap_Linux.zip`, extrae su contenido y ejecuta el binario principal.
+Descarga `SinapsisMap_Linux.zip`, extrae el contenido y ejecuta el binario principal.
 
 ---
 
-## üì¶ Despliegue en Servidor (Producci√≥n)
+## ?? Despliegue en Servidor (ProducciÛn Web)
 
-Si prefieres alojar la plataforma en la web para m√∫ltiples usuarios, la forma recomendada de desplegar LabSOM en producci√≥n (ej. Servidor Ubuntu) es mediante **Docker**. El ecosistema est√° preparado para aprovechar la GPU (Nvidia/CUDA) del servidor anfitri√≥n para acelerar el entrenamiento.
+Para alojar la plataforma en un servidor y darle acceso a m˙ltiples usuarios:
 
-### Requisitos Previos
+**Requisitos:** Docker con el plugin Compose V2. Nvidia Container Toolkit (opcional, recomendado).
 
-- Docker (con el plugin Compose V2)
-- Nvidia Container Toolkit (opcional, recomendado para aceleraci√≥n CUDA)
+```bash
+git clone https://github.com/chilti/newLabSOM.git
+cd newLabSOM
+docker compose up -d --build
+```
 
-### Instalaci√≥n R√°pida
-
-1. Clona el repositorio:
-
-   ```bash
-   git clone https://github.com/chilti/newLabSOM.git
-   cd newLabSOM
-   ```
-2. Levanta los contenedores:
-
-   ```bash
-   docker compose up -d --build
-   ```
-3. El sistema estar√° disponible internamente en el puerto `5015`. Si usas Nginx como proxy inverso en tu servidor, simplemente crea un `proxy_pass` hacia `http://localhost:5015`.
+La plataforma quedar· disponible en el puerto `5015`. Configura un proxy inverso Nginx hacia `http://localhost:5015`.
 
 ---
 
-## üõ† Entorno de Desarrollo (Local)
+## ?? Entorno de Desarrollo (Local)
 
-Si deseas modificar el c√≥digo o desarrollar nuevas caracter√≠sticas, puedes levantar los servicios de manera local.
+### 1. Iniciar el Backend (.NET + Python)
 
-### 1. Iniciar el Backend (.NET)
-
-Aseg√∫rate de tener instalado el SDK de .NET 8 y Python 3 en tu sistema.
+Requisitos: SDK de .NET 8 y Python 3 con las dependencias del motor.
 
 ```powershell
 cd backend/src/LabSOM.Backend.Core
 dotnet run
 ```
 
-El backend se inicializar√° y quedar√° escuchando en `http://localhost:5123`.
+El backend se inicializa en `http://localhost:5123` y abre la ventana de escritorio.
 
-### 2. Iniciar el Frontend (React)
+### 2. Iniciar el Frontend en modo Dev
 
-Aseg√∫rate de tener Node.js instalado.
+Requisitos: Node.js.
 
 ```powershell
 cd frontend
@@ -85,21 +75,83 @@ npm install
 npm run dev
 ```
 
-La aplicaci√≥n web se abrir√° autom√°ticamente en tu navegador local interactuando con el backend.
+La aplicaciÛn React se conectar· al backend en `http://localhost:5123`.
+
+### 3. Compilar el Frontend para ProducciÛn
+
+```powershell
+cd frontend
+npm run build
+```
+
+El artefacto compilado se copia autom·ticamente a `backend/src/LabSOM.Backend.Core/wwwroot/`, que es lo que sirve la aplicaciÛn de escritorio.
 
 ---
 
-## ‚öôÔ∏è Caracter√≠sticas Principales
+## ?? MÛdulos y CaracterÌsticas
 
-- **Procesamiento Bibliom√©trico**: Extrae conocimiento de archivos exportados desde Web of Science o PubMed generando redes de co-autor√≠a, co-citaci√≥n o acoplamiento bibliogr√°fico.
-- **Entrenamiento SOM en Vivo**: Ajuste de matrices multidimensionales usando metodolog√≠as Batch.
-- **Visualizaci√≥n UMAP**: Algoritmo `Scatter/Splat` superpuesto sobre mapas 2D del SOM.
-- **Flujo de Trabajo Din√°mico**: An√°lisis e importaci√≥n de variables temporales mediante integraci√≥n continua de matrices.
+### ?? Bibliometrics
+Procesamiento de archivos exportados desde **Web of Science** o **PubMed** para generar redes de co-ocurrencia de tÈrminos.
 
-## üë• Desarrollado por:
+- **Tipos de red soportados:** Co-ocurrencia (keywords, MeSH, campos personalizados), Co-autorÌa, Co-citaciÛn, CitaciÛn, Acoplamiento Bibliogr·fico, Bipartita (dos campos distintos).
+- **Modo temporal:** Genera una serie de redes por aÒo para analizar evoluciÛn tem·tica.
+- **IntegraciÛn con SOM:** Un botÛn transfiere la red calculada directamente al mÛdulo "Data & SOM" para entrenamiento.
 
-* **Laboratorio de Din√°mica no Lineal**, Departamento de Matem√°ticas, Facultad de Ciencias, UNAM.
-* **Dr. Jos√© Luis Jim√©nez Andrade**
-* **Dr. Humberto Andr√©s Carrillo Calvet**
+### ?? InCites Data
+Explorador de indicadores institucionales exportados desde **Clarivate InCites**.
 
-üîó [https://www.dynamics.unam.mx/](https://www.dynamics.unam.mx/)
+- **Carga:** Acepta archivos Excel (`.xlsx`) individuales o m˙ltiples, o un archivo **ZIP** completo con todos los indicadores de una instituciÛn.
+- **DetecciÛn autom·tica de unidades:** Identifica el tipo de unidad (Researchers, Organizations, Locations, Publication Sources, Funding Agencies, WoS Categories, ESI, SDG, Macro/Meso/Micro Topics, Patentometrics) a partir del nombre del archivo.
+- **Carga por demanda (lazy loading):** El procesamiento se ejecuta en Python, que escribe los resultados en disco. La interfaz descarga **˙nicamente la unidad activa** en cada momento para evitar saturar la memoria del navegador.
+- **Visualizaciones por unidad:**
+  - **Tabla de perfil** multidimensional con hasta 1,500 entidades (Top por producciÛn).
+  - **Gr·fica de series de tiempo** con suavizado ECMA-3 y ECMA-5, mostrando el Top 20 de entidades.
+  - **DistribuciÛn de cuartiles** (Q1ñQ4) por entidad.
+- **Exportar a SOM:** Selecciona un subconjunto de indicadores y entrena directamente una red neuronal SOM sobre las entidades de la unidad activa.
+
+### ?? Data & SOM
+Panel principal de entrenamiento y exploraciÛn del **Mapa Auto-organizado (SOM)**.
+
+- **ImportaciÛn de datos:** CSV/Excel o transferencia directa desde los mÛdulos Bibliometrics e InCites.
+- **NormalizaciÛn:** AplicaciÛn y reversiÛn de transformaciones sobre la matriz de datos.
+- **Entrenamiento en lote (Batch SOM):** InicializaciÛn PCA o aleatoria, con visualizaciÛn en tiempo real del error de cuantizaciÛn.
+- **Malla hexagonal interactiva:** VisualizaciÛn del mapa con colores por indicador, contornos de cl˙ster y etiquetas de entidades. Permite mover etiquetas arrastrando.
+- **Re-clusterizaciÛn:** Ajuste din·mico del n˙mero de grupos sin reentrenar.
+- **ProyecciÛn UMAP:** VisualizaciÛn de similitud entre neuronas en un espacio 2D superpuesto al SOM.
+- **ExportaciÛn de proyecto:** Guarda y carga el estado completo del an·lisis (`.json`).
+
+### ?? Dim Reduction
+MÛdulo independiente de **reducciÛn de dimensionalidad**.
+
+- EstimaciÛn de la dimensiÛn intrÌnseca del conjunto de datos.
+- ReducciÛn a dimensiÛn objetivo mediante algoritmos disponibles en el motor Python.
+- VisualizaciÛn y exportaciÛn de la matriz reducida para uso en el mÛdulo SOM.
+
+### ?? Semantic Bibliometrics
+An·lisis **sem·ntico profundo** de artÌculos cientÌficos exportados desde Web of Science.
+
+- **Preprocesamiento:** Extrae y combina tÌtulos, res˙menes, palabras clave y tÈrminos MeSH de cada documento.
+- **GeneraciÛn de embeddings:** VectorizaciÛn de documentos usando modelos de lenguaje (Nomic Embed, SPECTER).
+- **EstimaciÛn de dimensiÛn intrÌnseca:** An·lisis del espacio sem·ntico de los documentos.
+- **ReducciÛn de dimensiÛn:** CompresiÛn del espacio sem·ntico para entrenamiento SOM.
+- **ClusterizaciÛn sem·ntica:** Agrupamiento jer·rquico multinivel de documentos por contenido tem·tico.
+
+---
+
+## ?? Interfaz de Usuario
+
+- **Barra lateral colapsable** con navegaciÛn entre los 5 mÛdulos.
+- **Barra de tÌtulo personalizada** (modo escritorio) con controles nativos de minimizar, maximizar y cerrar.
+- **Redimensionamiento de ventana** con el ratÛn y atajos de teclado (Win + ? / ?, etc.).
+- **Indicador de hardware** en la barra lateral: detecta autom·ticamente si hay GPU NVIDIA disponible para acelerar los c·lculos.
+- **Persistencia de proyectos:** Exporta e importa el an·lisis completo en formato `.json` para continuar sesiones posteriores.
+
+---
+
+## ?? Desarrollado por
+
+- **Laboratorio de Din·mica No Lineal** ó Departamento de Matem·ticas, Facultad de Ciencias, UNAM
+- **Dr. JosÈ Luis JimÈnez Andrade**
+- **Dr. Humberto AndrÈs Carrillo Calvet**
+
+?? [www.dynamics.unam.mx](https://www.dynamics.unam.mx/)
