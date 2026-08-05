@@ -9,11 +9,12 @@ import SunburstChart from './SunburstChart';
 
 // ── Unit Detail Panel ──────────────────────────────────────────────────────
 // Receives the already-loaded data for ONE unit and renders its charts/table.
-const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
+const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }) => {
     const [selectedProfileIndicators, setSelectedProfileIndicators] = useState<string[]>([]);
     const [isProfileExpanded, setIsProfileExpanded] = useState<boolean>(false);
     const [tsIndicator, setTsIndicator] = useState<string>('');
     const [tsSmoothing, setTsSmoothing] = useState<'raw' | 'ecma3' | 'ecma5'>('raw');
+    const [useRecent, setUseRecent] = useState<boolean>(false);
     const { loadCsvData, setActiveTab, setConfig } = useSomStore();
 
     // Initialise defaults when unit data arrives
@@ -43,17 +44,22 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
         );
     };
 
+    const hasRecentData = unit.profile_5years && unit.profile_5years.length > 0;
+    const activeProfile = useRecent && hasRecentData ? unit.profile_5years : unit.profile;
+    const activeQuartiles = useRecent && hasRecentData && unit.quartiles_5years ? unit.quartiles_5years : unit.quartiles;
+    const activeSunburst = useRecent && hasRecentData && unit.sunburst_5years ? unit.sunburst_5years : unit.sunburst;
+
     const handleTrainSOM = () => {
         if (!unit || selectedProfileIndicators.length === 0) return;
-        if (!unit.profile || unit.profile.length === 0) {
+        if (!activeProfile || activeProfile.length === 0) {
             alert("No profile data available for this unit.");
             return;
         }
         let csvContent = "Entity," + selectedProfileIndicators.join(",") + "\n";
-        unit.profile.forEach((row: any) => {
+        activeProfile.forEach((row: any) => {
             const rowData = [
                 `"${row.entity}"`,
-                ...selectedProfileIndicators.map(ind => row[ind] ?? 0)
+                ...selectedProfileIndicators.map((ind: string) => row[ind] ?? 0)
             ];
             csvContent += rowData.join(",") + "\n";
         });
@@ -110,6 +116,26 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 {/* Controls Sidebar */}
                 <div className="lg:col-span-1 bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col space-y-6">
+                    {/* Period Toggle */}
+                    <div className="flex items-center space-x-3 p-3 bg-gray-950 rounded-xl border border-gray-800">
+                        <input 
+                            type="checkbox" 
+                            id="useRecentData"
+                            className="w-4 h-4 text-indigo-600 bg-gray-900 border-gray-700 rounded focus:ring-indigo-600 focus:ring-2"
+                            checked={useRecent}
+                            onChange={(e) => setUseRecent(e.target.checked)}
+                            disabled={!hasRecentData}
+                        />
+                        <div>
+                            <label htmlFor="useRecentData" className={`text-sm font-bold block ${hasRecentData ? 'text-gray-200 cursor-pointer' : 'text-gray-600 cursor-not-allowed'}`}>
+                                Use 2021-2025 Data
+                            </label>
+                            <p className="text-[10px] text-gray-500">
+                                {hasRecentData ? 'Applies to Profile, Quartiles, and Sunburst.' : 'No 2021-2025 file uploaded.'}
+                            </p>
+                        </div>
+                    </div>
+
                     <div>
                         <button
                             onClick={() => setIsProfileExpanded(!isProfileExpanded)}
@@ -147,33 +173,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                         )}
                     </div>
 
-                    <div>
-                        <h3 className="text-sm font-bold text-gray-200 mb-3">Time Series Config</h3>
-                        <select
-                            value={tsIndicator}
-                            onChange={e => setTsIndicator(e.target.value)}
-                            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-200 mb-2"
-                        >
-                            {unit.time_series && Object.keys(unit.time_series).map(ind => (
-                                <option key={ind} value={ind}>{ind}</option>
-                            ))}
-                        </select>
-                        <div className="flex space-x-2">
-                            {(['raw', 'ecma3', 'ecma5'] as const).map(mode => (
-                                <button
-                                    key={mode}
-                                    onClick={() => setTsSmoothing(mode)}
-                                    className={`flex-1 text-[10px] uppercase font-bold py-1.5 rounded-lg border ${
-                                        tsSmoothing === mode
-                                        ? 'bg-indigo-600 border-indigo-500 text-white'
-                                        : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
-                                    }`}
-                                >
-                                    {mode}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+
 
                     <div className="pt-4 border-t border-gray-800 mt-auto">
                         <button
@@ -185,6 +185,44 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                             <span>Entrenar en SOM</span>
                         </button>
                     </div>
+
+                    {/* Profile Table inside Sidebar */}
+                    {activeProfile && activeProfile.length > 0 && (
+                        <div className="bg-gray-950 border border-gray-800 rounded-2xl overflow-hidden mt-6">
+                            <div className="p-3 border-b border-gray-800">
+                                <h3 className="text-sm font-bold text-gray-200">
+                                    Profile Data
+                                    <span className="text-gray-500 ml-2 font-normal text-xs">({activeProfile.length} entities)</span>
+                                </h3>
+                            </div>
+                            <div className="overflow-x-auto max-h-64">
+                                <table className="w-full text-[10px]">
+                                    <thead className="sticky top-0 bg-gray-950 border-b border-gray-800 shadow-sm">
+                                        <tr>
+                                            <th className="text-left px-3 py-2 text-gray-400 font-semibold whitespace-nowrap">Entity</th>
+                                            {selectedProfileIndicators.map(ind => (
+                                                <th key={ind} className="text-right px-3 py-2 text-gray-400 font-semibold whitespace-nowrap truncate max-w-[120px]" title={ind}>
+                                                    {ind}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800/50">
+                                        {activeProfile.slice(0, 50).map((row: any, i: number) => (
+                                            <tr key={i} className="hover:bg-gray-800/40 transition-colors">
+                                                <td className="px-3 py-1.5 text-gray-300 max-w-[150px] truncate" title={row.entity}>{row.entity}</td>
+                                                {selectedProfileIndicators.map((ind: string) => (
+                                                    <td key={ind} className="px-3 py-1.5 text-right text-gray-400">
+                                                        {typeof row[ind] === 'number' ? row[ind].toFixed(2) : row[ind] ?? '-'}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Main Content Area */}
@@ -193,11 +231,37 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                     {/* Time Series Chart */}
                     {tsChartData.length > 0 ? (
                         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 h-80 flex flex-col">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-bold text-gray-200">
-                                    {tsIndicator} ({tsSmoothing.toUpperCase()})
+                            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                                <h3 className="text-sm font-bold text-gray-200 flex-shrink-0">
+                                    Time Series Chart
                                     {tsEntities.length > 0 && <span className="text-gray-500 ml-2 font-normal">(Top {tsEntities.length} de {totalEntities})</span>}
                                 </h3>
+                                <div className="flex items-center space-x-3 ml-auto flex-wrap gap-y-2">
+                                    <select
+                                        value={tsIndicator}
+                                        onChange={e => setTsIndicator(e.target.value)}
+                                        className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200"
+                                    >
+                                        {unit.time_series && Object.keys(unit.time_series).map(ind => (
+                                            <option key={ind} value={ind}>{ind}</option>
+                                        ))}
+                                    </select>
+                                    <div className="flex space-x-1">
+                                        {(['raw', 'ecma3', 'ecma5'] as const).map(mode => (
+                                            <button
+                                                key={mode}
+                                                onClick={() => setTsSmoothing(mode)}
+                                                className={`text-[10px] uppercase font-bold px-2 py-1 rounded-lg border ${
+                                                    tsSmoothing === mode
+                                                    ? 'bg-indigo-600 border-indigo-500 text-white'
+                                                    : 'bg-gray-950 border-gray-700 text-gray-400 hover:text-gray-200'
+                                                }`}
+                                            >
+                                                {mode}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                             <div className="flex-1 min-h-0">
                                 <ResponsiveContainer width="100%" height="100%">
@@ -231,12 +295,12 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                     )}
 
                     {/* Quartiles Chart */}
-                    {unit.quartiles && unit.quartiles.length > 0 ? (
+                    {activeQuartiles && activeQuartiles.length > 0 ? (
                         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 h-64 flex flex-col">
                             <h3 className="text-sm font-bold text-gray-200 mb-4">Quartile Distribution</h3>
                             <div className="flex-1 min-h-0">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={unit.quartiles.slice(0, 20)} layout="vertical">
+                                    <BarChart data={activeQuartiles.slice(0, 20)} layout="vertical">
                                         <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" horizontal={false} />
                                         <XAxis type="number" hide />
                                         <YAxis dataKey="entity" type="category" width={150} stroke="#4b5563" tick={{fontSize: 9}} />
@@ -260,45 +324,11 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
             </div>
 
             {/* Sunburst Hierarchy (Micro Topics only) */}
-            {unit.sunburst && unit.sunburst.nodes && unit.sunburst.nodes.length > 0 && (
-                <SunburstChart data={unit.sunburst} />
+            {unitName === 'Micro Topics' && activeSunburst && activeSunburst.nodes && activeSunburst.nodes.length > 0 && (
+                <SunburstChart data={activeSunburst} />
             )}
 
-            {/* Profile Table */}
-            {unit.profile && unit.profile.length > 0 && (
-                <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-                    <div className="p-4 border-b border-gray-800">
-                        <h3 className="text-sm font-bold text-gray-200">
-                            Profile Data
-                            <span className="text-gray-500 ml-2 font-normal text-xs">({unit.profile.length} entities)</span>
-                        </h3>
-                    </div>
-                    <div className="overflow-x-auto max-h-64">
-                        <table className="w-full text-xs">
-                            <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
-                                <tr>
-                                    <th className="text-left px-4 py-2 text-gray-400 font-semibold whitespace-nowrap">Entity</th>
-                                    {unit.indicators?.slice(0, 8).map((ind: string) => (
-                                        <th key={ind} className="text-right px-3 py-2 text-gray-400 font-semibold whitespace-nowrap">{ind}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-800/50">
-                                {unit.profile.slice(0, 100).map((row: any, i: number) => (
-                                    <tr key={i} className="hover:bg-gray-800/40 transition-colors">
-                                        <td className="px-4 py-1.5 text-gray-300 max-w-[200px] truncate">{row.entity}</td>
-                                        {unit.indicators?.slice(0, 8).map((ind: string) => (
-                                            <td key={ind} className="px-3 py-1.5 text-right text-gray-400">
-                                                {typeof row[ind] === 'number' ? row[ind].toFixed(2) : row[ind] ?? '-'}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
+
         </div>
     );
 };

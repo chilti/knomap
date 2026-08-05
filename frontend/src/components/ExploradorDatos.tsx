@@ -1299,7 +1299,7 @@ export const ExploradorDatos: React.FC = () => {
               <div>
                 <h3 className="text-md font-bold text-gray-200 flex items-center space-x-2">
                   <Settings className="w-5 h-5 text-indigo-400" />
-                  <span>SOM Grid & Algorithm Hyperparameters</span>
+                  <span>SOM & Algorithm Hyperparameters</span>
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">Configure clustering grid dimension, iterations, and active fallbacks.</p>
               </div>
@@ -1453,7 +1453,7 @@ export const ExploradorDatos: React.FC = () => {
                       <span>Training SOM...</span>
                     </>
                   ) : (
-                    <span>Train SOM Grid</span>
+                    <span>Train SOM</span>
                   )}
                 </button>
                 {config.clusteringAlgorithm === 'agglomerative' && (

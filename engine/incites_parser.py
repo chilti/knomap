@@ -143,41 +143,42 @@ def build_sunburst_from_micro_topics(df_micro, df_meso=None, df_macro=None, min_
     if 'Web of Science Documents' in numeric_cols and min_docs > 0:
         df_work = df_work[df_work['Web of Science Documents'] > min_docs]
 
+    # ── Pre-build name lookup dicts from Meso / Macro dfs ─────────────────
+    # macro_id (str) -> human-readable name
+    macro_name_dict: dict = {}
+    if df_macro is not None:
+        for idx_m in df_macro.index:
+            d = _decode_topic_code(str(idx_m))
+            if d:
+                macro_name_dict[d[0]] = d[3]
+
+    # meso_id (str) -> human-readable name
+    meso_name_dict: dict = {}
+    if df_meso is not None:
+        for idx_m in df_meso.index:
+            d = _decode_topic_code(str(idx_m))
+            if d:
+                meso_name_dict[d[1]] = d[3]
+
     # ── Build flat rows with decoded hierarchy ─────────────────────────
-    macro_nodes = {}   # macro_name -> { sum_cols, count, weight_col }
-    meso_nodes  = {}   # (macro_name, meso_name) -> { ... }
-    micro_rows  = []
+    macro_nodes: dict = {}
+    meso_nodes:  dict = {}
+    micro_rows:  list = []
 
     for full_name, row in df_work.iterrows():
         decoded = _decode_topic_code(str(full_name))
         if decoded is None:
             continue
-        macro_id, meso_id, micro_id, micro_name = decoded
+        macro_id, meso_id, micro_id, micro_short = decoded
 
-        # Resolve macro / meso names from df_macro / df_meso if available,
-        # otherwise use the code as the name
-        macro_name = macro_id
-        meso_name  = meso_id
-
-        if df_macro is not None:
-            for idx_m in df_macro.index:
-                d = _decode_topic_code(str(idx_m))
-                if d and d[0] == macro_id:
-                    macro_name = d[3]
-                    break
-
-        if df_meso is not None:
-            for idx_m in df_meso.index:
-                d = _decode_topic_code(str(idx_m))
-                if d and d[1] == meso_id:
-                    meso_name = d[3]
-                    break
+        # Resolve names (fall back to the ID string if not found)
+        macro_name = macro_name_dict.get(macro_id, f'Macro {macro_id}')
+        meso_name  = meso_name_dict.get(meso_id,  f'Meso {meso_id}')
 
         w = float(row.get('Web of Science Documents', 1) or 1)
-
         ind_vals = {c: float(row[c]) for c in numeric_cols}
 
-        # Accumulate for meso
+        # Accumulate for meso (keyed by (macro,meso) pair to avoid name collisions)
         meso_key = (macro_name, meso_name)
         if meso_key not in meso_nodes:
             meso_nodes[meso_key] = {'sum': {c: 0.0 for c in numeric_cols},
@@ -198,13 +199,15 @@ def build_sunburst_from_micro_topics(df_micro, df_meso=None, df_macro=None, min_
             macro_nodes[macro_name]['sum'][c]  += ind_vals[c]
             macro_nodes[macro_name]['wsum'][c] += ind_vals[c] * w
 
+        # Use full_name as id to guarantee uniqueness among micro topics
         micro_rows.append({
-            'id':     micro_name,
+            'id':     str(full_name),   # unique: full InCites row label
             'parent': meso_name,
+            'label':  micro_short,      # human-readable short name for display
             'level':  'Micro Topics',
             'value':  w,
             'indicators_sum':  ind_vals,
-            'indicators_mean': ind_vals,   # leaf: both are the same
+            'indicators_mean': ind_vals,  # leaf: both identical
         })
 
     # ── Build meso nodes ──────────────────────────────────────────────
@@ -214,6 +217,7 @@ def build_sunburst_from_micro_topics(df_micro, df_meso=None, df_macro=None, min_
         meso_rows.append({
             'id':     meso_name,
             'parent': macro_name,
+            'label':  meso_name,
             'level':  'Meso Topics',
             'value':  acc['sum'].get('Web of Science Documents', 0),
             'indicators_sum':  {c: acc['sum'][c]  for c in numeric_cols},
@@ -227,6 +231,7 @@ def build_sunburst_from_micro_topics(df_micro, df_meso=None, df_macro=None, min_
         macro_rows.append({
             'id':     macro_name,
             'parent': '',
+            'label':  macro_name,
             'level':  'Macro Topics',
             'value':  acc['sum'].get('Web of Science Documents', 0),
             'indicators_sum':  {c: acc['sum'][c]  for c in numeric_cols},
@@ -247,7 +252,8 @@ def build_sunburst_from_micro_topics(df_micro, df_meso=None, df_macro=None, min_
 
 
 
-def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None):
+def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, all_units_5y_dfs=None):
+
     """
     all_units_dfs: optional dict {unit_name: df} so Micro Topics can look up
                    Meso and Macro dfs for resolving human-readable names.
@@ -257,63 +263,74 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None):
         "indicators": [],
         "profile": [],
         "quartiles": [],
-        "time_series": {},
-        "sunburst": None
+        "sunburst": None,
+        "profile_5years": [],
+        "quartiles_5years": [],
+        "sunburst_5years": None,
+        "time_series": {}
     }
 
     df_entities = None  # keep reference for trend filtering later
 
-    # ── Profile and Quartiles (from the "Whole period" file) ───────────────
-    if df_whole is not None and not df_whole.empty:
-        entity_col = df_whole.columns[0]
+    def extract_profile_data(df):
+        prof, quart, cols = [], [], []
+        ent_df = None
+        if df is None or df.empty:
+            return prof, quart, cols, ent_df
+            
+        entity_col = df.columns[0]
+        baseline_mask = df[entity_col].astype(str).str.contains(r'Baseline', case=False, na=False)
+        baseline_df   = df[baseline_mask]
+        ent_df   = df[~baseline_mask].copy()
 
-        baseline_mask = df_whole[entity_col].astype(str).str.contains(r'Baseline', case=False, na=False)
-        baseline_df   = df_whole[baseline_mask]
-        df_entities   = df_whole[~baseline_mask].copy()
+        numeric_cols = ent_df.select_dtypes(include=[np.number]).columns.tolist()
 
-        numeric_cols = df_entities.select_dtypes(include=[np.number]).columns.tolist()
-
-        # ── Derived indicators ─────────────────────────────────────────
         if 'Web of Science Documents' in numeric_cols:
             if not baseline_df.empty:
                 wos_baseline = baseline_df['Web of Science Documents'].sum()
                 if wos_baseline > 0:
-                    df_entities['Share'] = (df_entities['Web of Science Documents'] / wos_baseline) * 100
+                    ent_df['Share'] = (ent_df['Web of Science Documents'] / wos_baseline) * 100
                     if 'Share' not in numeric_cols:
                         numeric_cols.append('Share')
 
             if 'Times Cited' in numeric_cols and 'Impact Factor' not in numeric_cols:
-                df_entities['Impact Factor'] = (
-                    df_entities['Times Cited'] / df_entities['Web of Science Documents'].replace(0, np.nan)
+                ent_df['Impact Factor'] = (
+                    ent_df['Times Cited'] / ent_df['Web of Science Documents'].replace(0, np.nan)
                 ).fillna(0)
                 numeric_cols.append('Impact Factor')
 
             if 'Citations From Patents' in numeric_cols and 'Citations From Patents/Paper' not in numeric_cols:
-                df_entities['Citations From Patents/Paper'] = (
-                    df_entities['Citations From Patents'] / df_entities['Web of Science Documents'].replace(0, np.nan)
+                ent_df['Citations From Patents/Paper'] = (
+                    ent_df['Citations From Patents'] / ent_df['Web of Science Documents'].replace(0, np.nan)
                 ).fillna(0)
                 numeric_cols.append('Citations From Patents/Paper')
 
-        df_entities[numeric_cols] = df_entities[numeric_cols].fillna(0)
+        ent_df[numeric_cols] = ent_df[numeric_cols].fillna(0)
 
-        # Limit to top 1500 entities to prevent OOM
         sort_col = next(
             (c for c in numeric_cols if 'web of science documents' in c.lower()),
             numeric_cols[0] if numeric_cols else None
         )
         if sort_col:
-            df_entities = df_entities.sort_values(by=sort_col, ascending=False).head(1500)
+            ent_df = ent_df.sort_values(by=sort_col, ascending=False).head(1500)
 
-        result["indicators"] = numeric_cols
+        cols = numeric_cols
 
-        # ── Flexible Quartile Column Detection ─────────────────────────
-        q1_col = next((c for c in df_entities.columns if re.search(r'\bQ1\b|Top\s*25%', str(c), re.IGNORECASE)), None)
-        q2_col = next((c for c in df_entities.columns if re.search(r'\bQ2\b', str(c), re.IGNORECASE)), None)
-        q3_col = next((c for c in df_entities.columns if re.search(r'\bQ3\b', str(c), re.IGNORECASE)), None)
-        q4_col = next((c for c in df_entities.columns if re.search(r'\bQ4\b', str(c), re.IGNORECASE)), None)
+        q1_col = next((c for c in ent_df.columns if re.search(r'Q1|Top\s*25%', str(c), re.IGNORECASE)), None)
+        q2_col = next((c for c in ent_df.columns if re.search(r'Q2', str(c), re.IGNORECASE)), None)
+        q3_col = next((c for c in ent_df.columns if re.search(r'Q3', str(c), re.IGNORECASE)), None)
+        q4_col = next((c for c in ent_df.columns if re.search(r'Q4', str(c), re.IGNORECASE)), None)
 
-        # ── Single pass: build profile rows AND quartile rows ──────────
-        for _, row in df_entities.iterrows():
+        def safe_float(val):
+            if pd.isna(val): return 0.0
+            if isinstance(val, str):
+                val = val.replace('%', '').replace(',', '').strip()
+            try:
+                return float(val)
+            except:
+                return 0.0
+
+        for _, row in ent_df.iterrows():
             entity_name = str(row[entity_col])
             if pd.isna(row[entity_col]) or entity_name.strip() == "":
                 continue
@@ -321,18 +338,30 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None):
             profile_row = {"entity": entity_name}
             for col in numeric_cols:
                 profile_row[col] = float(row[col]) if pd.notna(row[col]) else 0.0
-            result["profile"].append(profile_row)
+            prof.append(profile_row)
 
-            q1 = float(row[q1_col]) if q1_col and pd.notna(row[q1_col]) else 0.0
-            q2 = float(row[q2_col]) if q2_col and pd.notna(row[q2_col]) else 0.0
-            q3 = float(row[q3_col]) if q3_col and pd.notna(row[q3_col]) else 0.0
-            q4 = float(row[q4_col]) if q4_col and pd.notna(row[q4_col]) else 0.0
+            q1 = safe_float(row[q1_col]) if q1_col else 0.0
+            q2 = safe_float(row[q2_col]) if q2_col else 0.0
+            q3 = safe_float(row[q3_col]) if q3_col else 0.0
+            q4 = safe_float(row[q4_col]) if q4_col else 0.0
 
             if q1 > 0 or q2 > 0 or q3 > 0 or q4 > 0:
-                result["quartiles"].append({
+                quart.append({
                     "entity": entity_name,
                     "Q1": q1, "Q2": q2, "Q3": q3, "Q4": q4,
                 })
+        
+        return prof, quart, cols, ent_df
+
+    # ── Profile and Quartiles (Whole and 5Years) ───────────────
+    p_whole, q_whole, c_whole, df_entities = extract_profile_data(df_whole)
+    result["profile"] = p_whole
+    result["quartiles"] = q_whole
+    result["indicators"] = c_whole
+
+    p_5y, q_5y, _, _ = extract_profile_data(df_5years)
+    result["profile_5years"] = p_5y
+    result["quartiles_5years"] = q_5y
 
     # ── Time Series Processing ─────────────────────────────────────────────
     # Prefer the dedicated Trend file; fall back to df_whole if it has time columns
@@ -428,6 +457,17 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None):
                 df_macro=df_macro,
                 min_docs=0
             )
+            if df_5years is not None and not df_5years.empty:
+                # To build 5-years sunburst we ideally need 5-years meso/macro too
+                # but if missing, build_sunburst_from_micro_topics handles it gracefully
+                df_meso_5y  = (all_units_5y_dfs or {}).get('Meso Topics')
+                df_macro_5y = (all_units_5y_dfs or {}).get('Macro Topics')
+                result['sunburst_5years'] = build_sunburst_from_micro_topics(
+                    df_micro=df_5years,
+                    df_meso=df_meso_5y,
+                    df_macro=df_macro_5y,
+                    min_docs=0
+                )
 
     return result
 
@@ -465,18 +505,23 @@ def extract_and_parse_incites(payload_path):
 
         # First pass: load all whole-period dfs so Micro Topics can look up names
         all_whole_dfs = {}
+        all_5y_dfs = {}
         for unit_name, files in units.items():
             df_whole = clean_and_read_file(files["Whole"]) if files["Whole"] else None
             all_whole_dfs[unit_name] = df_whole
+            
+            df_5y = clean_and_read_file(files["5Years"]) if files["5Years"] else None
+            all_5y_dfs[unit_name] = df_5y
 
         final_results = {}
         for unit_name, files in units.items():
             df_whole  = all_whole_dfs[unit_name]
-            df_5years = clean_and_read_file(files["5Years"]) if files["5Years"] else None
+            df_5years = all_5y_dfs[unit_name]
             df_trend  = clean_and_read_file(files["Trend"])  if files["Trend"]  else None
 
             parsed_unit = process_unit(unit_name, df_whole, df_5years, df_trend,
-                                       all_units_dfs=all_whole_dfs)
+                                       all_units_dfs=all_whole_dfs,
+                                       all_units_5y_dfs=all_5y_dfs)
             final_results[unit_name] = parsed_unit
 
         return {

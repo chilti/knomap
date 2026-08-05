@@ -79,7 +79,7 @@ namespace LabSOM.Backend.Core.Services
                     // identify_file_type() can detect the unit (e.g. "Incites Researchers.xlsx")
                     string safeOriginal = Path.GetFileName(file.FileName);
                     // Ensure uniqueness with a short prefix to avoid collisions
-                    string destPath = Path.Combine(tempDir, $"up_{Guid.NewGuid():N8}_{safeOriginal}");
+                    string destPath = Path.Combine(tempDir, $"up_{Guid.NewGuid():N}_{safeOriginal}");
 
                     using (var stream = new FileStream(destPath, FileMode.Create))
                         await file.CopyToAsync(stream);
