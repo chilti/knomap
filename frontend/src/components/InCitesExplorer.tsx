@@ -5,6 +5,7 @@ import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
     BarChart, Bar
 } from 'recharts';
+import SunburstChart from './SunburstChart';
 
 // ── Unit Detail Panel ──────────────────────────────────────────────────────
 // Receives the already-loaded data for ONE unit and renders its charts/table.
@@ -257,6 +258,11 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                     )}
                 </div>
             </div>
+
+            {/* Sunburst Hierarchy (Micro Topics only) */}
+            {unit.sunburst && unit.sunburst.nodes && unit.sunburst.nodes.length > 0 && (
+                <SunburstChart data={unit.sunburst} />
+            )}
 
             {/* Profile Table */}
             {unit.profile && unit.profile.length > 0 && (
