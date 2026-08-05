@@ -279,7 +279,7 @@ export const ExploradorDatos: React.FC = () => {
     // Create popup window
     const popup = window.open("", "_blank", "width=850,height=750,resizable=yes,scrollbars=yes");
     if (!popup) {
-      alert("Popup blocker active. Please allow popups for Sinapsis Map to open stand-alone charts.");
+      alert("Popup blocker active. Please allow popups for knoMap to open stand-alone charts.");
       return;
     }
 
@@ -287,7 +287,7 @@ export const ExploradorDatos: React.FC = () => {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Sinapsis Map - Standalone Chart</title>
+          <title>knoMap - Standalone Chart</title>
           <style>
             body {
               background-color: #050508;
@@ -359,7 +359,7 @@ export const ExploradorDatos: React.FC = () => {
         <body>
           <div class="header-bar">
             <span class="title">${mapTitle}</span>
-            <span class="subtitle">Sinapsis Map Premium Export</span>
+            <span class="subtitle">knoMap Premium Export</span>
           </div>
           <div class="chart-container">
             ${clonedSvg.outerHTML}
@@ -385,7 +385,7 @@ export const ExploradorDatos: React.FC = () => {
     cloned.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     popup.document.write(`
       <!DOCTYPE html><html>
-        <head><title>UMAP Dimensional Projection — Sinapsis Map</title>
+        <head><title>UMAP Dimensional Projection — knoMap</title>
         <style>
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { background: #050508; display: flex; flex-direction: column;
@@ -407,7 +407,7 @@ export const ExploradorDatos: React.FC = () => {
         <body>
           <div class="header">
             <span class="title">UMAP Dimensional Projection (2D)</span>
-            <span class="sub">Sinapsis Map — Premium Export</span>
+            <span class="sub">knoMap — Premium Export</span>
           </div>
           <div class="chart">${cloned.outerHTML}</div>
         </body>
@@ -622,7 +622,7 @@ export const ExploradorDatos: React.FC = () => {
     if (!popup) { alert('Popup blocker active. Please allow popups.'); return; }
     popup.document.write(`
       <!DOCTYPE html><html>
-        <head><title>${name} — UMAP Heatmap — Sinapsis Map</title>
+        <head><title>${name} — UMAP Heatmap — knoMap</title>
         <style>
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { background: #050508; display: flex; flex-direction: column;
@@ -642,7 +642,7 @@ export const ExploradorDatos: React.FC = () => {
         <body>
           <div class="header">
             <span class="title">${name}</span>
-            <span class="sub">UMAP Variable Heatmap — Sinapsis Map</span>
+            <span class="sub">UMAP Variable Heatmap — knoMap</span>
           </div>
           <div class="chart"><img src="${dataUrl}" /></div>
         </body>
@@ -688,7 +688,7 @@ export const ExploradorDatos: React.FC = () => {
       return;
     }
 
-    // LabSOM2D_2019 Format: first line has feature names separated by ';'
+    // knoMap2D_2019 Format: first line has feature names separated by ';'
     // Subsequent lines have weights separated by ';'
     const lines = [];
     lines.push(compNames.join(';'));

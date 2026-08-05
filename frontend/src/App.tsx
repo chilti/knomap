@@ -120,7 +120,7 @@ export default function App() {
             {/* Left: Logo & Title */}
             <div className="flex items-center space-x-2">
               <img src="./icon.png" alt="Logo" className="w-5 h-5 object-cover rounded-sm" />
-              <span className="text-xs font-bold text-gray-300 tracking-wide">Sinapsis Map</span>
+              <span className="text-xs font-bold text-gray-300 tracking-wide">knoMap</span>
             </div>
 
             {/* Right: Window Controls */}
@@ -162,11 +162,11 @@ export default function App() {
                     className={`bg-gray-950 border border-gray-800 rounded-2xl flex items-center justify-center overflow-hidden shadow-xl shadow-indigo-900/20 shrink-0 transition-all duration-300 ${isSidebarCollapsed ? 'w-8 h-8' : ''}`}
                     style={!isSidebarCollapsed ? { width: '83px', height: '83px' } : undefined}
                   >
-                    <img src="./icon.png" alt="Sinapsis Map Logo" className="w-full h-full object-cover" />
+                    <img src="./icon.png" alt="knoMap Logo" className="w-full h-full object-cover" />
                   </div>
                   {!isSidebarCollapsed && (
                     <div className="transition-opacity-custom">
-                      <h1 className="text-xl font-black tracking-tight text-white leading-tight">Sinapsis Map</h1>
+                      <h1 className="text-xl font-black tracking-tight text-white leading-tight">knoMap</h1>
                     </div>
                   )}
                 </div>
@@ -325,7 +325,7 @@ export default function App() {
                 <input
                   type="file"
                   ref={projectInputRef}
-                  accept=".json,.labsom"
+                  accept=".json,.knoMap"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {

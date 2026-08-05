@@ -1,17 +1,17 @@
 [Setup]
-AppName=Sinapsis Map (newLabSOM)
+AppName=knoMap (newknoMap)
 AppVersion=1.0.0
-DefaultDirName={localappdata}\SinapsisMap
-DefaultGroupName=Sinapsis Map
+DefaultDirName={localappdata}\knoMap
+DefaultGroupName=knoMap
 OutputDir=Output
-OutputBaseFilename=SinapsisMap_Installer_Lite
+OutputBaseFilename=knoMap_Installer_Lite
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=frontend\public\icon.ico
-UninstallDisplayIcon={app}\LabSOM.Backend.Core.exe
+UninstallDisplayIcon={app}\knoMap.Backend.Core.exe
 WizardImageFile=wizard_large.bmp
 WizardSmallImageFile=wizard_small.bmp
 
@@ -25,8 +25,8 @@ Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs creat
 Source: "engine\*"; DestDir: "{app}\engine"; Excludes: "__pycache__\, .venv\, venv\, temp\"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Sinapsis Map"; Filename: "{app}\LabSOM.Backend.Core.exe"
-Name: "{autodesktop}\Sinapsis Map"; Filename: "{app}\LabSOM.Backend.Core.exe"; Tasks: desktopicon
+Name: "{group}\knoMap"; Filename: "{app}\knoMap.Backend.Core.exe"
+Name: "{autodesktop}\knoMap"; Filename: "{app}\knoMap.Backend.Core.exe"; Tasks: desktopicon
 
 [Code]
 function InitializeSetup(): Boolean;
@@ -36,7 +36,7 @@ begin
   // Check if Python is installed
   if not Exec('cmd.exe', '/c python --version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
-    MsgBox('Python no fue encontrado en el sistema. Sinapsis Map requiere Python para procesar algoritmos de IA. Por favor, instala Python 3 y marca la opcion "Add Python to PATH" durante la instalacion.', mbCriticalError, MB_OK);
+    MsgBox('Python no fue encontrado en el sistema. knoMap requiere Python para procesar algoritmos de IA. Por favor, instala Python 3 y marca la opcion "Add Python to PATH" durante la instalacion.', mbCriticalError, MB_OK);
     Result := False;
     Exit;
   end;
@@ -46,4 +46,4 @@ end;
 [Run]
 ; Install Python requirements automatically upon finish
 Filename: "cmd.exe"; Parameters: "/c pip install -r ""{app}\engine\requirements.txt"""; Description: "Installing AI dependencies (Python)"; Flags: postinstall runhidden waituntilterminated
-Filename: "{app}\LabSOM.Backend.Core.exe"; Description: "{cm:LaunchProgram,Sinapsis Map}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\knoMap.Backend.Core.exe"; Description: "{cm:LaunchProgram,knoMap}"; Flags: nowait postinstall skipifsilent

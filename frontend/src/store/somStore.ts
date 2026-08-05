@@ -10,9 +10,9 @@ export const getApiUrl = (path: string): string => {
     return `http://localhost:5123${path}`;
   }
   
-  // 2. Production browser context served under a subdirectory path (e.g., /labsom/)
-  if (window.location.pathname.startsWith('/labsom')) {
-    return `/labsom${path}`;
+  // 2. Production browser context served under a subdirectory path (e.g., /knoMap/)
+  if (window.location.pathname.startsWith('/knoMap')) {
+    return `/knoMap${path}`;
   }
   
   // 3. Standard relative API calls (Development or domain-root deployment)
@@ -768,7 +768,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
     
     const link = document.createElement('a');
     link.href = url;
-    link.download = `labsom_project_${new Date().getTime()}.labsom`;
+    link.download = `knoMap_project_${new Date().getTime()}.knoMap`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -799,11 +799,11 @@ export const useSomStore = create<SOMState>((set, get) => ({
           cmaWindowSize: projectData.cmaWindowSize || 3
         });
       } else {
-        alert('Invalid or corrupted .labsom file format.');
+        alert('Invalid or corrupted .knoMap file format.');
       }
     } catch (e) {
       console.error('Error importing project:', e);
-      alert('Failed to parse .labsom file.');
+      alert('Failed to parse .knoMap file.');
     }
   },
 

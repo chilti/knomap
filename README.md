@@ -1,6 +1,6 @@
-﻿# Sinapsis Map — LabSOM
+# knoMap — knoMap
 
-**Sinapsis Map** (also known as **LabSOM**) is an advanced analytical desktop and web platform developed by the Non-Linear Dynamics Laboratory at UNAM (Mexico). It enables researchers to explore, process, and visualize multidimensional data, bibliometric networks, and institutional indicators through Self-Organizing Maps (SOM), semantic analysis, and dimensionality reduction.
+**knoMap** (also known as **knoMap**) is an advanced analytical desktop and web platform developed by the Non-Linear Dynamics Laboratory at UNAM (Mexico). It enables researchers to explore, process, and visualize multidimensional data, bibliometric networks, and institutional indicators through Self-Organizing Maps (SOM), semantic analysis, and dimensionality reduction.
 
 ---
 
@@ -23,16 +23,16 @@ The backend acts as an orchestrator: it serves the React interface as static fil
 The desktop version **does not require installing Python, Node.js, or .NET** separately. Everything is bundled in the installer.
 
 ### Windows
-Download and run `SinapsisMap_Installer_Lite.exe` from the **Releases** section of this repository and follow the installation wizard.
+Download and run `knoMap_Installer_Lite.exe` from the **Releases** section of this repository and follow the installation wizard.
 
 ### macOS (Intel and Apple Silicon)
-1. Download `SinapsisMap_Mac_Intel.zip` or `SinapsisMap_Mac_Silicon.zip`.
-2. Unzip and drag `SinapsisMap.app` to your Applications folder.
+1. Download `knoMap_Mac_Intel.zip` or `knoMap_Mac_Silicon.zip`.
+2. Unzip and drag `knoMap.app` to your Applications folder.
 
 > ⚠️ If macOS blocks the app (Gatekeeper security), refer to `INSTRUCCIONES_MAC.txt` included in the ZIP.
 
 ### Linux
-Download `SinapsisMap_Linux.zip`, extract the contents, and run the main binary.
+Download `knoMap_Linux.zip`, extract the contents, and run the main binary.
 
 ---
 
@@ -43,8 +43,8 @@ To host the platform on a server and provide access to multiple users:
 **Requirements:** Docker with the Compose V2 plugin. Nvidia Container Toolkit (optional, recommended).
 
 ```bash
-git clone https://github.com/chilti/newLabSOM.git
-cd newLabSOM
+git clone https://github.com/chilti/newknoMap.git
+cd newknoMap
 docker compose up -d --build
 ```
 
@@ -59,7 +59,7 @@ The platform will be available on port `5015`. Configure an Nginx reverse proxy 
 Requirements: .NET 8 SDK and Python 3 with the engine dependencies installed.
 
 ```powershell
-cd backend/src/LabSOM.Backend.Core
+cd backend/src/knoMap.Backend.Core
 dotnet run
 ```
 
@@ -84,7 +84,7 @@ cd frontend
 npm run build
 ```
 
-The compiled artifact is automatically copied to `backend/src/LabSOM.Backend.Core/wwwroot/`, which is what the desktop application serves.
+The compiled artifact is automatically copied to `backend/src/knoMap.Backend.Core/wwwroot/`, which is what the desktop application serves.
 
 ---
 

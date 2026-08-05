@@ -283,7 +283,7 @@ app.MapPost("/api/semantic/cluster", async (SemanticClusterRequest request, Sema
 });
 
 // Health check
-app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", app = "newLabSOM Local API" }));
+app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", app = "newknoMap Local API" }));
 
 // Start the ASP.NET Core web server in the background
 await app.StartAsync();
@@ -307,7 +307,7 @@ else
     var windowThread = new System.Threading.Thread(() =>
     {
         var window = new Photino.NET.PhotinoWindow()
-            .SetTitle("Sinapsis Map")
+            .SetTitle("knoMap")
             .SetUseOsDefaultLocation(false)
             .SetUseOsDefaultSize(false)
             .SetSize(1280, 800)
