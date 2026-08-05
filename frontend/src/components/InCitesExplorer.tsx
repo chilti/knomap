@@ -174,7 +174,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                         <button
                             onClick={handleTrainSOM}
                             disabled={selectedProfileIndicators.length === 0}
-                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-900/50 transition-all flex items-center justify-center space-x-2"
+                            className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-900/50 transition-all flex items-center justify-center space-x-2"
                         >
                             <Activity className="w-4 h-4" />
                             <span>Entrenar en SOM</span>
