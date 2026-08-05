@@ -179,6 +179,12 @@ interface SOMState {
   setBiblioActiveView: (view: 'graph' | 'matrix') => void;
   setBiblioSelectedYear: (year: string) => void;
   
+  // InCites Data State
+  incitesUnitNames: string[] | null;
+  incitesUnitCache: Record<string, any>;
+  incitesActiveUnit: string | null;
+  setIncitesState: (state: Partial<{ incitesUnitNames: string[] | null, incitesUnitCache: Record<string, any>, incitesActiveUnit: string | null }>) => void;
+  
   // Setters & Actions
   setConfig: (config: Partial<SOMConfig>) => void;
   setActiveTab: (tab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites') => void;
@@ -353,6 +359,12 @@ export const useSomStore = create<SOMState>((set, get) => ({
   biblioSelectedYear: 'Global',
   setBiblioActiveView: (view) => set({ biblioActiveView: view }),
   setBiblioSelectedYear: (year) => set({ biblioSelectedYear: year }),
+
+  // InCites Data State
+  incitesUnitNames: null,
+  incitesUnitCache: {},
+  incitesActiveUnit: null,
+  setIncitesState: (newState) => set((state) => ({ ...state, ...newState })),
 
   // Time-Series Preprocessing
   isCmaSmoothingActive: false,

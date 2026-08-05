@@ -286,14 +286,23 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
 
 // ── Main Explorer Shell ────────────────────────────────────────────────────
 export const InCitesExplorer: React.FC = () => {
-    // After upload: just the list of unit names
-    const [unitNames, setUnitNames] = useState<string[] | null>(null);
-    // Cache of already-fetched units: { unitName -> unitData }
-    const [unitCache, setUnitCache] = useState<Record<string, any>>({});
-    const [activeUnit, setActiveUnit] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [isLoadingUnit, setIsLoadingUnit] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    
+    // Get state and setter from global store to persist across tab changes
+    const { incitesUnitNames: unitNames, incitesUnitCache: unitCache, incitesActiveUnit: activeUnit, setIncitesState } = useSomStore();
+
+    // Helper setters to keep code similar
+    const setUnitNames = (names: string[] | null) => setIncitesState({ incitesUnitNames: names });
+    const setActiveUnit = (unit: string | null) => setIncitesState({ incitesActiveUnit: unit });
+    const setUnitCache = (value: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => {
+        if (typeof value === 'function') {
+            setIncitesState({ incitesUnitCache: value(unitCache) });
+        } else {
+            setIncitesState({ incitesUnitCache: value });
+        }
+    };
 
     // ── Step 1: Upload → get names only ───────────────────────────────
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
