@@ -108,7 +108,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                     <div>
                         <button
                             onClick={() => setIsProfileExpanded(!isProfileExpanded)}
-                            className="w-full flex items-center justify-between text-left group mb-2"
+                            className="w-full flex items-center justify-between text-left group mb-2 bg-transparent border-0"
                         >
                             <div>
                                 <h3 className="text-sm font-bold text-gray-200 group-hover:text-indigo-400 transition-colors">Multidimensional Profile</h3>
@@ -118,14 +118,14 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                         </button>
 
                         {isProfileExpanded && (
-                            <div className="max-h-48 overflow-y-auto space-y-1 pr-2 mt-3 bg-gray-950/30 p-2 rounded-xl border border-gray-800/50">
+                            <div className="max-h-48 overflow-y-auto space-y-1 pr-2 mt-3 bg-gray-950 p-2 rounded-xl border border-gray-800">
                                 {unit.indicators?.map((ind: string) => (
                                     <button
                                         key={ind}
                                         onClick={() => toggleProfileIndicator(ind)}
                                         className={`flex items-center space-x-2 text-xs w-full text-left p-1.5 rounded transition border-0 ${
                                             selectedProfileIndicators.includes(ind)
-                                                ? 'bg-gray-800/80 hover:bg-gray-800'
+                                                ? 'bg-gray-800 hover:bg-gray-800'
                                                 : 'bg-transparent hover:bg-gray-800'
                                         }`}
                                     >

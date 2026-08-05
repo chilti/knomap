@@ -302,3 +302,10 @@ body {
   stroke-width: 1.5px !important;
   filter: drop-shadow(0 0 6px var(--indigo-400));
 }
+
+.bg-transparent { background-color: transparent; }
+.border-0 { border-width: 0px; }
+
+
+.bg-gray-800 { background-color: var(--gray-800); }
+
