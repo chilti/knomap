@@ -114,7 +114,7 @@ interface TreeNode {
     y0: number; y1: number;
 }
 
-function buildTree(nodes: SunburstNode[]): TreeNode | null {
+function buildTree(nodes: SunburstNode[], sizeIndicator: string): TreeNode | null {
     if (!nodes || nodes.length === 0) return null;
 
     const map: Record<string, TreeNode> = {};
@@ -123,7 +123,7 @@ function buildTree(nodes: SunburstNode[]): TreeNode | null {
             id: n.id,
             label: n.label || n.id,
             level: n.level,
-            value: n.value,
+            value: n.indicators_sum?.[sizeIndicator] ?? 0,
             ind_sum: n.indicators_sum || {},
             ind_mean: n.indicators_mean || {},
             children: [],
@@ -191,9 +191,10 @@ const SunburstInner: React.FC<{ data: SunburstData }> = ({ data }) => {
     const RING_W = MAX_R / 3; // 3 rings: macro, meso, micro
 
     const [colorIndicator, setColorIndicator] = useState<string>('');
+    const [sizeIndicator, setSizeIndicator] = useState<string>('Web of Science Documents');
     const [tooltip, setTooltip] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
 
-    const defaultIndicator = useMemo(() => {
+    const defaultColorIndicator = useMemo(() => {
         const prefer = [
             'Category Normalized Citation Impact',
             '% Documents in Top 10%',
@@ -201,50 +202,48 @@ const SunburstInner: React.FC<{ data: SunburstData }> = ({ data }) => {
             'Average Percentile',
         ];
         for (const p of prefer) {
-            if (data.indicators?.includes(p)) return p;
+            if (data.meanable_indicators?.includes(p)) return p;
         }
-        return data.indicators?.[0] ?? '';
+        return data.meanable_indicators?.[0] ?? '';
     }, [data]);
 
-    const activeIndicator = colorIndicator || defaultIndicator;
-    const isSummable = data.summable_indicators?.includes(activeIndicator) ?? false;
+    const activeColor = colorIndicator || defaultColorIndicator;
 
     // Build & layout tree
     const allNodes = useMemo<TreeNode[]>(() => {
-        const root = buildTree(data.nodes);
+        const root = buildTree(data.nodes, sizeIndicator);
         if (!root) return [];
         layoutPartition(root, 0, 2 * Math.PI, 0, 3);
         const result: TreeNode[] = [];
         collectNodes(root, result);
         return result;
-    }, [data.nodes]);
+    }, [data.nodes, sizeIndicator]);
 
-    // Colour scale
+    // Colour scale (always uses ind_mean since it's ratios)
     const { minC, maxC } = useMemo(() => {
         let minC = Infinity, maxC = -Infinity;
         for (const n of allNodes) {
-            const vals = isSummable ? n.ind_sum : n.ind_mean;
-            const v = vals?.[activeIndicator] ?? 0;
+            const v = n.ind_mean?.[activeColor] ?? 0;
             if (v < minC) minC = v;
             if (v > maxC) maxC = v;
         }
         if (!isFinite(minC)) minC = 0;
         if (!isFinite(maxC)) maxC = 1;
         return { minC, maxC };
-    }, [allNodes, activeIndicator, isSummable]);
+    }, [allNodes, activeColor]);
 
     function getColor(node: TreeNode): string {
-        const vals = isSummable ? node.ind_sum : node.ind_mean;
-        const v = vals?.[activeIndicator] ?? 0;
+        const v = node.ind_mean?.[activeColor] ?? 0;
         const range = maxC - minC;
         const t = range > 0 ? Math.min(1, Math.max(0, (v - minC) / range)) : 0.5;
         return tropicColor(t);
     }
 
+
     if (allNodes.length === 0) {
         return (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex items-center justify-center">
-                <p className="text-xs text-gray-500">No hay datos de Micro Topics disponibles para construir la jerarquía.</p>
+                <p className="text-xs text-gray-500">No Micro Topics data available to build the hierarchy.</p>
             </div>
         );
     }
@@ -255,31 +254,36 @@ const SunburstInner: React.FC<{ data: SunburstData }> = ({ data }) => {
     return (
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col space-y-4">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                 <div>
                     <h3 className="text-sm font-bold text-gray-200">Sunburst Hierarchy</h3>
                     <p className="text-xs text-gray-500">Macro → Meso → Micro Topics</p>
                 </div>
-                <div className="flex flex-col items-end space-y-1">
-                    <select
-                        value={activeIndicator}
-                        onChange={e => setColorIndicator(e.target.value)}
-                        className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 max-w-xs"
-                    >
-                        {summable.length > 0 && (
-                            <optgroup label="Sumables (totales)">
-                                {summable.map(ind => <option key={ind} value={ind}>{ind}</option>)}
-                            </optgroup>
-                        )}
-                        {meanable.length > 0 && (
-                            <optgroup label="Promediables (ratios)">
-                                {meanable.map(ind => <option key={ind} value={ind}>{ind}</option>)}
-                            </optgroup>
-                        )}
-                    </select>
-                    <span className="text-[10px] text-gray-600">
-                        {isSummable ? 'Suma por nivel' : 'Promedio ponderado por nivel'}
-                    </span>
+                
+                <div className="flex flex-col sm:flex-row items-end gap-3">
+                    {/* Size Selector */}
+                    <div className="flex flex-col items-end space-y-1">
+                        <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Slice Size (Sum)</label>
+                        <select
+                            value={sizeIndicator}
+                            onChange={e => setSizeIndicator(e.target.value)}
+                            className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 max-w-xs"
+                        >
+                            {summable.map(ind => <option key={ind} value={ind}>{ind}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Color Selector */}
+                    <div className="flex flex-col items-end space-y-1">
+                        <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Slice Color (Average)</label>
+                        <select
+                            value={activeColor}
+                            onChange={e => setColorIndicator(e.target.value)}
+                            className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 max-w-xs"
+                        >
+                            {meanable.map(ind => <option key={ind} value={ind}>{ind}</option>)}
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -361,9 +365,8 @@ const SunburstInner: React.FC<{ data: SunburstData }> = ({ data }) => {
                 {/* Tooltip */}
                 {tooltip && (() => {
                     const n = tooltip.node;
-                    const vals = isSummable ? n.ind_sum : n.ind_mean;
-                    const cv = vals?.[activeIndicator] ?? 0;
-                    const docs = (isSummable ? n.ind_sum : n.ind_sum)?.['Web of Science Documents'] ?? n.value;
+                    const cv = n.ind_mean?.[activeColor] ?? 0;
+                    const sizeVal = n.ind_sum?.[sizeIndicator] ?? n.value;
                     return (
                         <div
                             className="absolute pointer-events-none z-50 bg-gray-900 border border-gray-700 rounded-xl p-3 shadow-2xl text-xs max-w-xs"
@@ -373,11 +376,11 @@ const SunburstInner: React.FC<{ data: SunburstData }> = ({ data }) => {
                             <p className="text-gray-500 text-[10px] mb-2">{n.level}</p>
                             <div className="space-y-0.5">
                                 <div className="flex justify-between gap-4">
-                                    <span className="text-gray-500">WoS Documents</span>
-                                    <span className="text-gray-200 font-mono">{Math.round(docs).toLocaleString()}</span>
+                                    <span className="text-gray-500 truncate max-w-[140px]">{sizeIndicator}</span>
+                                    <span className="text-gray-200 font-mono">{Math.round(sizeVal).toLocaleString()}</span>
                                 </div>
                                 <div className="flex justify-between gap-4">
-                                    <span className="text-gray-500 truncate max-w-[140px]">{activeIndicator}</span>
+                                    <span className="text-gray-500 truncate max-w-[140px]">{activeColor}</span>
                                     <span className="text-gray-200 font-mono">{cv.toFixed(3)}</span>
                                 </div>
                             </div>
@@ -387,13 +390,15 @@ const SunburstInner: React.FC<{ data: SunburstData }> = ({ data }) => {
             </div>
 
             {/* Colour scale legend */}
-            <div className="flex items-center justify-center space-x-2">
-                <span className="text-[10px] text-gray-500">{minC.toFixed(2)}</span>
-                <div className="h-2 w-36 rounded-full" style={{
-                    background: 'linear-gradient(to right, rgb(0,155,158), rgb(220,220,220), rgb(241,148,138))'
-                }} />
-                <span className="text-[10px] text-gray-500">{maxC.toFixed(2)}</span>
-                <span className="text-[10px] text-gray-400 ml-1 truncate max-w-[180px]">{activeIndicator}</span>
+            <div className="flex flex-col items-center justify-center space-y-1 bg-gray-950/50 p-2 rounded-lg border border-gray-800 self-center">
+                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider mb-1">Color Scale: {activeColor}</span>
+                <div className="flex items-center space-x-3">
+                    <span className="text-xs text-gray-400 font-mono">{minC.toFixed(2)}</span>
+                    <div className="h-3 w-48 rounded-full border border-gray-800" style={{
+                        background: 'linear-gradient(to right, rgb(0,155,158), rgb(220,220,220), rgb(241,148,138))'
+                    }} />
+                    <span className="text-xs text-gray-400 font-mono">{maxC.toFixed(2)}</span>
+                </div>
             </div>
         </div>
     );
