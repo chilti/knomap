@@ -1,31 +1,54 @@
-import React, { useMemo, useState, useCallback } from 'react';
-import { hierarchy, partition } from 'd3-hierarchy';
-import type { HierarchyRectangularNode } from 'd3-hierarchy';
-import { arc } from 'd3-shape';
+import React, { useMemo, useState, Component } from 'react';
 
-// ─── Colour helpers ──────────────────────────────────────────────────────────
-// Two-colour divergent scale: cold (blue) → neutral (gray) → warm (orange/red)
+// ─── Error Boundary ───────────────────────────────────────────────────────────
+class SunburstErrorBoundary extends Component<
+    { children: React.ReactNode },
+    { error: string | null }
+> {
+    constructor(props: any) {
+        super(props);
+        this.state = { error: null };
+    }
+    static getDerivedStateFromError(e: Error) {
+        return { error: e.message };
+    }
+    render() {
+        if (this.state.error) {
+            return (
+                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 text-center">
+                    <p className="text-sm font-bold text-gray-300 mb-1">Sunburst Hierarchy</p>
+                    <p className="text-xs text-red-400">Error al renderizar: {this.state.error}</p>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+// ─── Colour helpers ───────────────────────────────────────────────────────────
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 
 function tropicColor(t: number): string {
-    // t in [0,1]; mid-point = neutral
-    // Low  → cool teal-blue  #1e90c3
-    // High → warm orange-red  #c34b1e
-    const low  = [0x1e, 0x90, 0xc3];
-    const mid  = [0x88, 0x88, 0x88];
-    const high = [0xc3, 0x4b, 0x1e];
-    const [a, b] = t < 0.5 ? [low, mid] : [mid, high];
+    // Tropic-like diverging scale
+    // 0.0: Teal (0, 155, 158)
+    // 0.5: Light Gray (220, 220, 220)
+    // 1.0: Salmon/Red (241, 148, 138)
+    const low  = [0, 155, 158];
+    const mid  = [220, 220, 220];
+    const high = [241, 148, 138];
+    const [src, dst] = t < 0.5 ? [low, mid] : [mid, high];
     const tt = t < 0.5 ? t * 2 : (t - 0.5) * 2;
-    const r = Math.round(lerp(a[0], b[0], tt));
-    const g = Math.round(lerp(a[1], b[1], tt));
-    const b_ = Math.round(lerp(a[2], b[2], tt));
-    return `rgb(${r},${g},${b_})`;
+    const r = Math.round(lerp(src[0], dst[0], tt));
+    const g = Math.round(lerp(src[1], dst[1], tt));
+    const b = Math.round(lerp(src[2], dst[2], tt));
+    return `rgb(${r},${g},${b})`;
 }
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 export interface SunburstNode {
     id: string;
     parent: string;
+    label?: string;   // human-readable short name (optional, falls back to id)
     level: 'Macro Topics' | 'Meso Topics' | 'Micro Topics';
     value: number;
     indicators_sum:  Record<string, number>;
@@ -39,126 +62,199 @@ export interface SunburstData {
     meanable_indicators: string[];
 }
 
-interface Props {
-    data: SunburstData;
+// ─── Arc math (no d3-shape dependency) ───────────────────────────────────────
+function polarToCartesian(cx: number, cy: number, r: number, angle: number) {
+    return {
+        x: cx + r * Math.cos(angle - Math.PI / 2),
+        y: cy + r * Math.sin(angle - Math.PI / 2),
+    };
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
-const SunburstChart: React.FC<Props> = ({ data }) => {
-    const SIZE = 560;
-    const RADIUS = SIZE / 2;
+function describeArc(cx: number, cy: number, r0: number, r1: number, startAngle: number, endAngle: number): string {
+    const gap = 0.002; // tiny gap between arcs
+    const a0 = startAngle + gap;
+    const a1 = endAngle - gap;
+    if (a1 <= a0) return '';
+    const largeArc = a1 - a0 > Math.PI ? 1 : 0;
+
+    const p0 = polarToCartesian(cx, cy, r1, a0);
+    const p1 = polarToCartesian(cx, cy, r1, a1);
+    const p2 = polarToCartesian(cx, cy, r0, a1);
+    const p3 = polarToCartesian(cx, cy, r0, a0);
+
+    if (r0 === 0) {
+        // Sector (pie slice)
+        return [
+            `M ${cx} ${cy}`,
+            `L ${p0.x} ${p0.y}`,
+            `A ${r1} ${r1} 0 ${largeArc} 1 ${p1.x} ${p1.y}`,
+            'Z',
+        ].join(' ');
+    }
+    return [
+        `M ${p0.x} ${p0.y}`,
+        `A ${r1} ${r1} 0 ${largeArc} 1 ${p1.x} ${p1.y}`,
+        `L ${p2.x} ${p2.y}`,
+        `A ${r0} ${r0} 0 ${largeArc} 0 ${p3.x} ${p3.y}`,
+        'Z',
+    ].join(' ');
+}
+
+// ─── Tree building ────────────────────────────────────────────────────────────
+interface TreeNode {
+    id: string;
+    label: string;   // display name
+    level: string;
+    value: number;
+    ind_sum: Record<string, number>;
+    ind_mean: Record<string, number>;
+    children: TreeNode[];
+    // layout
+    x0: number; x1: number;
+    y0: number; y1: number;
+}
+
+function buildTree(nodes: SunburstNode[]): TreeNode | null {
+    if (!nodes || nodes.length === 0) return null;
+
+    const map: Record<string, TreeNode> = {};
+    for (const n of nodes) {
+        map[n.id] = {
+            id: n.id,
+            label: n.label || n.id,
+            level: n.level,
+            value: n.value,
+            ind_sum: n.indicators_sum || {},
+            ind_mean: n.indicators_mean || {},
+            children: [],
+            x0: 0, x1: 0, y0: 0, y1: 0,
+        };
+    }
+
+    const roots: TreeNode[] = [];
+    for (const n of nodes) {
+        if (!n.parent || !map[n.parent]) {
+            roots.push(map[n.id]);
+        } else {
+            map[n.parent].children.push(map[n.id]);
+        }
+    }
+
+    if (roots.length === 0) return null;
+
+    // Synthetic root
+    const root: TreeNode = {
+        id: '__root__', label: 'root', level: 'root', value: 0,
+        ind_sum: {}, ind_mean: {}, children: roots,
+        x0: 0, x1: 2 * Math.PI, y0: 0, y1: 0,
+    };
+
+    // Sum up values bottom-up
+    function sumValues(node: TreeNode): number {
+        if (node.children.length === 0) return node.value;
+        node.value = node.children.reduce((acc, c) => acc + sumValues(c), 0);
+        return node.value;
+    }
+    sumValues(root);
+
+    return root;
+}
+
+function layoutPartition(node: TreeNode, x0: number, x1: number, depth: number, maxDepth: number): void {
+    node.x0 = x0;
+    node.x1 = x1;
+    node.y0 = depth;
+    node.y1 = depth + 1;
+
+    if (node.children.length === 0 || node.value === 0) return;
+
+    let currentAngle = x0;
+    for (const child of node.children) {
+        const fraction = child.value / node.value;
+        const childX1 = currentAngle + fraction * (x1 - x0);
+        layoutPartition(child, currentAngle, childX1, depth + 1, maxDepth);
+        currentAngle = childX1;
+    }
+}
+
+function collectNodes(node: TreeNode, result: TreeNode[]): void {
+    if (node.id !== '__root__') result.push(node);
+    for (const child of node.children) collectNodes(child, result);
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+const SunburstInner: React.FC<{ data: SunburstData }> = ({ data }) => {
+    const SIZE = 540;
+    const CX = SIZE / 2;
+    const CY = SIZE / 2;
+    const MAX_R = SIZE / 2 - 4;
+    const RING_W = MAX_R / 3; // 3 rings: macro, meso, micro
 
     const [colorIndicator, setColorIndicator] = useState<string>('');
-    const [tooltip, setTooltip] = useState<{ x: number; y: number; node: any } | null>(null);
+    const [tooltip, setTooltip] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
 
-    // Derive default indicator once data arrives
     const defaultIndicator = useMemo(() => {
-        const prefer = ['Category Normalized Citation Impact', '% Documents in Top 10%',
-                        '% Documents in Q1 Journals', 'Average Percentile'];
+        const prefer = [
+            'Category Normalized Citation Impact',
+            '% Documents in Top 10%',
+            '% Documents in Q1 Journals',
+            'Average Percentile',
+        ];
         for (const p of prefer) {
-            if (data.indicators.includes(p)) return p;
+            if (data.indicators?.includes(p)) return p;
         }
-        return data.indicators[0] ?? '';
+        return data.indicators?.[0] ?? '';
     }, [data]);
 
     const activeIndicator = colorIndicator || defaultIndicator;
-    const isSummable = data.summable_indicators.includes(activeIndicator);
+    const isSummable = data.summable_indicators?.includes(activeIndicator) ?? false;
 
-    // Build d3 hierarchy from flat node list
-    const root = useMemo(() => {
-        if (!data?.nodes?.length) return null;
+    // Build & layout tree
+    const allNodes = useMemo<TreeNode[]>(() => {
+        const root = buildTree(data.nodes);
+        if (!root) return [];
+        layoutPartition(root, 0, 2 * Math.PI, 0, 3);
+        const result: TreeNode[] = [];
+        collectNodes(root, result);
+        return result;
+    }, [data.nodes]);
 
-        // Build adjacency
-        const childrenMap: Record<string, SunburstNode[]> = {};
-        const roots: SunburstNode[] = [];
-        for (const n of data.nodes) {
-            if (!n.parent) {
-                roots.push(n);
-            } else {
-                if (!childrenMap[n.parent]) childrenMap[n.parent] = [];
-                childrenMap[n.parent].push(n);
-            }
-        }
-
-        const fakeRoot = {
-            id: '__root__', parent: '', level: 'Macro Topics' as const,
-            value: 0, indicators_sum: {}, indicators_mean: {},
-        } as SunburstNode;
-        void fakeRoot; // unused; kept for clarity
-
-        function buildTree(n: SunburstNode): any {
-            const kids = childrenMap[n.id] ?? [];
-            return {
-                name:  n.id,
-                level: n.level,
-                rawValue: n.value,
-                ind_sum:  n.indicators_sum,
-                ind_mean: n.indicators_mean,
-                children: kids.length ? kids.map(buildTree) : undefined,
-            };
-        }
-
-        const treeData = {
-            name: '__root__', level: 'root', rawValue: 0,
-            ind_sum: {}, ind_mean: {},
-            children: roots.map(buildTree),
-        };
-
-        return hierarchy(treeData)
-            .sum((d: any) => d.children ? 0 : d.rawValue)
-            .sort((a: any, b: any) => (b.value ?? 0) - (a.value ?? 0));
-    }, [data]);
-
-    // d3 partition layout → arcs
-    const { arcGen, arcs } = useMemo(() => {
-        if (!root) return { arcGen: null, arcs: [] };
-        const p = partition<any>().size([2 * Math.PI, RADIUS]);
-        p(root);
-        const arcGen = arc<HierarchyRectangularNode<any>>()
-            .startAngle((d: HierarchyRectangularNode<any>) => d.x0)
-            .endAngle((d: HierarchyRectangularNode<any>) => d.x1)
-            .innerRadius((d: HierarchyRectangularNode<any>) => d.y0)
-            .outerRadius((d: HierarchyRectangularNode<any>) => d.y1 - 1);
-
-        const allNodes: any[] = [];
-        root.each(d => { if (d.depth > 0) allNodes.push(d); });
-        return { arcGen, arcs: allNodes };
-    }, [root]);
-
-    // Colour scale for the active indicator
+    // Colour scale
     const { minC, maxC } = useMemo(() => {
         let minC = Infinity, maxC = -Infinity;
-        for (const n of data.nodes) {
-            const vals = isSummable ? n.indicators_sum : n.indicators_mean;
+        for (const n of allNodes) {
+            const vals = isSummable ? n.ind_sum : n.ind_mean;
             const v = vals?.[activeIndicator] ?? 0;
             if (v < minC) minC = v;
             if (v > maxC) maxC = v;
         }
+        if (!isFinite(minC)) minC = 0;
+        if (!isFinite(maxC)) maxC = 1;
         return { minC, maxC };
-    }, [data, activeIndicator, isSummable]);
+    }, [allNodes, activeIndicator, isSummable]);
 
-    const getColor = useCallback((d: any) => {
-        const vals = isSummable ? d.data.ind_sum : d.data.ind_mean;
-        const v    = vals?.[activeIndicator] ?? 0;
+    function getColor(node: TreeNode): string {
+        const vals = isSummable ? node.ind_sum : node.ind_mean;
+        const v = vals?.[activeIndicator] ?? 0;
         const range = maxC - minC;
-        const t = range > 0 ? (v - minC) / range : 0.5;
+        const t = range > 0 ? Math.min(1, Math.max(0, (v - minC) / range)) : 0.5;
         return tropicColor(t);
-    }, [activeIndicator, isSummable, minC, maxC]);
+    }
 
-    if (!root || !arcGen) {
+    if (allNodes.length === 0) {
         return (
-            <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
-                No hay datos de Micro Topics para construir el sunburst.
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex items-center justify-center">
+                <p className="text-xs text-gray-500">No hay datos de Micro Topics disponibles para construir la jerarquía.</p>
             </div>
         );
     }
 
-    // Split indicators into two groups for the selector
-    const summable = data.summable_indicators;
-    const meanable = data.meanable_indicators;
+    const summable = data.summable_indicators ?? [];
+    const meanable = data.meanable_indicators ?? [];
 
     return (
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col space-y-4">
+            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-sm font-bold text-gray-200">Sunburst Hierarchy</h3>
@@ -168,7 +264,7 @@ const SunburstChart: React.FC<Props> = ({ data }) => {
                     <select
                         value={activeIndicator}
                         onChange={e => setColorIndicator(e.target.value)}
-                        className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 max-w-[220px]"
+                        className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 max-w-xs"
                     >
                         {summable.length > 0 && (
                             <optgroup label="Sumables (totales)">
@@ -187,62 +283,102 @@ const SunburstChart: React.FC<Props> = ({ data }) => {
                 </div>
             </div>
 
+            {/* SVG */}
             <div className="relative flex justify-center">
-                <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}
-                     style={{ fontFamily: 'sans-serif' }}>
-                    <g transform={`translate(${RADIUS},${RADIUS})`}>
-                        {arcs.map((d, i) => {
-                            const fill = getColor(d);
-                            const pathD = arcGen(d as HierarchyRectangularNode<any>) ?? '';
-                            return (
+                <svg
+                    width={SIZE} height={SIZE}
+                    viewBox={`0 0 ${SIZE} ${SIZE}`}
+                    onMouseLeave={() => setTooltip(null)}
+                >
+                    {allNodes.map((node, i) => {
+                        const depth = node.y0; // 1=Macro, 2=Meso, 3=Micro
+                        const r0 = (depth - 1) * RING_W;
+                        const r1 = depth * RING_W;
+                        const d = describeArc(CX, CY, r0, r1, node.x0, node.x1);
+                        if (!d) return null;
+                        const fill = getColor(node);
+                        
+                        // Text label positioning
+                        const midAngle = (node.x0 + node.x1) / 2;
+                        const midRadius = r0 + (r1 - r0) / 2;
+                        const labelX = CX + midRadius * Math.cos(midAngle - Math.PI / 2);
+                        const labelY = CY + midRadius * Math.sin(midAngle - Math.PI / 2);
+                        // Rotate text to match arc (if on bottom half, flip so it's readable)
+                        let textAngle = (midAngle * 180) / Math.PI - 90;
+                        if (textAngle > 90 || textAngle < -90) {
+                            textAngle += 180;
+                        }
+                        
+                        // Only show text if slice is wide enough (e.g., > 0.1 radians) and it's Macro/Meso
+                        const showText = (node.x1 - node.x0) > 0.1 && depth < 3;
+                        let shortLabel = node.label;
+                        if (shortLabel.length > 15) shortLabel = shortLabel.substring(0, 13) + '...';
+
+                        return (
+                            <g key={`${node.id}-${i}`}>
                                 <path
-                                    key={i}
-                                    d={pathD}
+                                    d={d}
                                     fill={fill}
-                                    stroke="#111827"
+                                    stroke="#0f172a"
                                     strokeWidth={0.5}
-                                    opacity={0.85}
-                                    style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
+                                    opacity={0.88}
+                                    style={{ cursor: 'pointer', transition: 'opacity 0.12s' }}
                                     onMouseEnter={e => {
-                                        (e.target as SVGPathElement).style.opacity = '1';
-                                        const rect = (e.target as SVGPathElement)
+                                        (e.currentTarget as SVGPathElement).style.opacity = '1';
+                                        const svgRect = (e.currentTarget as SVGPathElement)
                                             .closest('svg')!.getBoundingClientRect();
                                         setTooltip({
-                                            x: e.clientX - rect.left,
-                                            y: e.clientY - rect.top,
-                                            node: d,
+                                            x: e.clientX - svgRect.left,
+                                            y: e.clientY - svgRect.top,
+                                            node,
                                         });
                                     }}
                                     onMouseLeave={e => {
-                                        (e.target as SVGPathElement).style.opacity = '0.85';
+                                        (e.currentTarget as SVGPathElement).style.opacity = '0.88';
                                         setTooltip(null);
                                     }}
                                 />
-                            );
-                        })}
-                    </g>
+                                {showText && (
+                                    <text
+                                        x={labelX}
+                                        y={labelY}
+                                        fill="#111827"
+                                        fontSize="9"
+                                        fontWeight="bold"
+                                        textAnchor="middle"
+                                        alignmentBaseline="middle"
+                                        pointerEvents="none"
+                                        transform={`rotate(${textAngle}, ${labelX}, ${labelY})`}
+                                    >
+                                        {shortLabel}
+                                    </text>
+                                )}
+                            </g>
+                        );
+                    })}
                 </svg>
 
                 {/* Tooltip */}
                 {tooltip && (() => {
-                    const d = tooltip.node;
-                    const vals = isSummable ? d.data.ind_sum : d.data.ind_mean;
-                    const colorVal = vals?.[activeIndicator] ?? 0;
+                    const n = tooltip.node;
+                    const vals = isSummable ? n.ind_sum : n.ind_mean;
+                    const cv = vals?.[activeIndicator] ?? 0;
+                    const docs = (isSummable ? n.ind_sum : n.ind_sum)?.['Web of Science Documents'] ?? n.value;
                     return (
                         <div
-                            className="absolute z-50 pointer-events-none bg-gray-900 border border-gray-700 rounded-xl p-3 shadow-2xl text-xs"
-                            style={{ left: tooltip.x + 12, top: tooltip.y - 20, maxWidth: 240 }}
+                            className="absolute pointer-events-none z-50 bg-gray-900 border border-gray-700 rounded-xl p-3 shadow-2xl text-xs max-w-xs"
+                            style={{ left: Math.min(tooltip.x + 12, SIZE - 200), top: Math.max(tooltip.y - 30, 4) }}
                         >
-                            <p className="font-bold text-gray-100 mb-1">{d.data.name}</p>
-                            <p className="text-gray-400 text-[10px] mb-2">{d.data.level}</p>
+                            <p className="font-bold text-gray-100 mb-0.5 truncate">{n.label}</p>
+                            <p className="text-gray-500 text-[10px] mb-2">{n.level}</p>
                             <div className="space-y-0.5">
-                                <div className="flex justify-between gap-3">
+                                <div className="flex justify-between gap-4">
                                     <span className="text-gray-500">WoS Documents</span>
-                                    <span className="text-gray-200 font-mono">{d.value?.toLocaleString()}</span>
+                                    <span className="text-gray-200 font-mono">{Math.round(docs).toLocaleString()}</span>
                                 </div>
-                                <div className="flex justify-between gap-3">
-                                    <span className="text-gray-500 truncate max-w-[130px]">{activeIndicator}</span>
-                                    <span className="text-gray-200 font-mono">{colorVal.toFixed(2)}</span>
+                                <div className="flex justify-between gap-4">
+                                    <span className="text-gray-500 truncate max-w-[140px]">{activeIndicator}</span>
+                                    <span className="text-gray-200 font-mono">{cv.toFixed(3)}</span>
                                 </div>
                             </div>
                         </div>
@@ -250,17 +386,24 @@ const SunburstChart: React.FC<Props> = ({ data }) => {
                 })()}
             </div>
 
-            {/* Legend: colour scale */}
-            <div className="flex items-center space-x-2 justify-center">
-                <span className="text-[10px] text-gray-500">{minC.toFixed(1)}</span>
-                <div className="h-2 w-40 rounded-full" style={{
-                    background: 'linear-gradient(to right, #1e90c3, #888888, #c34b1e)'
+            {/* Colour scale legend */}
+            <div className="flex items-center justify-center space-x-2">
+                <span className="text-[10px] text-gray-500">{minC.toFixed(2)}</span>
+                <div className="h-2 w-36 rounded-full" style={{
+                    background: 'linear-gradient(to right, rgb(0,155,158), rgb(220,220,220), rgb(241,148,138))'
                 }} />
-                <span className="text-[10px] text-gray-500">{maxC.toFixed(1)}</span>
-                <span className="text-[10px] text-gray-400 ml-2">{activeIndicator}</span>
+                <span className="text-[10px] text-gray-500">{maxC.toFixed(2)}</span>
+                <span className="text-[10px] text-gray-400 ml-1 truncate max-w-[180px]">{activeIndicator}</span>
             </div>
         </div>
     );
 };
+
+// ─── Export (wrapped in error boundary) ──────────────────────────────────────
+const SunburstChart: React.FC<{ data: SunburstData }> = ({ data }) => (
+    <SunburstErrorBoundary>
+        <SunburstInner data={data} />
+    </SunburstErrorBoundary>
+);
 
 export default SunburstChart;
