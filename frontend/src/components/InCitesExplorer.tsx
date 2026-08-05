@@ -27,7 +27,11 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
         if (unit.time_series) {
             const tsKeys = Object.keys(unit.time_series);
             if (tsKeys.length > 0) {
-                setTsIndicator(tsKeys.includes('Web of Science Documents') ? 'Web of Science Documents' : tsKeys[0]);
+                if (!tsIndicator || !tsKeys.includes(tsIndicator)) {
+                    setTsIndicator(tsKeys.includes('Web of Science Documents') ? 'Web of Science Documents' : tsKeys[0]);
+                }
+            } else {
+                setTsIndicator('');
             }
         }
     }, [unit]);
@@ -186,7 +190,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                 <div className="lg:col-span-3 flex flex-col space-y-6">
 
                     {/* Time Series Chart */}
-                    {tsChartData.length > 0 && (
+                    {tsChartData.length > 0 ? (
                         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 h-80 flex flex-col">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-sm font-bold text-gray-200">
@@ -218,10 +222,15 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                                 </ResponsiveContainer>
                             </div>
                         </div>
+                    ) : (
+                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-40 flex flex-col justify-center items-center text-center">
+                            <h3 className="text-sm font-bold text-gray-300 mb-1">Time Series (Series de Tiempo)</h3>
+                            <p className="text-xs text-gray-500 max-w-md">Para visualizar esta gráfica, sube reportes InCites de tipo 'Trend' o archivos que incluyan columnas temporales por años.</p>
+                        </div>
                     )}
 
                     {/* Quartiles Chart */}
-                    {unit.quartiles && unit.quartiles.length > 0 && (
+                    {unit.quartiles && unit.quartiles.length > 0 ? (
                         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 h-64 flex flex-col">
                             <h3 className="text-sm font-bold text-gray-200 mb-4">Quartile Distribution</h3>
                             <div className="flex-1 min-h-0">
@@ -239,6 +248,11 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unit }) => {
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
+                        </div>
+                    ) : (
+                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-40 flex flex-col justify-center items-center text-center">
+                            <h3 className="text-sm font-bold text-gray-300 mb-1">Quartile Distribution (Q1–Q4)</h3>
+                            <p className="text-xs text-gray-500 max-w-md">Esta unidad de análisis no contiene datos de distribución por cuartiles en los archivos cargados.</p>
                         </div>
                     )}
                 </div>
