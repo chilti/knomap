@@ -5,6 +5,8 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using LabSOM.Backend.Core.Utils;
+
 namespace LabSOM.Backend.Core.Services
 {
     public class SOMEngineService
@@ -50,7 +52,7 @@ namespace LabSOM.Backend.Core.Services
                 
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "python",
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                     Arguments = $"\"{scriptPath}\" train \"{tempFile}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -159,7 +161,7 @@ namespace LabSOM.Backend.Core.Services
             
             var psi = new ProcessStartInfo
             {
-                FileName = "python",
+                FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                 Arguments = $"\"{scriptPath}\" evaluate_clusters \"{tempFile}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -232,7 +234,7 @@ namespace LabSOM.Backend.Core.Services
             
             var psi = new ProcessStartInfo
             {
-                FileName = "python",
+                FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                 Arguments = $"\"{scriptPath}\" recluster \"{tempFile}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -305,7 +307,7 @@ namespace LabSOM.Backend.Core.Services
             
             var psi = new ProcessStartInfo
             {
-                FileName = "python",
+                FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                 Arguments = $"\"{scriptPath}\" umap \"{tempFile}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -375,7 +377,7 @@ namespace LabSOM.Backend.Core.Services
                 
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "python",
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                     Arguments = $"\"{scriptPath}\" estimate_dim \"{tempFile}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -449,7 +451,7 @@ namespace LabSOM.Backend.Core.Services
                 
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "python",
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                     Arguments = $"\"{scriptPath}\" reduce_dim \"{tempFile}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

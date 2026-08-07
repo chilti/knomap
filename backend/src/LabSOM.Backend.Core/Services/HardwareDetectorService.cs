@@ -4,6 +4,8 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 
+using LabSOM.Backend.Core.Utils;
+
 namespace LabSOM.Backend.Core.Services
 {
     public class HardwareDetectorService
@@ -34,7 +36,7 @@ namespace LabSOM.Backend.Core.Services
             
             var psi = new ProcessStartInfo
             {
-                FileName = "python",
+                FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                 Arguments = $"\"{scriptPath}\" detect",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

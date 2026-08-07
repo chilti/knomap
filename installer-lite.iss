@@ -17,6 +17,8 @@ WizardSmallImageFile=wizard_small.bmp
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "create_venv"; Description: "Crear entorno virtual aislado de Python (.venv) exclusivo para knoMap (Recomendado)"; GroupDescription: "Entorno de Python:"; Flags: checkedonce
+Name: "use_global"; Description: "Instalar dependencias en el entorno global de Python del sistema"; GroupDescription: "Entorno de Python:"; Flags: unchecked
 
 [Files]
 ; C# Photino Application files
@@ -44,6 +46,11 @@ begin
 end;
 
 [Run]
-; Install Python requirements automatically upon finish
-Filename: "python.exe"; Parameters: "-m pip install -r ""{app}\engine\requirements.txt"""; Description: "Installing AI dependencies (Python)"; Flags: postinstall waituntilterminated
+; Option 1: Isolated virtual environment (.venv) - Checked by default
+Filename: "python.exe"; Parameters: "-m venv ""{app}\engine\.venv"""; Tasks: create_venv; Description: "Creando entorno virtual exclusivo (.venv)..."; Flags: postinstall waituntilterminated
+Filename: "{app}\engine\.venv\Scripts\python.exe"; Parameters: "-m pip install -r ""{app}\engine\requirements.txt"""; Tasks: create_venv; Description: "Instalando dependencias en el entorno de knoMap..."; Flags: postinstall waituntilterminated
+
+; Option 2: System Global Python
+Filename: "python.exe"; Parameters: "-m pip install -r ""{app}\engine\requirements.txt"""; Tasks: use_global; Description: "Instalando dependencias en el Python global..."; Flags: postinstall waituntilterminated
+
 Filename: "{app}\knoMap.exe"; Description: "{cm:LaunchProgram,knoMap}"; Flags: nowait postinstall skipifsilent

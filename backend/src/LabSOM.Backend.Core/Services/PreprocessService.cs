@@ -4,6 +4,8 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using LabSOM.Backend.Core.Utils;
+
 namespace LabSOM.Backend.Core.Services
 {
     public class PreprocessService
@@ -65,7 +67,7 @@ namespace LabSOM.Backend.Core.Services
                 
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "python",
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                     Arguments = $"\"{scriptPath}\" preprocess \"{payloadFile}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

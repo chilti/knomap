@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 
+using LabSOM.Backend.Core.Utils;
+
 namespace LabSOM.Backend.Core.Services
 {
     public class SemanticService
@@ -50,7 +52,7 @@ namespace LabSOM.Backend.Core.Services
 
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "python",
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                     Arguments = $"\"{scriptPath}\" {action} \"{tempFile}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

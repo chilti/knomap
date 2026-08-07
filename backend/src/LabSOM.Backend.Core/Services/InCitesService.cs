@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 using System.Threading.Tasks;
 using System.Linq;
+using LabSOM.Backend.Core.Utils;
 
 namespace LabSOM.Backend.Core.Services
 {
@@ -94,7 +95,7 @@ namespace LabSOM.Backend.Core.Services
 
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "python",
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
                     Arguments = $"\"{scriptPath}\" incites_preprocess \"{payloadFile}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
