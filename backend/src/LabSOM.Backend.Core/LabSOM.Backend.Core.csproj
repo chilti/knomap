@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <AssemblyName>knoMap</AssemblyName>
     <ApplicationIcon>wwwroot\icon.ico</ApplicationIcon>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>

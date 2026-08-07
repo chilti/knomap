@@ -11,7 +11,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=frontend\public\icon.ico
-UninstallDisplayIcon={app}\knoMap.Backend.Core.exe
+UninstallDisplayIcon={app}\knoMap.exe
 WizardImageFile=wizard_large.bmp
 WizardSmallImageFile=wizard_small.bmp
 
@@ -25,8 +25,8 @@ Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs creat
 Source: "engine\*"; DestDir: "{app}\engine"; Excludes: "__pycache__\, .venv\, venv\, temp\"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\knoMap"; Filename: "{app}\knoMap.Backend.Core.exe"
-Name: "{autodesktop}\knoMap"; Filename: "{app}\knoMap.Backend.Core.exe"; Tasks: desktopicon
+Name: "{group}\knoMap"; Filename: "{app}\knoMap.exe"
+Name: "{autodesktop}\knoMap"; Filename: "{app}\knoMap.exe"; Tasks: desktopicon
 
 [Code]
 function InitializeSetup(): Boolean;
@@ -46,4 +46,4 @@ end;
 [Run]
 ; Install Python requirements automatically upon finish
 Filename: "cmd.exe"; Parameters: "/c pip install -r ""{app}\engine\requirements.txt"""; Description: "Installing AI dependencies (Python)"; Flags: postinstall runhidden waituntilterminated
-Filename: "{app}\knoMap.Backend.Core.exe"; Description: "{cm:LaunchProgram,knoMap}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\knoMap.exe"; Description: "{cm:LaunchProgram,knoMap}"; Flags: nowait postinstall skipifsilent
