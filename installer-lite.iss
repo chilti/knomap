@@ -45,5 +45,5 @@ end;
 
 [Run]
 ; Install Python requirements automatically upon finish
-Filename: "cmd.exe"; Parameters: "/c pip install -r ""{app}\engine\requirements.txt"""; Description: "Installing AI dependencies (Python)"; Flags: postinstall runhidden waituntilterminated
+Filename: "python.exe"; Parameters: "-m pip install -r ""{app}\engine\requirements.txt"""; Description: "Installing AI dependencies (Python)"; Flags: postinstall waituntilterminated
 Filename: "{app}\knoMap.exe"; Description: "{cm:LaunchProgram,knoMap}"; Flags: nowait postinstall skipifsilent

@@ -10,8 +10,6 @@ networkx>=2.8
 biopython>=1.80
 metaknowledge
 matplotlib
---extra-index-url https://pypi.nvidia.com
-cuml-cu12
 python-dotenv
 openai
 httpx
