@@ -17,8 +17,6 @@ WizardSmallImageFile=wizard_small.bmp
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "create_venv"; Description: "Crear entorno virtual aislado de Python (.venv) exclusivo para knoMap (Recomendado)"; GroupDescription: "Entorno de Python:"; Flags: checkedonce
-Name: "use_global"; Description: "Instalar dependencias en el entorno global de Python del sistema"; GroupDescription: "Entorno de Python:"; Flags: unchecked
 
 [Files]
 ; C# Photino Application files
@@ -31,6 +29,9 @@ Name: "{group}\knoMap"; Filename: "{app}\knoMap.exe"
 Name: "{autodesktop}\knoMap"; Filename: "{app}\knoMap.exe"; Tasks: desktopicon
 
 [Code]
+var
+  PythonEnvPage: TInputOptionWizardPage;
+
 function InitializeSetup(): Boolean;
 var
   ResultCode: Integer;
@@ -45,12 +46,40 @@ begin
   Result := True;
 end;
 
-[Run]
-; Option 1: Isolated virtual environment (.venv) - Checked by default
-Filename: "python.exe"; Parameters: "-m venv ""{app}\engine\.venv"""; Tasks: create_venv; Description: "Creando entorno virtual exclusivo (.venv)..."; Flags: postinstall waituntilterminated
-Filename: "{app}\engine\.venv\Scripts\python.exe"; Parameters: "-m pip install -r ""{app}\engine\requirements.txt"""; Tasks: create_venv; Description: "Instalando dependencias en el entorno de knoMap..."; Flags: postinstall waituntilterminated
+procedure InitializeWizard();
+begin
+  // Custom Radio Button Page for Python Environment Selection
+  PythonEnvPage := CreateInputOptionPage(
+    wpSelectTasks,
+    'Configuracion de Entorno de Python',
+    'Seleccione como desea que knoMap gestione las dependencias de Python:',
+    'knoMap requiere librerias de IA para el procesamiento semantico y clustering.',
+    True,   // Radio Buttons
+    False   // HasTopList
+  );
 
-; Option 2: System Global Python
-Filename: "python.exe"; Parameters: "-m pip install -r ""{app}\engine\requirements.txt"""; Tasks: use_global; Description: "Instalando dependencias en el Python global..."; Flags: postinstall waituntilterminated
+  PythonEnvPage.Add('Crear un entorno virtual aislado (.venv) exclusivo para knoMap (Recomendado)');
+  PythonEnvPage.Add('Instalar dependencias en el entorno global de Python del sistema');
+
+  PythonEnvPage.SelectedValueIndex := 0;
+end;
+
+function IsVenvSelected(): Boolean;
+begin
+  Result := (PythonEnvPage <> nil) and (PythonEnvPage.SelectedValueIndex = 0);
+end;
+
+function IsGlobalSelected(): Boolean;
+begin
+  Result := (PythonEnvPage <> nil) and (PythonEnvPage.SelectedValueIndex = 1);
+end;
+
+[Run]
+; Option 1: Isolated virtual environment (.venv) - Radio Button 1
+Filename: "python.exe"; Parameters: "-m venv ""{app}\engine\.venv"""; Check: IsVenvSelected; Description: "Creando entorno virtual exclusivo (.venv)..."; Flags: postinstall waituntilterminated
+Filename: "{app}\engine\.venv\Scripts\python.exe"; Parameters: "-m pip install -r ""{app}\engine\requirements.txt"""; Check: IsVenvSelected; Description: "Instalando dependencias en el entorno de knoMap..."; Flags: postinstall waituntilterminated
+
+; Option 2: System Global Python - Radio Button 2
+Filename: "python.exe"; Parameters: "-m pip install -r ""{app}\engine\requirements.txt"""; Check: IsGlobalSelected; Description: "Instalando dependencias en el Python global..."; Flags: postinstall waituntilterminated
 
 Filename: "{app}\knoMap.exe"; Description: "{cm:LaunchProgram,knoMap}"; Flags: nowait postinstall skipifsilent
