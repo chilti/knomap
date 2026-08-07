@@ -6,9 +6,19 @@ using Microsoft.Extensions.Hosting;
 using System.Diagnostics;
 
 using System.IO;
+using System.Threading;
 
 // Ensure the working directory is the executable's directory (crucial for Start Menu shortcuts)
 Directory.SetCurrentDirectory(System.AppContext.BaseDirectory);
+
+// Prevent multiple instances of the application
+bool createdNew;
+using var mutex = new Mutex(true, "knoMap_SingleInstance_Mutex", out createdNew);
+if (!createdNew)
+{
+    // If it's not headless, we just exit. The user can't start a second instance.
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,10 +40,24 @@ builder.Services.AddCors();
 
 bool isHeadless = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" || args.Contains("--headless");
 
-// Listen on a dynamic local port to avoid collisions ONLY for desktop UI
+// Listen on a stable local port (19080) for desktop UI so localStorage and WebView2 state persist properly
 if (!isHeadless)
 {
-    builder.WebHost.UseUrls("http://127.0.0.1:0");
+    int port = 19080;
+    try
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+        listener.Start();
+        listener.Stop();
+    }
+    catch
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+    }
+    builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
 }
 
 
@@ -285,6 +309,9 @@ app.MapPost("/api/semantic/cluster", async (SemanticClusterRequest request, Sema
 // Health check
 app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", app = "newknoMap Local API" }));
 
+// Fallback to index.html for Single Page Application (SPA) client-side routing
+app.MapFallbackToFile("index.html");
+
 // Start the ASP.NET Core web server in the background
 await app.StartAsync();
 
@@ -306,13 +333,19 @@ else
     // Initialize Photino native desktop window on an STA thread (required for Windows UI)
     var windowThread = new System.Threading.Thread(() =>
     {
+        string startUrl = localUrl.TrimEnd('/') + "/index.html";
+        string userDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "knoMap", "WebViewData");
+        if (!Directory.Exists(userDataDir))
+        {
+            Directory.CreateDirectory(userDataDir);
+        }
+
         var window = new Photino.NET.PhotinoWindow()
             .SetTitle("knoMap")
             .SetUseOsDefaultLocation(false)
             .SetUseOsDefaultSize(false)
             .SetSize(1280, 800)
             .Center()
-            // .SetIconFile("wwwroot/icon.ico")
             .SetChromeless(true)
             .RegisterWebMessageReceivedHandler((object sender, string message) => {
                 var w = (Photino.NET.PhotinoWindow)sender;
@@ -329,7 +362,7 @@ else
                     WindowDragger.DefWindowProc(w.WindowHandle, WindowDragger.WM_SYSCOMMAND, (UIntPtr)WindowDragger.MOUSE_MOVE, IntPtr.Zero);
                 }
             })
-            .Load(localUrl);
+            .Load(startUrl);
 
 #if DEBUG
         window.SetDevToolsEnabled(true);
@@ -363,8 +396,10 @@ else
     windowThread.Start();
     windowThread.Join();
 
-    // Gracefully stop the backend server when the window is closed
-    await app.StopAsync();
+    // Forcefully stop the application and backend server when the window is closed
+    // Avoid awaiting StopAsync indefinitely which can cause zombie processes
+    _ = app.StopAsync(TimeSpan.FromSeconds(1));
+    Environment.Exit(0);
 }
 
 public static class WindowDragger
