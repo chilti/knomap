@@ -5,7 +5,7 @@ import { ExploradorDatos } from './components/ExploradorDatos';
 import { DimReduction } from './components/DimReduction';
 import { SemanticBibliometrics } from './components/SemanticBibliometrics';
 import { InCitesExplorer } from './components/InCitesExplorer';
-import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, Layers, Compass, BarChart2 } from 'lucide-react';
+import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, Layers, Compass, BarChart2, ChevronDown, BookOpen } from 'lucide-react';
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
 
@@ -25,6 +25,25 @@ export default function App() {
 
   // Collapsible sidebar state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Collapsible Bibliometrics group menu state (collapsed by default)
+  const [isBiblioMenuOpen, setIsBiblioMenuOpen] = useState(false);
+
+  // Theme state
+  const [theme, setTheme] = useState<'dark' | 'navy' | 'light'>(
+    () => (localStorage.getItem('labsom-theme') as 'dark' | 'navy' | 'light') || 'dark'
+  );
+
+  const applyTheme = (t: 'dark' | 'navy' | 'light') => {
+    setTheme(t);
+    localStorage.setItem('labsom-theme', t);
+    document.documentElement.setAttribute('data-theme', t);
+  };
+
+  // Apply theme on mount
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, []);
 
   // Preprocessor form states
   const [bibFile, setBibFile] = useState<File | null>(null);
@@ -53,16 +72,27 @@ export default function App() {
 
   useEffect(() => {
     fetchSystemStatus();
+    
+    // Prevent accidental page refresh or close
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Setting returnValue to any string triggers the browser's native confirmation dialog
+      e.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
   }, []);
 
   const handleTabChange = (newTab: 'multidimensional' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites') => {
     const state = useSomStore.getState();
     if (newTab === 'multidimensional' && state.activeTab === 'bibliometrics') {
       if (state.pendingNetworkCsv) {
-        if (window.confirm("You have calculated new networks in Bibliometrics.\nDo you want these new networks to replace the existing data in Data & SOM?")) {
-          state.loadCsvData(state.pendingNetworkCsv, 0, [], state.pendingNetworkOrigin || 'monothematic');
-          useSomStore.setState({ pendingNetworkCsv: null, pendingNetworkOrigin: null });
-        }
+        state.loadCsvData(state.pendingNetworkCsv, 0, [], state.pendingNetworkOrigin || 'monothematic');
+        useSomStore.setState({ pendingNetworkCsv: null, pendingNetworkOrigin: null });
       }
     }
     setActiveTab(newTab);
@@ -173,42 +203,11 @@ export default function App() {
               )}
 
               {/* Nav Items */}
-              <nav className="flex flex-col space-y-1-5">
-                <button
-                  onClick={() => handleTabChange('bibliometrics')}
-                  title={isSidebarCollapsed ? "Bibliometrics" : undefined}
-                  className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'justify-between px-4 py-3'
-                    } rounded-xl text-sm font-semibold transition-all ${activeTab === 'bibliometrics'
-                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950 shadow-opacity-50'
-                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                    }`}
-                >
-                  <span className="flex items-center">
-                    <Share2 className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'}`} />
-                    {!isSidebarCollapsed && <span>Bibliometrics</span>}
-                  </span>
-                  {!isSidebarCollapsed && <ArrowRight className="w-3.5 h-3.5 opacity-50" />}
-                </button>
-
-                <button
-                  onClick={() => handleTabChange('incites')}
-                  title={isSidebarCollapsed ? "InCites Data" : undefined}
-                  className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'justify-between px-4 py-3'
-                    } rounded-xl text-sm font-semibold transition-all ${activeTab === 'incites'
-                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950 shadow-opacity-50'
-                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                    }`}
-                >
-                  <span className="flex items-center">
-                    <BarChart2 className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'}`} />
-                    {!isSidebarCollapsed && <span>InCites Data</span>}
-                  </span>
-                  {!isSidebarCollapsed && <ArrowRight className="w-3.5 h-3.5 opacity-50" />}
-                </button>
-
+              <nav className="flex flex-col space-y-1.5">
+                {/* 1. SOM & UMAP */}
                 <button
                   onClick={() => handleTabChange('multidimensional')}
-                  title={isSidebarCollapsed ? "Data & SOM" : undefined}
+                  title={isSidebarCollapsed ? "SOM & UMAP" : undefined}
                   className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'justify-between px-4 py-3'
                     } rounded-xl text-sm font-semibold transition-all ${activeTab === 'multidimensional'
                       ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950 shadow-opacity-50'
@@ -217,11 +216,12 @@ export default function App() {
                 >
                   <span className="flex items-center">
                     <Database className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'}`} />
-                    {!isSidebarCollapsed && <span>Data & SOM</span>}
+                    {!isSidebarCollapsed && <span>SOM & UMAP</span>}
                   </span>
                   {!isSidebarCollapsed && <ArrowRight className="w-3.5 h-3.5 opacity-50" />}
                 </button>
 
+                {/* 2. Dim Reduction */}
                 <button
                   onClick={() => handleTabChange('dimreduction')}
                   title={isSidebarCollapsed ? "Dim Reduction" : undefined}
@@ -238,21 +238,91 @@ export default function App() {
                   {!isSidebarCollapsed && <ArrowRight className="w-3.5 h-3.5 opacity-50" />}
                 </button>
 
-                <button
-                  onClick={() => handleTabChange('semantic_bibliometrics')}
-                  title={isSidebarCollapsed ? "Semantic Bibliometrics" : undefined}
-                  className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'justify-between px-4 py-3'
-                    } rounded-xl text-sm font-semibold transition-all ${activeTab === 'semantic_bibliometrics'
-                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950 shadow-opacity-50'
-                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                    }`}
-                >
-                  <span className="flex items-center">
-                    <Compass className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'}`} />
-                    {!isSidebarCollapsed && <span>Semantic Biblio</span>}
-                  </span>
-                  {!isSidebarCollapsed && <ArrowRight className="w-3.5 h-3.5 opacity-50" />}
-                </button>
+                {/* 3. Collapsible Bibliometrics Group */}
+                {(() => {
+                  const isChildActive = activeTab === 'bibliometrics' || activeTab === 'semantic_bibliometrics' || activeTab === 'incites';
+                  const isOpen = isBiblioMenuOpen || (isSidebarCollapsed && isChildActive);
+
+                  return (
+                    <div className="flex flex-col space-y-1">
+                      <button
+                        onClick={() => setIsBiblioMenuOpen(!isBiblioMenuOpen)}
+                        title={isSidebarCollapsed ? "Bibliometrics" : undefined}
+                        className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'justify-between px-4 py-3'
+                          } rounded-xl text-sm font-semibold transition-all ${
+                            isChildActive
+                              ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-500/40 shadow-inner'
+                              : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                          }`}
+                      >
+                        <span className="flex items-center">
+                          <BookOpen className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'}`} />
+                          {!isSidebarCollapsed && <span>Bibliometrics</span>}
+                        </span>
+                        {!isSidebarCollapsed && (
+                          <ChevronDown
+                            className={`w-4 h-4 opacity-70 transition-transform duration-200 ${
+                              isOpen ? 'transform rotate-180 text-indigo-400' : ''
+                            }`}
+                          />
+                        )}
+                      </button>
+
+                      {/* Sub-items */}
+                      {isOpen && (
+                        <div className={`flex flex-col space-y-1 ${isSidebarCollapsed ? 'pl-0' : 'pl-4 border-l-2 border-indigo-900/40 ml-4 py-1'}`}>
+                          {/* Sub 1: Biblio Networks */}
+                          <button
+                            onClick={() => handleTabChange('bibliometrics')}
+                            title={isSidebarCollapsed ? "Biblio Networks" : undefined}
+                            className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2'
+                              } rounded-lg text-xs font-semibold transition-all ${activeTab === 'bibliometrics'
+                                ? 'bg-indigo-600 text-white shadow-md'
+                                : 'text-gray-400 hover:bg-gray-800/80 hover:text-gray-200'
+                              }`}
+                          >
+                            <span className="flex items-center">
+                              <Share2 className={`w-3.5 h-3.5 ${isSidebarCollapsed ? '' : 'mr-2.5'}`} />
+                              {!isSidebarCollapsed && <span>Biblio Networks</span>}
+                            </span>
+                          </button>
+
+                          {/* Sub 2: Semantic Biblio */}
+                          <button
+                            onClick={() => handleTabChange('semantic_bibliometrics')}
+                            title={isSidebarCollapsed ? "Semantic Biblio" : undefined}
+                            className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2'
+                              } rounded-lg text-xs font-semibold transition-all ${activeTab === 'semantic_bibliometrics'
+                                ? 'bg-indigo-600 text-white shadow-md'
+                                : 'text-gray-400 hover:bg-gray-800/80 hover:text-gray-200'
+                              }`}
+                          >
+                            <span className="flex items-center">
+                              <Compass className={`w-3.5 h-3.5 ${isSidebarCollapsed ? '' : 'mr-2.5'}`} />
+                              {!isSidebarCollapsed && <span>Semantic Biblio</span>}
+                            </span>
+                          </button>
+
+                          {/* Sub 3: InCites Data */}
+                          <button
+                            onClick={() => handleTabChange('incites')}
+                            title={isSidebarCollapsed ? "InCites Data" : undefined}
+                            className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-2' : 'justify-between px-3 py-2'
+                              } rounded-lg text-xs font-semibold transition-all ${activeTab === 'incites'
+                                ? 'bg-indigo-600 text-white shadow-md'
+                                : 'text-gray-400 hover:bg-gray-800/80 hover:text-gray-200'
+                              }`}
+                          >
+                            <span className="flex items-center">
+                              <BarChart2 className={`w-3.5 h-3.5 ${isSidebarCollapsed ? '' : 'mr-2.5'}`} />
+                              {!isSidebarCollapsed && <span>InCites Data</span>}
+                            </span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </nav>
             </div>
 
@@ -275,7 +345,29 @@ export default function App() {
             )}
 
             {/* System footer */}
-            <div className={`p-6 border-t border-gray-800 bg-gray-950 flex ${isSidebarCollapsed ? 'justify-center' : 'flex-col'}`}>
+            <div className={`p-6 border-t border-gray-800 bg-gray-950 flex ${isSidebarCollapsed ? 'justify-center' : 'flex-col space-y-3'}`}>
+              {/* Theme Picker */}
+              {!isSidebarCollapsed && (
+                <div>
+                  <p className="text-[10px] text-gray-500 mb-1.5 uppercase tracking-widest">Theme</p>
+                  <div className="flex space-x-1.5">
+                    {([
+                      { key: 'dark',  label: 'Dark',  icon: '●', color: '#050508', ring: '#475569' },
+                      { key: 'navy',  label: 'Navy',  icon: '●', color: '#0d1b2a', ring: '#5882a0' },
+                      { key: 'light', label: 'Light', icon: '●', color: '#eef2f7', ring: '#94a3b8' },
+                    ] as const).map(t => (
+                      <button
+                        key={t.key}
+                        onClick={() => applyTheme(t.key)}
+                        title={t.label}
+                        style={{ backgroundColor: t.color, outline: theme === t.key ? `2px solid ${t.ring}` : 'none', outlineOffset: '2px' }}
+                        className="w-5 h-5 rounded-full border border-gray-700 cursor-pointer transition-all hover:scale-110"
+                      />
+                    ))}
+                    <span className="text-[10px] text-gray-500 self-center capitalize ml-1">{theme}</span>
+                  </div>
+                </div>
+              )}
               {isSidebarCollapsed ? (
                 <div
                   className={`w-3.5 h-3.5 rounded-full ${getHardwareColor()} transition-all cursor-help`}

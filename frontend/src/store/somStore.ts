@@ -64,6 +64,43 @@ export interface SemanticRecord {
   extras: Record<string, string>;
 }
 
+export interface DataProvenance {
+  originType: 'incites' | 'bibliometrics' | 'dimreduction' | 'csv_upload';
+  unitName?: string;              // e.g. "Locations", "Researchers", "Departments"
+  subView?: string;               // e.g. "Heatmap Matrix", "Evolution Profile", "Quartiles"
+  indicatorsCount?: number;       // number of features used
+  indicatorsList?: string[];      // list of indicators selected
+  smoothingInfo?: string;         // e.g. "RAW", "ECMA-3", "CMA Window=5"
+}
+
+export interface SomRun {
+  id: string;
+  name: string;
+  createdAt: string;
+  provenance: DataProvenance;
+
+  // Data Snapshot
+  dataMatrix: number[][];
+  originalDataMatrix: number[][] | null;
+  labels: string[];
+  compNames: string[];
+  normalizationInfo: NormalizationInfo | null;
+  matrixOrigin: 'csv' | 'monothematic' | 'bipartite';
+  fileName: string | null;
+
+  // Hyperparameters
+  config: SOMConfig;
+  isCmaSmoothingActive: boolean;
+  cmaWindowSize: number;
+
+  // Trained SOM Outputs
+  result: TrainingResult;
+
+  // PathSOM Customizations
+  activeTrajectories?: string[];
+  entityColorOverrides?: Record<string, string>;
+}
+
 interface SOMState {
   // Config & Status
   config: SOMConfig;
@@ -74,6 +111,16 @@ interface SOMState {
   uploadProgress: number | null;
   activeTab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites';
   
+  // Experiment History (Multi-Training Runs)
+  savedRuns: SomRun[];
+  activeRunId: string | null;
+  pendingProvenance: DataProvenance | null;
+
+  setActiveRunId: (id: string | null) => void;
+  deleteRun: (id: string) => void;
+  renameRun: (id: string, newName: string) => void;
+  setPendingProvenance: (prov: DataProvenance | null) => void;
+
   // Semantic Bibliometrics State
   semanticRecords: SemanticRecord[] | null;
   semanticEmbeddings: number[][] | null;
@@ -183,13 +230,16 @@ interface SOMState {
   incitesUnitNames: string[] | null;
   incitesUnitCache: Record<string, any>;
   incitesActiveUnit: string | null;
-  setIncitesState: (state: Partial<{ incitesUnitNames: string[] | null, incitesUnitCache: Record<string, any>, incitesActiveUnit: string | null }>) => void;
+  incitesSidebarTab: 'profiles' | 'temporal';
+  incitesIsUploading: boolean;
+  setIncitesState: (state: Partial<{ incitesUnitNames: string[] | null, incitesUnitCache: Record<string, any>, incitesActiveUnit: string | null, incitesSidebarTab: 'profiles' | 'temporal', incitesIsUploading: boolean }>) => void;
+  uploadInCitesFiles: (formData: FormData) => Promise<void>;
   
   // Setters & Actions
   setConfig: (config: Partial<SOMConfig>) => void;
   setActiveTab: (tab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites') => void;
   fetchSystemStatus: () => Promise<void>;
-  loadCsvData: (csvText: string, labelColIndex?: number, ignoreCols?: number[], origin?: 'csv' | 'monothematic' | 'bipartite', fileName?: string) => void;
+  loadCsvData: (csvText: string, labelColIndex?: number, ignoreCols?: number[], origin?: 'csv' | 'monothematic' | 'bipartite', fileName?: string, provenance?: DataProvenance) => void;
   applyNormalization: (type: NormalizationType) => void;
   revertNormalization: () => void;
   preprocessBibliometrics: (file: File, networkType: string, customTag?: string, maxTerms?: number, minCooc?: number, onlyMajor?: boolean, temporal?: boolean) => Promise<void>;
@@ -288,7 +338,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   isGeneratingUmap: false,
   isPreprocessing: false,
   uploadProgress: null,
-  activeTab: 'bibliometrics',
+  activeTab: 'multidimensional',
   
   // Semantic Bibliometrics Initial State
   semanticRecords: null,
@@ -364,7 +414,141 @@ export const useSomStore = create<SOMState>((set, get) => ({
   incitesUnitNames: null,
   incitesUnitCache: {},
   incitesActiveUnit: null,
+  incitesSidebarTab: 'profiles',
+  incitesIsUploading: false,
   setIncitesState: (newState) => set((state) => ({ ...state, ...newState })),
+  uploadInCitesFiles: async (formData: FormData) => {
+    set({
+      incitesIsUploading: true,
+      incitesUnitNames: null,
+      incitesUnitCache: {},
+      incitesActiveUnit: null
+    });
+
+    try {
+      const response = await fetch(getApiUrl('/api/incites/process'), {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+
+      if (!data.success) {
+        alert("Error procesando InCites: " + data.error);
+        set({ incitesIsUploading: false });
+        return;
+      }
+
+      const rawNames: string[] = data.unit_names ?? [];
+      const PREFERRED_INCITES_ORDER = [
+        'Locations',
+        'Publication Sources',
+        'SDG',
+        'ESI',
+        'WoS Categories',
+        'Macro Topics',
+        'Meso Topics',
+        'Micro Topics',
+        'Organizations',
+        'Funding Agencies',
+        'Researchers'
+      ];
+      const names = [...rawNames].sort((a, b) => {
+        const idxA = PREFERRED_INCITES_ORDER.indexOf(a);
+        const idxB = PREFERRED_INCITES_ORDER.indexOf(b);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.localeCompare(b);
+      });
+
+      const defaultUnit = names.includes('Locations') ? 'Locations' : (names[0] || null);
+
+      set({
+        incitesUnitNames: names,
+        incitesActiveUnit: defaultUnit,
+        incitesIsUploading: false
+      });
+    } catch (err) {
+      alert('Upload failed: ' + err);
+      set({ incitesIsUploading: false });
+    }
+  },
+
+  // Experiment History (Multi-Training Runs)
+  savedRuns: [],
+  activeRunId: null,
+  pendingProvenance: null,
+
+  setPendingProvenance: (prov) => set({ pendingProvenance: prov }),
+
+  setActiveRunId: (id) => {
+    if (!id) {
+      set({ activeRunId: null });
+      return;
+    }
+    const target = get().savedRuns.find(r => r.id === id);
+    if (!target) return;
+
+    set({
+      activeRunId: target.id,
+      dataMatrix: target.dataMatrix,
+      originalDataMatrix: target.originalDataMatrix,
+      labels: target.labels,
+      compNames: target.compNames,
+      normalizationInfo: target.normalizationInfo,
+      matrixOrigin: target.matrixOrigin,
+      fileName: target.fileName,
+      config: target.config,
+      isCmaSmoothingActive: target.isCmaSmoothingActive,
+      cmaWindowSize: target.cmaWindowSize,
+      result: target.result,
+      activeTrajectories: new Set(target.activeTrajectories || []),
+      entityColorOverrides: target.entityColorOverrides || {}
+    });
+  },
+
+  deleteRun: (id) => {
+    set((state) => {
+      const nextRuns = state.savedRuns.filter(r => r.id !== id);
+      const wasActive = state.activeRunId === id;
+      const nextActiveId = wasActive ? (nextRuns.length > 0 ? nextRuns[nextRuns.length - 1].id : null) : state.activeRunId;
+      
+      if (wasActive && nextActiveId) {
+        const target = nextRuns.find(r => r.id === nextActiveId);
+        if (target) {
+          return {
+            savedRuns: nextRuns,
+            activeRunId: nextActiveId,
+            dataMatrix: target.dataMatrix,
+            originalDataMatrix: target.originalDataMatrix,
+            labels: target.labels,
+            compNames: target.compNames,
+            normalizationInfo: target.normalizationInfo,
+            matrixOrigin: target.matrixOrigin,
+            fileName: target.fileName,
+            config: target.config,
+            isCmaSmoothingActive: target.isCmaSmoothingActive,
+            cmaWindowSize: target.cmaWindowSize,
+            result: target.result,
+            activeTrajectories: new Set(target.activeTrajectories || []),
+            entityColorOverrides: target.entityColorOverrides || {}
+          };
+        }
+      }
+
+      return {
+        savedRuns: nextRuns,
+        activeRunId: nextActiveId,
+        ...(nextRuns.length === 0 ? { result: null } : {})
+      };
+    });
+  },
+
+  renameRun: (id, newName) => {
+    set((state) => ({
+      savedRuns: state.savedRuns.map(r => r.id === id ? { ...r, name: newName } : r)
+    }));
+  },
 
   // Time-Series Preprocessing
   isCmaSmoothingActive: false,
@@ -499,7 +683,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
     }
   },
 
-  loadCsvData: (csvText: string, labelColIndex = 0, ignoreCols: number[] = [], origin: 'csv' | 'monothematic' | 'bipartite' = 'csv', fileName?: string) => {
+  loadCsvData: (csvText: string, labelColIndex = 0, ignoreCols: number[] = [], origin: 'csv' | 'monothematic' | 'bipartite' = 'csv', fileName?: string, provenance?: DataProvenance) => {
     const parsed = parseRawCsvToMatrix(csvText, labelColIndex, ignoreCols);
     if (!parsed) return;
     
@@ -511,7 +695,15 @@ export const useSomStore = create<SOMState>((set, get) => ({
       fileName: fileName || null,
       labels: parsed.documentLabels,
       compNames: parsed.selectedHeaders,
-      result: null, // clear previous results
+      result: null, // clear active result for new dataset
+      activeRunId: null,
+      exploSubTab: 'import', // Automatically switch to 1. IMPORT & EXPLORATION for new data
+      pendingProvenance: provenance || {
+        originType: 'csv_upload',
+        unitName: fileName || 'Uploaded Dataset',
+        indicatorsCount: parsed.selectedHeaders.length,
+        indicatorsList: parsed.selectedHeaders
+      },
       isCmaSmoothingActive: false, // reset CMA smoothing flag
       activeTrajectories: new Set<string>(),
       entityColorOverrides: {}
@@ -598,7 +790,11 @@ export const useSomStore = create<SOMState>((set, get) => ({
   },
 
   trainSOM: async (): Promise<boolean> => {
-    const { dataMatrix, labels, config, hardware } = get();
+    const { dataMatrix, labels, config, hardware, incitesIsUploading } = get();
+    if (incitesIsUploading) {
+      alert("InCites files are currently being processed in the background. Please wait a moment until processing finishes before training SOM.");
+      return false;
+    }
     if (dataMatrix.length === 0) {
       alert("Por favor, cargue una matriz de datos primero.");
       return false;
@@ -631,21 +827,64 @@ export const useSomStore = create<SOMState>((set, get) => ({
       
       const result = await res.json();
       if (result?.success) {
+        const trainedResult: TrainingResult = {
+          weights: result.weights,
+          umatrix: result.umatrix,
+          clustering: result.clustering,
+          frequencies: result.frequencies,
+          quantizationErrors: result.quantization_errors,
+          bmus: result.bmus,
+          hexGrid: result.hex_grid,
+          mappedLabels: result.mapped_labels,
+          errors: result.errors,
+          umap: get().result?.umap ?? null,
+          umapSource: get().result?.umapSource ?? null
+        };
+
+        const state = get();
+        const prov: DataProvenance = state.pendingProvenance || {
+          originType: state.matrixOrigin === 'bipartite' || state.matrixOrigin === 'monothematic' ? 'bibliometrics' : 'csv_upload',
+          unitName: state.fileName || 'Dataset',
+          indicatorsCount: state.compNames.length,
+          indicatorsList: state.compNames,
+          smoothingInfo: state.isCmaSmoothingActive ? `CMA Window=${state.cmaWindowSize}` : 'RAW'
+        };
+
+        const runId = `run_${Date.now()}`;
+        let defaultName = `${prov.unitName || 'Run'} (${config.rows}x${config.cols})`;
+        if (prov.originType === 'incites' && prov.unitName) {
+          defaultName = `[InCites] ${prov.unitName}${prov.subView ? ` - ${prov.subView}` : ''} (${config.rows}x${config.cols})`;
+        } else if (prov.originType === 'bibliometrics') {
+          defaultName = `[Bibliometrics] ${prov.unitName || 'Co-occ'} (${config.rows}x${config.cols})`;
+        } else if (prov.originType === 'dimreduction') {
+          defaultName = `[DimRed] ${prov.unitName || 'Reduced'} (${config.rows}x${config.cols})`;
+        }
+
+        const newRun: SomRun = {
+          id: runId,
+          name: defaultName,
+          createdAt: new Date().toISOString(),
+          provenance: prov,
+          dataMatrix: [...state.dataMatrix],
+          originalDataMatrix: state.originalDataMatrix ? [...state.originalDataMatrix] : null,
+          labels: [...state.labels],
+          compNames: [...state.compNames],
+          normalizationInfo: state.normalizationInfo,
+          matrixOrigin: state.matrixOrigin,
+          fileName: state.fileName,
+          config: { ...config },
+          isCmaSmoothingActive: state.isCmaSmoothingActive,
+          cmaWindowSize: state.cmaWindowSize,
+          result: trainedResult,
+          activeTrajectories: Array.from(state.activeTrajectories || []),
+          entityColorOverrides: { ...state.entityColorOverrides }
+        };
+
         set({
-          result: {
-            weights: result.weights,
-            umatrix: result.umatrix,
-            clustering: result.clustering,
-            frequencies: result.frequencies,
-            quantizationErrors: result.quantization_errors,
-            bmus: result.bmus,
-            hexGrid: result.hex_grid,
-            mappedLabels: result.mapped_labels,
-            errors: result.errors,
-            umap: get().result?.umap ?? null, // Preserve existing UMAP
-            umapSource: get().result?.umapSource ?? null
-          },
-          isTraining: false
+          result: trainedResult,
+          isTraining: false,
+          savedRuns: [...state.savedRuns, newRun],
+          activeRunId: runId
         });
         return true;
       } else {
@@ -655,7 +894,11 @@ export const useSomStore = create<SOMState>((set, get) => ({
       }
     } catch (e) {
       console.error(e);
-      alert("Local API Connection failed. Make sure the backend is booted.");
+      if (get().incitesIsUploading) {
+        alert("InCites is currently processing files on the backend. Please wait a moment for file parsing to complete before training.");
+      } else {
+        alert("Backend server is busy processing background data or unavailable. Please wait a moment and try again.");
+      }
       set({ isTraining: false });
       return false;
     }
@@ -739,7 +982,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   },
 
   reclusterLocally: (clustering: number[]) => {
-    const { result } = get();
+    const { result, activeRunId, savedRuns, config } = get();
     if (!result) return;
     
     // Create new result object with updated clustering array
@@ -748,13 +991,26 @@ export const useSomStore = create<SOMState>((set, get) => ({
       clustering: clustering
     };
     
-    set({ result: newResult });
+    const newSavedRuns = savedRuns.map(run => {
+      if (run.id === activeRunId) {
+        return {
+          ...run,
+          config: { ...run.config, nClusters: config.nClusters },
+          result: newResult
+        };
+      }
+      return run;
+    });
+
+    set({ result: newResult, savedRuns: newSavedRuns });
   },
 
   exportProject: () => {
     const state = get();
     const projectData = {
-      version: '1.0',
+      version: '2.1',
+      activeTab: state.activeTab,
+      fileName: state.fileName,
       config: state.config,
       dataMatrix: state.dataMatrix,
       originalDataMatrix: state.originalDataMatrix,
@@ -762,6 +1018,13 @@ export const useSomStore = create<SOMState>((set, get) => ({
       matrixOrigin: state.matrixOrigin,
       labels: state.labels,
       compNames: state.compNames,
+
+      // Experiment History (Multi-Training Runs)
+      savedRuns: state.savedRuns,
+      activeRunId: state.activeRunId,
+      pendingProvenance: state.pendingProvenance,
+
+      // Preprocessed Bibliometrics
       documentCount: state.documentCount,
       termCounts: state.termCounts,
       network: state.network,
@@ -771,7 +1034,57 @@ export const useSomStore = create<SOMState>((set, get) => ({
       pendingNetworkOrigin: state.pendingNetworkOrigin,
       result: state.result,
       isCmaSmoothingActive: state.isCmaSmoothingActive,
-      cmaWindowSize: state.cmaWindowSize
+      cmaWindowSize: state.cmaWindowSize,
+
+      // Semantic Bibliometrics
+      semanticRecords: state.semanticRecords,
+      semanticEmbeddings: state.semanticEmbeddings,
+      semanticIntrinsicData: state.semanticIntrinsicData,
+      semantic2DCoords: state.semantic2DCoords,
+      semanticClusters: state.semanticClusters,
+      semanticClusterAssignment: state.semanticClusterAssignment,
+      semanticTargetD: state.semanticTargetD,
+      semanticNumLevels: state.semanticNumLevels,
+      semanticMinSize: state.semanticMinSize,
+      semanticCeilingResult: state.semanticCeilingResult,
+      semanticManualAlgo: state.semanticManualAlgo,
+      semanticManualResult: state.semanticManualResult,
+      semanticFileName: state.semanticFileName,
+      semanticEmbedModel: state.semanticEmbedModel,
+
+      // InCites Explorer State
+      incitesUnitNames: state.incitesUnitNames,
+      incitesUnitCache: state.incitesUnitCache,
+      incitesActiveUnit: state.incitesActiveUnit,
+      incitesSidebarTab: state.incitesSidebarTab,
+
+      // Dimensionality Reduction State
+      dimData: state.dimData,
+      dimFileName: state.dimFileName,
+      dimCeilingResult: state.dimCeilingResult,
+      dimManualAlgo: state.dimManualAlgo,
+      dimManualResult: state.dimManualResult,
+      dimTargetD: state.dimTargetD,
+      dimReducedData: state.dimReducedData,
+
+      // PathSOM / Trajectories & Customizations
+      activeTrajectories: Array.from(state.activeTrajectories || []),
+      trajectoryLineWidth: state.trajectoryLineWidth,
+      isTrajectoriesExpanded: state.isTrajectoriesExpanded,
+      entityColorOverrides: state.entityColorOverrides,
+      showLabelsOnUmapScatter: state.showLabelsOnUmapScatter,
+
+      // UI Preferences
+      exploSubTab: state.exploSubTab,
+      exploUmapColorScale: state.exploUmapColorScale,
+      exploSomColorScale: state.exploSomColorScale,
+      biblioActiveView: state.biblioActiveView,
+      biblioSelectedYear: state.biblioSelectedYear,
+      showLabels: state.showLabels,
+      labelSearchQuery: state.labelSearchQuery,
+      excludedLabels: Array.from(state.excludedLabels || []),
+      maxLabelsPerNeuron: state.maxLabelsPerNeuron,
+      showLabelsOnComponents: state.showLabelsOnComponents
     };
 
     const jsonString = JSON.stringify(projectData);
@@ -790,8 +1103,10 @@ export const useSomStore = create<SOMState>((set, get) => ({
   importProject: (fileContent: string) => {
     try {
       const projectData = JSON.parse(fileContent);
-      if (projectData.version === '1.0' || projectData.config) {
+      if (projectData.version || projectData.config) {
         set({
+          activeTab: projectData.activeTab || get().activeTab,
+          fileName: projectData.fileName ?? null,
           config: projectData.config || get().config,
           dataMatrix: projectData.dataMatrix || [],
           originalDataMatrix: projectData.originalDataMatrix || null,
@@ -799,6 +1114,13 @@ export const useSomStore = create<SOMState>((set, get) => ({
           matrixOrigin: projectData.matrixOrigin || 'csv',
           labels: projectData.labels || [],
           compNames: projectData.compNames || [],
+
+          // Experiment History (Multi-Training Runs)
+          savedRuns: projectData.savedRuns || [],
+          activeRunId: projectData.activeRunId || null,
+          pendingProvenance: projectData.pendingProvenance || null,
+
+          // Preprocessed Bibliometrics
           documentCount: projectData.documentCount || 0,
           termCounts: projectData.termCounts || {},
           network: projectData.network || null,
@@ -808,7 +1130,57 @@ export const useSomStore = create<SOMState>((set, get) => ({
           pendingNetworkOrigin: projectData.pendingNetworkOrigin || null,
           result: projectData.result || null,
           isCmaSmoothingActive: projectData.isCmaSmoothingActive || false,
-          cmaWindowSize: projectData.cmaWindowSize || 3
+          cmaWindowSize: projectData.cmaWindowSize || 3,
+
+          // Semantic Bibliometrics
+          semanticRecords: projectData.semanticRecords || null,
+          semanticEmbeddings: projectData.semanticEmbeddings || null,
+          semanticIntrinsicData: projectData.semanticIntrinsicData || null,
+          semantic2DCoords: projectData.semantic2DCoords || null,
+          semanticClusters: projectData.semanticClusters || null,
+          semanticClusterAssignment: projectData.semanticClusterAssignment || null,
+          semanticTargetD: projectData.semanticTargetD ?? 2,
+          semanticNumLevels: projectData.semanticNumLevels ?? 2,
+          semanticMinSize: projectData.semanticMinSize ?? 5,
+          semanticCeilingResult: projectData.semanticCeilingResult || null,
+          semanticManualAlgo: projectData.semanticManualAlgo || 'pca',
+          semanticManualResult: projectData.semanticManualResult || null,
+          semanticFileName: projectData.semanticFileName || '',
+          semanticEmbedModel: projectData.semanticEmbedModel || 'nomic',
+
+          // InCites Explorer State
+          incitesUnitNames: projectData.incitesUnitNames || null,
+          incitesUnitCache: projectData.incitesUnitCache || {},
+          incitesActiveUnit: projectData.incitesActiveUnit || null,
+          incitesSidebarTab: projectData.incitesSidebarTab || 'profiles',
+
+          // Dimensionality Reduction State
+          dimData: projectData.dimData || null,
+          dimFileName: projectData.dimFileName || '',
+          dimCeilingResult: projectData.dimCeilingResult || null,
+          dimManualAlgo: projectData.dimManualAlgo || 'pca',
+          dimManualResult: projectData.dimManualResult || null,
+          dimTargetD: projectData.dimTargetD ?? 2,
+          dimReducedData: projectData.dimReducedData || null,
+
+          // PathSOM / Trajectories & Customizations
+          activeTrajectories: new Set(projectData.activeTrajectories || []),
+          trajectoryLineWidth: projectData.trajectoryLineWidth ?? 2,
+          isTrajectoriesExpanded: projectData.isTrajectoriesExpanded ?? false,
+          entityColorOverrides: projectData.entityColorOverrides || {},
+          showLabelsOnUmapScatter: projectData.showLabelsOnUmapScatter ?? true,
+
+          // UI Preferences
+          exploSubTab: projectData.exploSubTab || 'import',
+          exploUmapColorScale: projectData.exploUmapColorScale || 'standard',
+          exploSomColorScale: projectData.exploSomColorScale || 'standard',
+          biblioActiveView: projectData.biblioActiveView || 'graph',
+          biblioSelectedYear: projectData.biblioSelectedYear || 'all',
+          showLabels: projectData.showLabels ?? true,
+          labelSearchQuery: projectData.labelSearchQuery || '',
+          excludedLabels: new Set(projectData.excludedLabels || []),
+          maxLabelsPerNeuron: projectData.maxLabelsPerNeuron ?? 3,
+          showLabelsOnComponents: projectData.showLabelsOnComponents ?? false
         });
       } else {
         alert('Invalid or corrupted .knoMap file format.');

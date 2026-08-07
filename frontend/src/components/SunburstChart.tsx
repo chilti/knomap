@@ -1,5 +1,82 @@
 import React, { useMemo, useState, Component } from 'react';
 
+export const exportSunburstAsSVG = (containerId: string, filename: string) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const svgElement = container.querySelector('svg');
+    if (!svgElement) return;
+
+    const clonedSvg = svgElement.cloneNode(true) as SVGElement;
+    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', '100%');
+    rect.setAttribute('height', '100%');
+    rect.setAttribute('fill', '#0f172a');
+    clonedSvg.insertBefore(rect, clonedSvg.firstChild);
+
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(clonedSvg);
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
+export const exportSunburstAsPNG = (containerId: string, filename: string) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const svgElement = container.querySelector('svg');
+    if (!svgElement) return;
+
+    const bbox = svgElement.getBoundingClientRect();
+    const width = bbox.width || 800;
+    const height = bbox.height || 500;
+
+    const clonedSvg = svgElement.cloneNode(true) as SVGElement;
+    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clonedSvg.setAttribute('width', String(width));
+    clonedSvg.setAttribute('height', String(height));
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', '100%');
+    rect.setAttribute('height', '100%');
+    rect.setAttribute('fill', '#0f172a');
+    clonedSvg.insertBefore(rect, clonedSvg.firstChild);
+
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(clonedSvg);
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+        const scale = 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = width * scale;
+        canvas.height = height * scale;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.scale(scale, scale);
+            ctx.drawImage(img, 0, 0, width, height);
+            const pngUrl = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = pngUrl;
+            link.download = `${filename}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(url);
+    };
+    img.src = url;
+};
+
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 class SunburstErrorBoundary extends Component<
     { children: React.ReactNode },
@@ -29,10 +106,6 @@ class SunburstErrorBoundary extends Component<
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 
 function tropicColor(t: number): string {
-    // Tropic-like diverging scale
-    // 0.0: Teal (0, 155, 158)
-    // 0.5: Light Gray (220, 220, 220)
-    // 1.0: Salmon/Red (241, 148, 138)
     const low  = [0, 155, 158];
     const mid  = [220, 220, 220];
     const high = [241, 148, 138];
@@ -288,7 +361,7 @@ const SunburstInner: React.FC<{ data: SunburstData }> = ({ data }) => {
             </div>
 
             {/* SVG */}
-            <div className="relative flex justify-center">
+            <div className="relative flex justify-center" id="sunburst-chart-container">
                 <svg
                     width={SIZE} height={SIZE}
                     viewBox={`0 0 ${SIZE} ${SIZE}`}

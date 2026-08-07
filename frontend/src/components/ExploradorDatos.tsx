@@ -18,6 +18,16 @@ import {
   ChevronRight,
   Download
 } from 'lucide-react';
+import { 
+  RadarChart, 
+  PolarGrid, 
+  PolarAngleAxis, 
+  PolarRadiusAxis, 
+  Radar, 
+  Legend, 
+  Tooltip as RechartsTooltip, 
+  ResponsiveContainer 
+} from 'recharts';
 import { BoxPlot } from './BoxPlot';
 import { MallaHexagonal, type Trajectory } from './MallaHexagonal';
 import { UmapHeatmap } from './UmapHeatmap';
@@ -66,6 +76,12 @@ export const ExploradorDatos: React.FC = () => {
     exploSubTab, setExploSubTab,
     exploUmapColorScale, setExploUmapColorScale,
     exploSomColorScale, setExploSomColorScale,
+    savedRuns,
+    activeRunId,
+    setActiveRunId,
+    deleteRun,
+    renameRun,
+    incitesIsUploading,
   } = useSomStore();
 
   // Alias store names to match local usage in JSX
@@ -80,6 +96,9 @@ export const ExploradorDatos: React.FC = () => {
   const [labelIndex, setLabelIndex] = useState(0);
   const [hoveredUmapDot, setHoveredUmapDot] = useState<number | null>(null);
   
+  const [editingRunId, setEditingRunId] = useState<string | null>(null);
+  const [editingRunName, setEditingRunName] = useState<string>('');
+
   const [clusterMetricsData, setClusterMetricsData] = useState<MetricResult[] | null>(null);
   const [isAnalyzingClusters, setIsAnalyzingClusters] = useState(false);
   const [clusterMetricsError, setClusterMetricsError] = useState<string | null>(null);
@@ -127,11 +146,12 @@ export const ExploradorDatos: React.FC = () => {
   }, []);
 
   const analyzeClusters = async () => {
-    if (!result || !result.weights) return;
+    const currentResult = useSomStore.getState().result;
+    if (!currentResult || !currentResult.weights) return;
     setIsAnalyzingClusters(true);
     setClusterMetricsError(null);
     try {
-      const payload = { weights: result.weights, max_k: 15 };
+      const payload = { weights: currentResult.weights, max_k: 15 };
       const apiUrl = getApiUrl('/api/som/evaluate_clusters');
       const res = await fetch(apiUrl, {
         method: 'POST',
@@ -152,8 +172,21 @@ export const ExploradorDatos: React.FC = () => {
     }
   };
 
-  // --- PATHSOM STATE ---
-  // State is now managed globally in useSomStore() to persist across tabs.
+  // Auto-calculate cluster metrics whenever a SOM result exists and metrics haven't been calculated yet
+  useEffect(() => {
+    if (result && result.weights && config.clusteringAlgorithm === 'agglomerative' && !clusterMetricsData && !isAnalyzingClusters) {
+      analyzeClusters();
+    }
+  }, [result, config.clusteringAlgorithm]);
+
+  // Reset cluster metrics data when active run changes
+  useEffect(() => {
+    if (result && result.weights && config.clusteringAlgorithm === 'agglomerative') {
+      analyzeClusters();
+    } else {
+      setClusterMetricsData(null);
+    }
+  }, [activeRunId]);
 
   // Determine if the current dataset has trajectories (temporal data)
   const hasTrajectories = useMemo(() => {
@@ -197,6 +230,145 @@ export const ExploradorDatos: React.FC = () => {
 
   // --- END PATHSOM STATE ---
 
+  // Handler when clicking a neuron in any hex grid map: auto-select its cluster for the radar
+  const handleNeuronClick = (neuronIdx: number) => {
+    if (result && result.clustering && result.clustering[neuronIdx] !== undefined) {
+      const cId = result.clustering[neuronIdx];
+      if (cId !== -1) {
+        setSelectedClusterId(cId);
+      }
+    }
+  };
+  const [selectedClusterId, setSelectedClusterId] = useState<number>(0);
+  const [selectedRadarUnits, setSelectedRadarUnits] = useState<string[]>([]);
+
+  // Derive unique clusters available in trained result
+  const availableClusterIds = useMemo(() => {
+    if (!result || !result.clustering) return [];
+    const set = new Set<number>();
+    result.clustering.forEach(c => {
+      if (c !== -1) set.add(c);
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [result]);
+
+  // Ensure selectedClusterId is valid when availableClusterIds changes
+  useEffect(() => {
+    if (availableClusterIds.length > 0 && !availableClusterIds.includes(selectedClusterId)) {
+      setSelectedClusterId(availableClusterIds[0]);
+    }
+  }, [availableClusterIds, selectedClusterId]);
+
+  // Compute Cluster Centroid and all Units belonging to/nearest to cluster, ordered by distance
+  const clusterCalculations = useMemo(() => {
+    if (!result || !result.weights || !result.clustering || !dataMatrix || dataMatrix.length === 0 || compNames.length === 0) {
+      return { centroidVector: [], unitsOrderedByDist: [] };
+    }
+
+    const { weights, clustering, bmus } = result;
+    const numFeatures = compNames.length;
+
+    // 1. Find neuron indices belonging to selectedClusterId
+    const clusterNeuronSet = new Set<number>();
+    const clusterNeuronIndices: number[] = [];
+    clustering.forEach((cId, idx) => {
+      if (cId === selectedClusterId) {
+        clusterNeuronSet.add(idx);
+        clusterNeuronIndices.push(idx);
+      }
+    });
+
+    if (clusterNeuronIndices.length === 0) {
+      return { centroidVector: [], unitsOrderedByDist: [] };
+    }
+
+    // 2. Compute Centroid Vector (Average of weight vectors of neurons in cluster)
+    const centroidVector = new Array(numFeatures).fill(0);
+    clusterNeuronIndices.forEach(nIdx => {
+      const w = weights[nIdx];
+      for (let f = 0; f < numFeatures; f++) {
+        centroidVector[f] += w[f];
+      }
+    });
+    for (let f = 0; f < numFeatures; f++) {
+      centroidVector[f] /= clusterNeuronIndices.length;
+    }
+
+    // 3. Find samples mapped to this cluster (via BMU in clusterNeuronSet) or all samples
+    // Calculate distance of each sample to centroid
+    const mappedUnits = dataMatrix.map((row, sampleIdx) => {
+      const bmu = bmus ? bmus[sampleIdx] : -1;
+      const belongsToCluster = bmu !== -1 && clusterNeuronSet.has(bmu);
+      
+      let sumSq = 0;
+      for (let f = 0; f < numFeatures; f++) {
+        const diff = (row[f] ?? 0) - centroidVector[f];
+        sumSq += diff * diff;
+      }
+      return {
+        sampleIdx,
+        label: labels[sampleIdx] || `Entity ${sampleIdx + 1}`,
+        distance: Math.sqrt(sumSq),
+        belongsToCluster,
+        row
+      };
+    });
+
+    // Filter to units assigned to cluster neurons first
+    const clusterOnly = mappedUnits.filter(u => u.belongsToCluster).sort((a, b) => a.distance - b.distance);
+
+    // Fallback if no samples mapped to cluster neurons: sort all samples by distance
+    const finalUnitsList = clusterOnly.length > 0 ? clusterOnly : mappedUnits.sort((a, b) => a.distance - b.distance);
+
+    return {
+      centroidVector,
+      unitsOrderedByDist: finalUnitsList
+    };
+  }, [result, dataMatrix, labels, compNames, selectedClusterId]);
+
+  // When cluster changes, auto-select Top 2 closest units by default
+  useEffect(() => {
+    const top2 = clusterCalculations.unitsOrderedByDist.slice(0, 2).map(u => u.label);
+    setSelectedRadarUnits(top2);
+  }, [selectedClusterId, clusterCalculations.unitsOrderedByDist]);
+
+  // Construct Radar Chart Data
+  const clusterRadarData = useMemo(() => {
+    if (clusterCalculations.centroidVector.length === 0 || compNames.length === 0) {
+      return { chartData: [], activeUnits: [] };
+    }
+
+    const { centroidVector, unitsOrderedByDist } = clusterCalculations;
+
+    // Filter units that are currently selected by user
+    const selectedUnitObjects = unitsOrderedByDist.filter(u => selectedRadarUnits.includes(u.label));
+
+    const colorsList = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#a855f7'];
+
+    const activeUnits = selectedUnitObjects.map((u, idx) => ({
+      name: u.label,
+      distance: u.distance,
+      color: colorsList[idx % colorsList.length],
+      row: u.row
+    }));
+
+    const chartData = compNames.map((indicatorName, fIdx) => {
+      const item: Record<string, any> = {
+        indicator: indicatorName,
+        Centroid: Number((centroidVector[fIdx] ?? 0).toFixed(3))
+      };
+      activeUnits.forEach(u => {
+        item[u.name] = Number((u.row[fIdx] ?? 0).toFixed(3));
+      });
+      return item;
+    });
+
+    return {
+      chartData,
+      activeUnits
+    };
+  }, [clusterCalculations, compNames, selectedRadarUnits]);
+
   useEffect(() => {
     fetchSystemStatus();
   }, []);
@@ -223,7 +395,6 @@ export const ExploradorDatos: React.FC = () => {
       const json = await res.json();
       if (json.success && json.clustering) {
         reclusterLocally(json.clustering);
-        setSubTab('maps');
       } else {
         const errMsg = json.error || json.title || json.detail || JSON.stringify(json);
         alert(typeof errMsg === 'string' ? errMsg : "Failed to re-cluster");
@@ -260,6 +431,23 @@ export const ExploradorDatos: React.FC = () => {
     reader.readAsText(file);
   };
 
+  // Helper: read current theme and return colors for standalone popup windows
+  const getPopupTheme = () => {
+    const t = localStorage.getItem('labsom-theme') || 'dark';
+    if (t === 'light') return {
+      bg: '#eef2f7', card: '#f8fafc', border: '#e2e8f0',
+      text: '#1e293b', textSub: '#334155', accent: '#2563eb', accentSub: '#1d4ed8'
+    };
+    if (t === 'navy') return {
+      bg: '#0d1b2a', card: '#112030', border: '#1a2e44',
+      text: '#d0e8ff', textSub: '#90b8d8', accent: '#00f0ff', accentSub: '#00a2ff'
+    };
+    return {
+      bg: '#050508', card: '#0e121a', border: '#1e293b',
+      text: '#cbd5e1', textSub: '#94a3b8', accent: '#00F0FF', accentSub: '#0088ff'
+    };
+  };
+
   // Legacy Popup SVG cloner stand-alone window for MallaHexagonal
   const openMapPopup = (id: string, mapTitle: string) => {
     const container = document.getElementById(id);
@@ -274,10 +462,11 @@ export const ExploradorDatos: React.FC = () => {
     
     // Scale up the clone for presentation in the standalone window
     clonedSvg.setAttribute('width', '100%');
-    clonedSvg.setAttribute('height', '90%');
+    clonedSvg.setAttribute('height', '100%');
+    clonedSvg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
     // Create popup window
-    const popup = window.open("", "_blank", "width=850,height=750,resizable=yes,scrollbars=yes");
+    const popup = window.open("", "_blank", "width=1000,height=800,resizable=yes,scrollbars=yes");
     if (!popup) {
       alert("Popup blocker active. Please allow popups for knoMap to open stand-alone charts.");
       return;
@@ -290,39 +479,37 @@ export const ExploradorDatos: React.FC = () => {
           <title>knoMap - Standalone Chart</title>
           <style>
             body {
-              background-color: #050508;
-              color: #cbd5e1;
+              background-color: ${getPopupTheme().bg};
+              color: ${getPopupTheme().text};
               font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
               margin: 0;
-              padding: 24px;
+              padding: 20px;
               display: flex;
               flex-direction: column;
-              align-items: center;
-              justify-content: center;
               height: 100vh;
               overflow: hidden;
               box-sizing: border-box;
             }
             .header-bar {
               width: 100%;
-              max-width: 800px;
               display: flex;
               align-items: center;
               justify-content: space-between;
-              border-bottom: 1px solid #1e293b;
+              border-bottom: 1px solid ${getPopupTheme().border};
               padding-bottom: 12px;
-              margin-bottom: 20px;
+              margin-bottom: 16px;
+              flex-shrink: 0;
             }
             .title {
               font-size: 16px;
               font-weight: 900;
               text-transform: uppercase;
               letter-spacing: 0.05em;
-              color: #ffffff;
+              color: ${getPopupTheme().text};
             }
             .subtitle {
               font-size: 11px;
-              color: #00F0FF;
+              color: ${getPopupTheme().accent};
               font-weight: bold;
               text-transform: uppercase;
               letter-spacing: 0.1em;
@@ -330,29 +517,39 @@ export const ExploradorDatos: React.FC = () => {
             .chart-container {
               flex: 1;
               width: 100%;
-              max-width: 800px;
+              height: 100%;
               display: flex;
               align-items: center;
               justify-content: center;
-              background-color: #0e121a;
-              border: 1px solid #181f2b;
+              background-color: ${getPopupTheme().card};
+              border: 1px solid ${getPopupTheme().border};
               border-radius: 16px;
               padding: 20px;
               box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
               overflow: hidden;
+              box-sizing: border-box;
             }
             svg {
+              width: 100%;
+              height: 100%;
               max-width: 100%;
               max-height: 100%;
               filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
+              cursor: grab;
             }
+            svg.dragging { cursor: grabbing; }
             polygon {
               transition: opacity 0.15s ease;
             }
             polygon:hover {
               opacity: 1 !important;
-              stroke: #ffffff !important;
+              stroke: ${getPopupTheme().text} !important;
               stroke-width: 1.5px !important;
+            }
+            .zoom-hint {
+              position: fixed; bottom: 12px; right: 16px;
+              font-size: 10px; color: ${getPopupTheme().textSub};
+              opacity: 0.6; pointer-events: none;
             }
           </style>
         </head>
@@ -361,9 +558,46 @@ export const ExploradorDatos: React.FC = () => {
             <span class="title">${mapTitle}</span>
             <span class="subtitle">knoMap Premium Export</span>
           </div>
-          <div class="chart-container">
+          <div class="chart-container" id="zoomWrap">
             ${clonedSvg.outerHTML}
           </div>
+          <div class="zoom-hint">Scroll to zoom · Drag to pan · Double-click to reset</div>
+          <script>
+            (function() {
+              const wrap = document.getElementById('zoomWrap');
+              const svg  = wrap.querySelector('svg');
+              let scale = 1, tx = 0, ty = 0;
+              let dragging = false, startX = 0, startY = 0;
+
+              function apply() {
+                svg.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+                svg.style.transformOrigin = '50% 50%';
+              }
+
+              wrap.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                scale = Math.min(10, Math.max(0.2, scale * delta));
+                apply();
+              }, { passive: false });
+
+              wrap.addEventListener('mousedown', function(e) {
+                dragging = true; startX = e.clientX - tx; startY = e.clientY - ty;
+                svg.classList.add('dragging');
+              });
+              window.addEventListener('mousemove', function(e) {
+                if (!dragging) return;
+                tx = e.clientX - startX; ty = e.clientY - startY;
+                apply();
+              });
+              window.addEventListener('mouseup', function() {
+                dragging = false; svg.classList.remove('dragging');
+              });
+              wrap.addEventListener('dblclick', function() {
+                scale = 1; tx = 0; ty = 0; apply();
+              });
+            })();
+          </script>
         </body>
       </html>
     `);
@@ -388,28 +622,68 @@ export const ExploradorDatos: React.FC = () => {
         <head><title>UMAP Dimensional Projection — knoMap</title>
         <style>
           * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { background: #050508; display: flex; flex-direction: column;
+          body { background: ${getPopupTheme().bg}; display: flex; flex-direction: column;
                  height: 100vh; overflow: hidden;
-                 font-family: ui-sans-serif, system-ui, sans-serif; color: #cbd5e1; }
+                 font-family: ui-sans-serif, system-ui, sans-serif; color: ${getPopupTheme().text}; }
           .header { display: flex; align-items: center; justify-content: space-between;
-                    padding: 14px 20px; border-bottom: 1px solid #1e293b; flex-shrink: 0; }
+                    padding: 14px 20px; border-bottom: 1px solid ${getPopupTheme().border}; flex-shrink: 0; }
           .title { font-size: 14px; font-weight: 900; text-transform: uppercase;
-                   letter-spacing: .08em; color: #fff; }
-          .sub { font-size: 10px; color: #00F0FF; font-weight: 700;
+                   letter-spacing: .08em; color: ${getPopupTheme().text}; }
+          .sub { font-size: 10px; color: ${getPopupTheme().accent}; font-weight: 700;
                  text-transform: uppercase; letter-spacing: .12em; }
-          .chart { flex: 1; background: #0e121a; overflow: hidden;
+          .chart { flex: 1; background: ${getPopupTheme().card}; overflow: hidden;
                    margin: 12px; border-radius: 12px;
                    box-shadow: 0 25px 50px -12px rgba(0,0,0,.5);
-                   display: flex; align-items: stretch; justify-content: stretch; }
-          .chart svg { width: 100% !important; height: 100% !important; display: block; }
+                   display: flex; align-items: stretch; justify-content: stretch;
+                   position: relative; }
+          .chart svg { width: 100% !important; height: 100% !important; display: block; cursor: grab; }
+          .chart svg.dragging { cursor: grabbing !important; }
           circle { cursor: default !important; }
+          .zoom-hint { position: absolute; bottom: 10px; right: 14px;
+                       font-size: 10px; color: ${getPopupTheme().textSub};
+                       opacity: 0.55; pointer-events: none; }
         </style></head>
         <body>
           <div class="header">
             <span class="title">UMAP Dimensional Projection (2D)</span>
             <span class="sub">knoMap — Premium Export</span>
           </div>
-          <div class="chart">${cloned.outerHTML}</div>
+          <div class="chart" id="zoomWrap">
+            ${cloned.outerHTML}
+            <div class="zoom-hint">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</div>
+          </div>
+          <script>
+            (function() {
+              const wrap = document.getElementById('zoomWrap');
+              const svg  = wrap.querySelector('svg');
+              let scale = 1, tx = 0, ty = 0;
+              let dragging = false, startX = 0, startY = 0;
+              function apply() {
+                svg.style.transform = 'translate('+tx+'px,'+ty+'px) scale('+scale+')';
+                svg.style.transformOrigin = '50% 50%';
+              }
+              wrap.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                const d = e.deltaY > 0 ? 0.88 : 1.12;
+                scale = Math.min(12, Math.max(0.15, scale * d));
+                apply();
+              }, { passive: false });
+              wrap.addEventListener('mousedown', function(e) {
+                dragging = true; startX = e.clientX - tx; startY = e.clientY - ty;
+                svg.classList.add('dragging');
+              });
+              window.addEventListener('mousemove', function(e) {
+                if (!dragging) return;
+                tx = e.clientX - startX; ty = e.clientY - startY; apply();
+              });
+              window.addEventListener('mouseup', function() {
+                dragging = false; svg.classList.remove('dragging');
+              });
+              wrap.addEventListener('dblclick', function() {
+                scale = 1; tx = 0; ty = 0; apply();
+              });
+            })();
+          </script>
         </body>
       </html>`);
     popup.document.close();
@@ -625,26 +899,66 @@ export const ExploradorDatos: React.FC = () => {
         <head><title>${name} — UMAP Heatmap — knoMap</title>
         <style>
           * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { background: #050508; display: flex; flex-direction: column;
+          body { background: ${getPopupTheme().bg}; display: flex; flex-direction: column;
                  height: 100vh; overflow: hidden;
-                 font-family: ui-sans-serif, system-ui, sans-serif; color: #cbd5e1; }
+                 font-family: ui-sans-serif, system-ui, sans-serif; color: ${getPopupTheme().text}; }
           .header { width: 100%; display: flex; align-items: center; justify-content: space-between;
-                    padding: 14px 24px; border-bottom: 1px solid #1e293b; flex-shrink: 0; }
+                    padding: 14px 24px; border-bottom: 1px solid ${getPopupTheme().border}; flex-shrink: 0; }
           .title { font-size: 14px; font-weight: 900; text-transform: uppercase;
-                   letter-spacing: .08em; color: #fff; }
-          .sub { font-size: 10px; color: #00F0FF; font-weight: 700;
+                   letter-spacing: .08em; color: ${getPopupTheme().text}; }
+          .sub { font-size: 10px; color: ${getPopupTheme().accent}; font-weight: 700;
                  text-transform: uppercase; letter-spacing: .12em; }
-          .chart { flex: 1; background: #0e121a;
+          .chart { flex: 1; background: ${getPopupTheme().card};
                    box-shadow: 0 25px 50px -12px rgba(0,0,0,.5);
-                   display: flex; align-items: stretch; justify-content: stretch; }
-          img { width: 100%; height: 100%; object-fit: contain; display: block; }
+                   display: flex; align-items: center; justify-content: center;
+                   position: relative; overflow: hidden; margin: 12px; border-radius: 12px; }
+          img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; cursor: grab; }
+          img.dragging { cursor: grabbing !important; }
+          .zoom-hint { position: absolute; bottom: 10px; right: 14px;
+                       font-size: 10px; color: ${getPopupTheme().textSub};
+                       opacity: 0.55; pointer-events: none; }
         </style></head>
         <body>
           <div class="header">
             <span class="title">${name}</span>
             <span class="sub">UMAP Variable Heatmap — knoMap</span>
           </div>
-          <div class="chart"><img src="${dataUrl}" /></div>
+          <div class="chart" id="zoomWrap">
+            <img id="heatmapImg" src="${dataUrl}" />
+            <div class="zoom-hint">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</div>
+          </div>
+          <script>
+            (function() {
+              const wrap = document.getElementById('zoomWrap');
+              const img  = document.getElementById('heatmapImg');
+              let scale = 1, tx = 0, ty = 0;
+              let dragging = false, startX = 0, startY = 0;
+              function apply() {
+                img.style.transform = 'translate('+tx+'px,'+ty+'px) scale('+scale+')';
+                img.style.transformOrigin = '50% 50%';
+              }
+              wrap.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                const d = e.deltaY > 0 ? 0.88 : 1.12;
+                scale = Math.min(12, Math.max(0.2, scale * d));
+                apply();
+              }, { passive: false });
+              wrap.addEventListener('mousedown', function(e) {
+                dragging = true; startX = e.clientX - tx; startY = e.clientY - ty;
+                img.classList.add('dragging');
+              });
+              window.addEventListener('mousemove', function(e) {
+                if (!dragging) return;
+                tx = e.clientX - startX; ty = e.clientY - startY; apply();
+              });
+              window.addEventListener('mouseup', function() {
+                dragging = false; img.classList.remove('dragging');
+              });
+              wrap.addEventListener('dblclick', function() {
+                scale = 1; tx = 0; ty = 0; apply();
+              });
+            })();
+          </script>
         </body>
       </html>`);
     popup.document.close();
@@ -961,6 +1275,145 @@ export const ExploradorDatos: React.FC = () => {
     );
   };
 
+  const renderExperimentHistoryBar = () => {
+    if (savedRuns.length === 0) return null;
+
+    // Check if multiple runs originate from the same unit/dataset
+    const unitCounts: Record<string, number> = {};
+    savedRuns.forEach(r => {
+      const key = r.provenance?.unitName || 'Dataset';
+      unitCounts[key] = (unitCounts[key] || 0) + 1;
+    });
+    const repeatedUnits = Object.entries(unitCounts).filter(([_, count]) => count > 1).map(([name]) => name);
+
+    return (
+      <div className="bg-gray-900/90 border border-gray-800/80 rounded-2xl p-3 space-y-3 shadow-xl backdrop-blur-md">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+            <span className="text-[11px] font-black uppercase tracking-wider text-gray-300">
+              SOM Training Experiments ({savedRuns.length})
+            </span>
+            <span className="text-[10px] text-gray-500 italic">Click a model to swap dashboard maps instantly</span>
+          </div>
+
+          {repeatedUnits.length > 0 && (
+            <div className="flex items-center space-x-1.5 bg-amber-950/40 border border-amber-500/30 text-amber-300 px-2.5 py-1 rounded-full text-[10px] font-medium">
+              <span>💡</span>
+              <span>
+                <strong>{repeatedUnits.join(', ')}</strong> tiene múltiples modelos guardados. Renómbralos para distinguirlos fácilmente.
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-gray-800">
+          {savedRuns.map((run) => {
+            const isActive = activeRunId === run.id;
+            const isEditing = editingRunId === run.id;
+            const originType = run.provenance?.originType || 'csv_upload';
+            
+            let icon = '📄';
+            if (originType === 'incites') icon = '📊';
+            else if (originType === 'bibliometrics') icon = '📚';
+            else if (originType === 'dimreduction') icon = '🧪';
+
+            return (
+              <div
+                key={run.id}
+                onClick={() => {
+                  if (!isEditing && !isActive) setActiveRunId(run.id);
+                }}
+                className={`flex-shrink-0 flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs transition-all cursor-pointer border ${
+                  isActive
+                    ? 'bg-indigo-950/70 border-indigo-500 text-white shadow-md shadow-indigo-950/50 ring-1 ring-indigo-500/50'
+                    : 'bg-gray-950/60 border-gray-800/80 text-gray-400 hover:border-gray-700 hover:bg-gray-900/80 hover:text-gray-200'
+                }`}
+              >
+                <span className="text-base leading-none">{icon}</span>
+                
+                <div className="flex flex-col min-w-0">
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editingRunName}
+                      onChange={(e) => setEditingRunName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          if (editingRunName.trim()) renameRun(run.id, editingRunName.trim());
+                          setEditingRunId(null);
+                        } else if (e.key === 'Escape') {
+                          setEditingRunId(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (editingRunName.trim()) renameRun(run.id, editingRunName.trim());
+                        setEditingRunId(null);
+                      }}
+                      autoFocus
+                      className="bg-gray-900 border border-indigo-500 text-white px-1.5 py-0.5 rounded text-xs font-medium focus:outline-none max-w-[180px]"
+                    />
+                  ) : (
+                    <div className="flex items-center space-x-1.5">
+                      <span className="font-bold truncate max-w-[170px]" title={run.name}>
+                        {run.name}
+                      </span>
+                      {isActive && (
+                        <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 text-[9px] font-black uppercase rounded border border-emerald-500/40">
+                          ACTIVE
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center space-x-2 text-[10px] text-gray-500 font-mono">
+                    <span>{run.config.rows}x{run.config.cols}</span>
+                    <span>&middot;</span>
+                    <span>{run.compNames.length} ind</span>
+                    {run.isCmaSmoothingActive && (
+                      <>
+                        <span>&middot;</span>
+                        <span className="text-emerald-400">CMA</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-1 pl-1 border-l border-gray-800/80">
+                  {!isEditing && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingRunId(run.id);
+                        setEditingRunName(run.name);
+                      }}
+                      title="Rename experiment"
+                      className="p-1 text-gray-500 hover:text-indigo-300 rounded transition-colors"
+                    >
+                      ✏️
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`¿Eliminar el entrenamiento '${run.name}'?`)) {
+                        deleteRun(run.id);
+                      }
+                    }}
+                    title="Delete experiment"
+                    className="p-1 text-gray-500 hover:text-red-400 rounded transition-colors"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="flex flex-col h-full space-y-6">
@@ -1007,6 +1460,9 @@ export const ExploradorDatos: React.FC = () => {
           4. UMAP Projections
         </button>
       </div>
+
+      {/* SOM Experiment History Selector Bar */}
+      {renderExperimentHistoryBar()}
 
       {/* RENDER ACTIVE SUBTAB CONTENT */}
       <div className="flex-1">
@@ -1205,18 +1661,34 @@ export const ExploradorDatos: React.FC = () => {
 
               {/* Time-Series Preprocessing (Step 2) */}
               {dataMatrix.length > 0 && hasTrajectories && (
-                <div className="bg-gray-900 border border-indigo-500/30 rounded-2xl p-5 shadow-lg flex flex-col space-y-4 relative">
+                <div className={`border rounded-2xl p-5 shadow-lg flex flex-col space-y-3 relative transition-all ${
+                  isCmaSmoothingActive 
+                    ? 'bg-indigo-950/40 border-indigo-500/60 shadow-indigo-950/40' 
+                    : 'bg-gray-900 border-gray-800'
+                }`}>
                   <div className="absolute -left-3 -top-3 bg-indigo-600 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg uppercase">
                     Step 2
                   </div>
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-indigo-300 flex items-center space-x-2">
-                      <TrendingUp className="w-4 h-4" />
-                      <span>Time-Series Preprocessing (PathSOM)</span>
-                    </h3>
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center space-x-3">
+                      <h3 className="text-sm font-bold text-indigo-300 flex items-center space-x-2">
+                        <TrendingUp className="w-4 h-4 text-indigo-400" />
+                        <span>Time-Series Preprocessing (PathSOM)</span>
+                      </h3>
+                      {isCmaSmoothingActive ? (
+                        <span className="px-2.5 py-0.5 text-[10px] font-black rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center space-x-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>SMOOTHING ACTIVE (Window = {cmaWindowSize})</span>
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-gray-800 text-gray-400 border border-gray-700">
+                          RAW DATA (No Smoothing)
+                        </span>
+                      )}
+                    </div>
                     
                     <div className="flex items-center space-x-3">
-                      <label className="flex items-center cursor-pointer">
+                      <label className="flex items-center cursor-pointer space-x-2">
                         <div className="relative">
                           <input 
                             type="checkbox" 
@@ -1227,16 +1699,30 @@ export const ExploradorDatos: React.FC = () => {
                           <div className={`block w-10 h-6 rounded-full transition-colors ${isCmaSmoothingActive ? 'bg-indigo-600' : 'bg-gray-800'}`}></div>
                           <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${isCmaSmoothingActive ? 'transform translate-x-4' : ''}`}></div>
                         </div>
-                        <span className="ml-3 text-xs font-bold text-gray-300 uppercase">Apply CMA Smoothing</span>
+                        <span className="text-xs font-bold text-gray-200 uppercase tracking-wider">
+                          {isCmaSmoothingActive ? 'CMA Active' : 'Apply CMA Smoothing'}
+                        </span>
                       </label>
                     </div>
                   </div>
 
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    {isCmaSmoothingActive ? (
+                      <span className="text-indigo-300">
+                        ✓ <strong>Centered Moving Average (CMA)</strong> is ENABLED. Feature values across consecutive years are smoothed in real-time before SOM training.
+                      </span>
+                    ) : (
+                      <span>
+                        RAW DATA IN USE. Enable <strong>CMA Smoothing</strong> to reduce short-term temporal noise across years for each entity trajectory.
+                      </span>
+                    )}
+                  </p>
+
                   {isCmaSmoothingActive && (
-                    <div className="flex items-center gap-4 border-t border-gray-800 pt-4">
+                    <div className="flex items-center gap-4 border-t border-gray-800/80 pt-3">
                       <div className="flex-1">
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                          Window Size (Odd numbers): {cmaWindowSize}
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                          Smoothing Window Size (Odd Numbers): <span className="text-indigo-400 font-extrabold text-xs">{cmaWindowSize} steps</span>
                         </label>
                         <input 
                           type="range" 
@@ -1245,11 +1731,11 @@ export const ExploradorDatos: React.FC = () => {
                           step="2" 
                           value={cmaWindowSize}
                           onChange={(e) => setCmaWindowSize(parseInt(e.target.value))}
-                          className="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          className="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                         />
                       </div>
-                      <div className="text-xs text-gray-500 italic max-w-xs leading-tight">
-                        Applies a Centered Moving Average to each entity's feature sequence to smooth temporal noise before training.
+                      <div className="text-[11px] text-gray-500 italic max-w-xs leading-tight">
+                        Applies a centered window of size {cmaWindowSize} across consecutive years per entity.
                       </div>
                     </div>
                   )}
@@ -1351,15 +1837,9 @@ export const ExploradorDatos: React.FC = () => {
                     </div>
 
                     {config.clusteringAlgorithm === 'agglomerative' ? (
-                      <div>
-                        <label className="block text-xs text-gray-400 font-semibold mb-1.5">Target Clusters (K)</label>
-                        <input
-                          type="number"
-                          value={config.nClusters}
-                          onChange={(e) => setConfig({ nClusters: parseInt(e.target.value) || 2 })}
-                          className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
+                      <p className="text-[10px] text-gray-500 leading-normal">
+                        Agglomerative Ward hierarchy. Adjust target K and re-cluster in the Optimization Metrics panel below.
+                      </p>
                     ) : (
                       <div className="flex space-x-2">
                         <div className="flex-1">
@@ -1441,10 +1921,13 @@ export const ExploradorDatos: React.FC = () => {
                   onClick={async () => {
                     const success = await trainSOM();
                     if (success) {
-                      setSubTab('maps');
+                      // Automatically run optimal cluster analysis if agglomerative clustering is active
+                      if (config.clusteringAlgorithm === 'agglomerative') {
+                        analyzeClusters();
+                      }
                     }
                   }}
-                  disabled={isTraining || dataMatrix.length === 0}
+                  disabled={isTraining || dataMatrix.length === 0 || incitesIsUploading}
                   className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 shadow-lg shadow-indigo-900 shadow-opacity-30 cursor-pointer"
                 >
                   {isTraining ? (
@@ -1452,39 +1935,14 @@ export const ExploradorDatos: React.FC = () => {
                       <RefreshCw className="w-4 h-4 animate-spin" />
                       <span>Training SOM...</span>
                     </>
+                  ) : incitesIsUploading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>InCites Processing...</span>
+                    </>
                   ) : (
                     <span>Train SOM</span>
                   )}
-                </button>
-                {config.clusteringAlgorithm === 'agglomerative' && (
-                  <button
-                    onClick={analyzeClusters}
-                    disabled={!result || dataMatrix.length === 0 || isAnalyzingClusters}
-                    title="Train the SOM first to calculate clustering metrics"
-                    className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 border border-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 w-full md:w-auto"
-                  >
-                    {isAnalyzingClusters ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Analyzing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Activity className="w-4 h-4" />
-                        <span>Analyze Optimal Clusters</span>
-                      </>
-                    )}
-                  </button>
-                )}
-                
-                <button
-                  onClick={handleRecluster}
-                  disabled={!result || dataMatrix.length === 0}
-                  title="Apply clustering parameters without retraining"
-                  className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 border border-indigo-600 text-white text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 w-full md:w-auto shadow-md shadow-indigo-900/20"
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                  <span>Apply Fast Re-Clustering</span>
                 </button>
               </div>
             </div>
@@ -1533,7 +1991,15 @@ export const ExploradorDatos: React.FC = () => {
 
             {/* Clustering Metrics Panel (only visible when Agglomerative) */}
             {config.clusteringAlgorithm === 'agglomerative' && (
-              <ClusterMetricsPanel data={clusterMetricsData} loading={isAnalyzingClusters} error={clusterMetricsError} />
+              <ClusterMetricsPanel 
+                data={clusterMetricsData} 
+                loading={isAnalyzingClusters} 
+                error={clusterMetricsError}
+                nClusters={config.nClusters}
+                onNClustersChange={(k) => setConfig({ nClusters: k })}
+                onRecluster={handleRecluster}
+                disabledRecluster={!result || dataMatrix.length === 0}
+              />
             )}
           </div>
         )}
@@ -1543,18 +2009,18 @@ export const ExploradorDatos: React.FC = () => {
           <div className="space-y-8">
             {result ? (
               <>
-                {/* Section A: Side-by-Side U-Matrix and Clustering Maps */}
+                {/* Section A: Top Row - Clustering Map (First Map!) & Cluster Centroid + 2 Nearest Units Radar Chart */}
                 <div className="space-y-4">
                   <h3 className="text-xs uppercase tracking-widest font-black text-gray-400 border-b border-gray-800 pb-2 flex items-center space-x-2">
                     <TrendingUp className="w-4 h-4 text-indigo-400" />
-                    <span>Neural Mapping Matrix comparison</span>
+                    <span>Neural Clustering & Multidimensional Profile Radar</span>
                   </h3>
                   
                   <div className="flex flex-col lg:flex-row gap-6">
                     {/* PathSOM Trajectories Controls (Only if hasTrajectories) */}
                     {hasTrajectories && (
                       <div className="w-full lg:w-64 flex flex-col shrink-0">
-                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-xl flex-1 flex flex-col overflow-hidden h-[420px]">
+                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-xl flex-1 flex flex-col overflow-hidden h-[480px]">
                           <h3 className="text-[11px] font-black uppercase text-indigo-400 flex items-center space-x-1.5 mb-4">
                             <TrendingUp className="w-3.5 h-3.5" />
                             <span>PathSOM Trajectories</span>
@@ -1629,7 +2095,6 @@ export const ExploradorDatos: React.FC = () => {
                                           }}
                                           className="w-3 h-3 bg-gray-900 border-gray-700 rounded text-indigo-500 focus:ring-indigo-500 cursor-pointer"
                                         />
-                                        {/* Color picker swatch */}
                                         <label
                                           title="Change entity color"
                                           className="relative w-4 h-4 rounded-full shrink-0 cursor-pointer shadow-sm overflow-hidden border border-gray-600 hover:border-white transition"
@@ -1650,7 +2115,6 @@ export const ExploradorDatos: React.FC = () => {
                                         <span className={`text-[11px] truncate flex-1 ${isActive ? 'text-gray-200' : 'text-gray-600'}`} title={traj.name}>
                                           {traj.name}
                                         </span>
-                                        {/* Reset color button */}
                                         {entityColorOverrides[traj.name] && (
                                           <button
                                             onClick={() => {
@@ -1676,48 +2140,24 @@ export const ExploradorDatos: React.FC = () => {
                     )}
                     
                     <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* U-Matrix Port */}
-                      <div id="comp-viewport-umatrix" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[420px]">
-                        <div className="absolute top-4 right-4 z-20">
-                          <button
-                            onClick={() => openMapPopup('comp-viewport-umatrix', 'U-Matrix (Distances Map)')}
-                            className="p-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-400 hover:text-white rounded-xl transition cursor-pointer"
-                            title="Open Standalone View"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <div className="mb-2">
-                          <h4 className="text-xs font-black uppercase text-gray-300">U-Matrix (Distances)</h4>
-                          <p className="text-[10px] text-gray-500 mt-0.5">Visualize topological distances between adjacent nodes.</p>
-                        </div>
-                        <div className="flex-1 min-h-0">
-                          <MallaHexagonal 
-                            visualizationMode="umatrix" 
-                            initialScale={30} 
-                            trajectories={hasTrajectories ? availableTrajectories.filter(t => activeTrajectories.has(t.name)) : undefined}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Clustering Port */}
-                      <div id="comp-viewport-clustering" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[420px]">
+                      {/* 1. Clustering Map (First Map!) */}
+                      <div id="comp-viewport-clustering" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[480px]">
                         <div className="absolute top-4 right-4 z-20 flex space-x-2">
                           <button
                             onClick={exportReferenceVectors}
-                            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl transition cursor-pointer shadow-lg flex items-center space-x-2 text-[10px] font-bold uppercase tracking-wider border border-gray-700"
+                            className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl transition cursor-pointer shadow-lg flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider border border-gray-700"
                             title="Export Reference Vectors (Weights)"
                           >
                             <Download className="w-3.5 h-3.5" />
-                            <span>Export Vectores Ref.</span>
+                            <span>Vectores Ref.</span>
                           </button>
                           <button
                             onClick={exportClusteredData}
-                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition cursor-pointer shadow-lg shadow-indigo-900/20 flex items-center space-x-2 text-[10px] font-bold uppercase tracking-wider"
+                            className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition cursor-pointer shadow-lg shadow-indigo-900/20 flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider"
                             title="Export Data with Cluster Column"
                           >
                             <Download className="w-3.5 h-3.5" />
-                            <span>Export Data+Cluster</span>
+                            <span>Data+Cluster</span>
                           </button>
                           <button
                             onClick={() => openMapPopup('comp-viewport-clustering', 'Clustering Map')}
@@ -1737,15 +2177,126 @@ export const ExploradorDatos: React.FC = () => {
                           <MallaHexagonal 
                             visualizationMode="clustering" 
                             initialScale={30} 
+                            onNeuronClick={handleNeuronClick}
                             trajectories={hasTrajectories ? availableTrajectories.filter(t => activeTrajectories.has(t.name)) : undefined}
                           />
                         </div>
+                      </div>
+
+                      {/* 2. Cluster Centroid & Selectable Cluster Units Radar Chart */}
+                      <div className="border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[480px]">
+                        <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-2">
+                          <div>
+                            <h4 className="text-xs font-black uppercase text-gray-300 flex items-center space-x-2">
+                              <Activity className="w-4 h-4 text-purple-400" />
+                              <span>Cluster Profile Radar</span>
+                            </h4>
+                            <p className="text-[10px] text-gray-500 mt-0.5">Centroid vs. Units (ordered by distance to centroid).</p>
+                          </div>
+
+                          {availableClusterIds.length > 0 && (
+                            <div className="flex items-center space-x-2">
+                              <label className="text-[10px] font-bold text-gray-400 uppercase">Cluster:</label>
+                              <select
+                                value={selectedClusterId}
+                                onChange={(e) => setSelectedClusterId(Number(e.target.value))}
+                                className="bg-gray-950 border border-gray-700 rounded-lg px-2.5 py-1 text-xs font-bold text-indigo-400 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                              >
+                                {availableClusterIds.map(cId => (
+                                  <option key={cId} value={cId}>Cluster {cId}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Cluster Units Scrollable Selector Bar */}
+                        {clusterCalculations.unitsOrderedByDist.length > 0 && (
+                          <div className="w-full max-w-full overflow-hidden shrink-0 py-1.5 border-b border-gray-800/80 mb-2">
+                            <div 
+                              className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 min-w-0"
+                              style={{ overflowX: 'auto', scrollbarWidth: 'thin', scrollbarColor: '#475569 transparent' }}
+                            >
+                              <span className="text-[10px] font-extrabold text-gray-400 uppercase shrink-0 pr-1">Units (by dist):</span>
+                              {clusterCalculations.unitsOrderedByDist.map(unit => {
+                                const isSelected = selectedRadarUnits.includes(unit.label);
+                                return (
+                                  <button
+                                    key={unit.label}
+                                    onClick={() => {
+                                      setSelectedRadarUnits(prev =>
+                                        isSelected ? prev.filter(u => u !== unit.label) : [...prev, unit.label]
+                                      );
+                                    }}
+                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all border whitespace-nowrap shrink-0 flex items-center space-x-1 cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-900/40'
+                                        : 'bg-gray-900 text-gray-400 border-gray-750 hover:bg-gray-800 hover:text-gray-200'
+                                    }`}
+                                    title={`Distance to centroid: ${unit.distance.toFixed(4)}`}
+                                  >
+                                    <span>{unit.label}</span>
+                                    <span className={`text-[9px] ${isSelected ? 'text-indigo-100 font-bold' : 'text-gray-500'}`}>
+                                      ({unit.distance.toFixed(2)})
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {clusterRadarData.chartData.length > 0 ? (
+                          <div className="flex-1 min-h-0 relative">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <RadarChart data={clusterRadarData.chartData} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+                                <PolarGrid stroke="#1e293b" />
+                                <PolarAngleAxis 
+                                  dataKey="indicator" 
+                                  stroke="#94a3b8" 
+                                  tick={{ fill: '#cbd5e1', fontSize: 10, fontWeight: 600 }} 
+                                />
+                                <PolarRadiusAxis domain={[0, 1]} angle={30} stroke="#475569" fontSize={9} />
+                                <RechartsTooltip 
+                                  contentStyle={{ backgroundColor: '#090d16', borderColor: '#1e293b', borderRadius: '12px', fontSize: 11, color: '#fff' }}
+                                />
+                                <Legend 
+                                  wrapperStyle={{ fontSize: 11, paddingTop: 5 }}
+                                />
+                                <Radar 
+                                  name={`Cluster ${selectedClusterId} Centroid`} 
+                                  dataKey="Centroid" 
+                                  stroke="#8b5cf6" 
+                                  fill="#8b5cf6" 
+                                  fillOpacity={0.35} 
+                                  strokeWidth={2.5}
+                                />
+                                {clusterRadarData.activeUnits.map(unit => (
+                                  <Radar 
+                                    key={unit.name}
+                                    name={unit.name} 
+                                    dataKey={unit.name} 
+                                    stroke={unit.color} 
+                                    fill={unit.color} 
+                                    fillOpacity={0.2} 
+                                    strokeWidth={2}
+                                  />
+                                ))}
+                              </RadarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        ) : (
+                          <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-xs">
+                            <Activity className="w-8 h-8 mb-2 text-gray-700 animate-pulse" />
+                            <p>No cluster units selected for radar profile.</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Section B: 3x3 Component Maps Grid with Selector */}
+                {/* Section B: 3x3 Component Maps Grid */}
                 <div className="space-y-4 pt-4">
                   <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-gray-800 pb-2">
                     <div className="flex items-center space-x-4 flex-wrap gap-2">
@@ -1822,6 +2373,7 @@ export const ExploradorDatos: React.FC = () => {
                               initialScale={25}
                               colorScale={somColorScale}
                               onColorScaleChange={setSomColorScale}
+                              onNeuronClick={handleNeuronClick}
                               trajectories={hasTrajectories ? availableTrajectories.filter(t => activeTrajectories.has(t.name)) : undefined}
                             />
                           </div>
@@ -1830,6 +2382,73 @@ export const ExploradorDatos: React.FC = () => {
                     })}
                   </div>
                 </div>
+
+                {/* Section C: Bottom Maps Grid (U-Matrix & Quantization Error Map) */}
+                <div className="space-y-4 pt-4">
+                  <h3 className="text-xs uppercase tracking-widest font-black text-gray-400 border-b border-gray-800 pb-2 flex items-center space-x-2">
+                    <TrendingUp className="w-4 h-4 text-indigo-400" />
+                    <span>Topological Distances & Quantization Error Density Maps</span>
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* U-Matrix Port */}
+                    <div id="comp-viewport-umatrix" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[420px]">
+                      <div className="absolute top-4 right-4 z-20">
+                        <button
+                          onClick={() => openMapPopup('comp-viewport-umatrix', 'U-Matrix (Distances Map)')}
+                          className="p-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-400 hover:text-white rounded-xl transition cursor-pointer"
+                          title="Open Standalone View"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="mb-2">
+                        <h4 className="text-xs font-black uppercase text-gray-300">U-Matrix (Distances)</h4>
+                        <p className="text-[10px] text-gray-500 mt-0.5">Visualize topological distances between adjacent nodes.</p>
+                      </div>
+                      <div className="flex-1 min-h-0">
+                        <MallaHexagonal 
+                          visualizationMode="umatrix" 
+                          initialScale={30} 
+                          onNeuronClick={handleNeuronClick}
+                          trajectories={hasTrajectories ? availableTrajectories.filter(t => activeTrajectories.has(t.name)) : undefined}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quantization Error Map Port */}
+                    <div id="comp-viewport-qe" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[420px]">
+                      <div className="absolute top-4 right-4 z-20">
+                        <button
+                          onClick={() => openMapPopup('comp-viewport-qe', 'Quantization Error Map')}
+                          className="p-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-400 hover:text-white rounded-xl transition cursor-pointer"
+                          title="Open Standalone View"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="mb-2">
+                        <h4 className="text-xs font-black uppercase text-gray-300">Quantization Error Map</h4>
+                        <p className="text-[10px] text-gray-500 mt-0.5">Spatial quantization error density per neuron cell.</p>
+                      </div>
+                      <div className="flex-1 min-h-0">
+                        <MallaHexagonal 
+                          visualizationMode="qe" 
+                          initialScale={30} 
+                          onNeuronClick={handleNeuronClick}
+                          trajectories={hasTrajectories ? availableTrajectories.filter(t => activeTrajectories.has(t.name)) : undefined}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section D: Training Error (Quantization Error over Epochs) Chart Card */}
+                {result && result.errors && result.errors.length > 0 && (
+                  <div className="pt-4">
+                    <TrainingErrorPanel errors={result.errors} />
+                  </div>
+                )}
               </>
             ) : (
               <div className="bg-gray-900 border border-gray-800 rounded-2xl p-12 shadow-2xl flex flex-col items-center justify-center text-gray-400 text-center">

@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ==============================================
-echo       COMPILADOR DE SINAPSIS MAP
+echo       COMPILADOR DE KNOMAP
 echo ==============================================
 echo.
 
@@ -43,31 +43,31 @@ echo [3/4] Empaquetando para Linux y Mac (.zip)...
 if not exist Output mkdir Output
 
 echo   - Creando empaquetado para Linux...
-if exist Output\SinapsisMap_Linux rmdir /s /q Output\SinapsisMap_Linux
-mkdir Output\SinapsisMap_Linux
-xcopy publish_linux\* Output\SinapsisMap_Linux\ /s /e /y /q >nul
-robocopy engine Output\SinapsisMap_Linux\engine /s /e /xd __pycache__ .venv venv temp >nul
-powershell -Command "Compress-Archive -Path 'Output\SinapsisMap_Linux\*' -DestinationPath 'Output\SinapsisMap_Linux.zip' -Force"
+if exist Output\knoMap_Linux rmdir /s /q Output\knoMap_Linux
+mkdir Output\knoMap_Linux
+xcopy publish_linux\* Output\knoMap_Linux\ /s /e /y /q >nul
+robocopy engine Output\knoMap_Linux\engine /s /e /xd __pycache__ .venv venv temp >nul
+powershell -Command "Compress-Archive -Path 'Output\knoMap_Linux\*' -DestinationPath 'Output\knoMap_Linux.zip' -Force"
 
 echo   - Creando empaquetado para Mac (Intel)...
-if exist Output\SinapsisMap_Mac_Intel rmdir /s /q Output\SinapsisMap_Mac_Intel
-mkdir Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\MacOS
-mkdir Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\Resources
-copy backend\src\LabSOM.Backend.Core\Info.plist Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\Info.plist >nul
-xcopy publish_mac_intel\* Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\MacOS\ /s /e /y /q >nul
-robocopy engine Output\SinapsisMap_Mac_Intel\SinapsisMap.app\Contents\MacOS\engine /s /e /xd __pycache__ .venv venv temp >nul
-powershell -Command "Out-File -FilePath 'Output\SinapsisMap_Mac_Intel\INSTRUCCIONES_MAC.txt' -Encoding utf8 -InputObject \"==============================================`nINSTRUCCIONES DE INSTALACION PARA MAC`n==============================================`n`nDado que la aplicacion se ha comprimido en formato ZIP, macOS puede revocar el permiso de ejecucion.`nSi al abrir 'SinapsisMap' aparece un mensaje indicando que esta danada o no se puede abrir,`nabre la Terminal en esta carpeta y ejecuta:`n`nchmod +x SinapsisMap.app/Contents/MacOS/LabSOM.Backend.Core`n`nLuego podras abrirla normalmente haciendo doble clic en el icono.\""
-powershell -Command "Compress-Archive -Path 'Output\SinapsisMap_Mac_Intel\*' -DestinationPath 'Output\SinapsisMap_Mac_Intel.zip' -Force"
+if exist Output\knoMap_Mac_Intel rmdir /s /q Output\knoMap_Mac_Intel
+mkdir Output\knoMap_Mac_Intel\knoMap.app\Contents\MacOS
+mkdir Output\knoMap_Mac_Intel\knoMap.app\Contents\Resources
+copy backend\src\LabSOM.Backend.Core\Info.plist Output\knoMap_Mac_Intel\knoMap.app\Contents\Info.plist >nul
+xcopy publish_mac_intel\* Output\knoMap_Mac_Intel\knoMap.app\Contents\MacOS\ /s /e /y /q >nul
+robocopy engine Output\knoMap_Mac_Intel\knoMap.app\Contents\MacOS\engine /s /e /xd __pycache__ .venv venv temp >nul
+powershell -Command "Out-File -FilePath 'Output\knoMap_Mac_Intel\INSTRUCCIONES_MAC.txt' -Encoding utf8 -InputObject \"==============================================`nINSTRUCCIONES DE INSTALACION PARA MAC`n==============================================`n`nDado que la aplicacion se ha comprimido en formato ZIP, macOS puede revocar el permiso de ejecucion.`nSi al abrir 'knoMap' aparece un mensaje indicando que esta danada o no se puede abrir,`nabre la Terminal en esta carpeta y ejecuta:`n`nchmod +x knoMap.app/Contents/MacOS/LabSOM.Backend.Core`n`nLuego podras abrirla normalmente haciendo doble clic en el icono.\""
+powershell -Command "Compress-Archive -Path 'Output\knoMap_Mac_Intel\*' -DestinationPath 'Output\knoMap_Mac_Intel.zip' -Force"
 
 echo   - Creando empaquetado para Mac (Apple Silicon)...
-if exist Output\SinapsisMap_Mac_Arm rmdir /s /q Output\SinapsisMap_Mac_Arm
-mkdir Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\MacOS
-mkdir Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\Resources
-copy backend\src\LabSOM.Backend.Core\Info.plist Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\Info.plist >nul
-xcopy publish_mac_arm\* Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\MacOS\ /s /e /y /q >nul
-robocopy engine Output\SinapsisMap_Mac_Arm\SinapsisMap.app\Contents\MacOS\engine /s /e /xd __pycache__ .venv venv temp >nul
-powershell -Command "Out-File -FilePath 'Output\SinapsisMap_Mac_Arm\INSTRUCCIONES_MAC.txt' -Encoding utf8 -InputObject \"==============================================`nINSTRUCCIONES DE INSTALACION PARA MAC`n==============================================`n`nDado que la aplicacion se ha comprimido en formato ZIP, macOS puede revocar el permiso de ejecucion.`nSi al abrir 'SinapsisMap' aparece un mensaje indicando que esta danada o no se puede abrir,`nabre la Terminal en esta carpeta y ejecuta:`n`nchmod +x SinapsisMap.app/Contents/MacOS/LabSOM.Backend.Core`n`nLuego podras abrirla normalmente haciendo doble clic en el icono.\""
-powershell -Command "Compress-Archive -Path 'Output\SinapsisMap_Mac_Arm\*' -DestinationPath 'Output\SinapsisMap_Mac_Silicon.zip' -Force"
+if exist Output\knoMap_Mac_Arm rmdir /s /q Output\knoMap_Mac_Arm
+mkdir Output\knoMap_Mac_Arm\knoMap.app\Contents\MacOS
+mkdir Output\knoMap_Mac_Arm\knoMap.app\Contents\Resources
+copy backend\src\LabSOM.Backend.Core\Info.plist Output\knoMap_Mac_Arm\knoMap.app\Contents\Info.plist >nul
+xcopy publish_mac_arm\* Output\knoMap_Mac_Arm\knoMap.app\Contents\MacOS\ /s /e /y /q >nul
+robocopy engine Output\knoMap_Mac_Arm\knoMap.app\Contents\MacOS\engine /s /e /xd __pycache__ .venv venv temp >nul
+powershell -Command "Out-File -FilePath 'Output\knoMap_Mac_Arm\INSTRUCCIONES_MAC.txt' -Encoding utf8 -InputObject \"==============================================`nINSTRUCCIONES DE INSTALACION PARA MAC`n==============================================`n`nDado que la aplicacion se ha comprimido en formato ZIP, macOS puede revocar el permiso de ejecucion.`nSi al abrir 'knoMap' aparece un mensaje indicando que esta danada o no se puede abrir,`nabre la Terminal en esta carpeta y ejecuta:`n`nchmod +x knoMap.app/Contents/MacOS/LabSOM.Backend.Core`n`nLuego podras abrirla normalmente haciendo doble clic en el icono.\""
+powershell -Command "Compress-Archive -Path 'Output\knoMap_Mac_Arm\*' -DestinationPath 'Output\knoMap_Mac_Silicon.zip' -Force"
 echo.
 
 echo [4/4] Empaquetando el Instalador de Windows (Inno Setup)...
@@ -86,17 +86,17 @@ rmdir /s /q publish
 rmdir /s /q publish_linux
 rmdir /s /q publish_mac_intel
 rmdir /s /q publish_mac_arm
-rmdir /s /q Output\SinapsisMap_Linux
-rmdir /s /q Output\SinapsisMap_Mac_Intel
-rmdir /s /q Output\SinapsisMap_Mac_Arm
+rmdir /s /q Output\knoMap_Linux
+rmdir /s /q Output\knoMap_Mac_Intel
+rmdir /s /q Output\knoMap_Mac_Arm
 echo.
 
 echo ==============================================
 echo  EXITO: Paquetes compilados correctamente.
 echo  Rutas:
-echo   - Windows: Output\SinapsisMap_Installer_Lite.exe
-echo   - Linux:   Output\SinapsisMap_Linux.zip
-echo   - Mac (Intel):   Output\SinapsisMap_Mac_Intel.zip
-echo   - Mac (Silicon): Output\SinapsisMap_Mac_Silicon.zip
+echo   - Windows: Output\knoMap_Installer_Lite.exe
+echo   - Linux:   Output\knoMap_Linux.zip
+echo   - Mac (Intel):   Output\knoMap_Mac_Intel.zip
+echo   - Mac (Silicon): Output\knoMap_Mac_Silicon.zip
 echo ==============================================
 pause

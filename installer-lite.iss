@@ -1,5 +1,5 @@
 [Setup]
-AppName=knoMap (newknoMap)
+AppName=knoMap
 AppVersion=1.0.0
 DefaultDirName={localappdata}\knoMap
 DefaultGroupName=knoMap

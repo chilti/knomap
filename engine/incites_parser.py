@@ -374,6 +374,7 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
 
     if target_trend is not None and not target_trend.empty:
         entity_col = target_trend.columns[0]
+        result["profile_evolution"] = {"raw": [], "ecma3": [], "ecma5": []}
 
         # 1. Long format: single "Time Period" / "Year" column
         time_col = None
@@ -384,11 +385,47 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
 
         if time_col:
             baseline_mask = target_trend[entity_col].astype(str).str.contains(r'Baseline', case=False, na=False)
-            trend_data    = target_trend[~baseline_mask]
+            baseline_df   = target_trend[baseline_mask]
+            trend_data    = target_trend[~baseline_mask].copy()
+
+            def safe_float(val):
+                if pd.isna(val): return 0.0
+                if isinstance(val, str):
+                    val = val.replace('%', '').replace(',', '').strip()
+                try:
+                    return float(val)
+                except:
+                    return 0.0
+
+            for col in trend_data.columns:
+                if col != entity_col and col != time_col:
+                    if trend_data[col].dtype == object:
+                        trend_data[col] = trend_data[col].apply(safe_float)
 
             numeric_ts = trend_data.select_dtypes(include=[np.number]).columns.tolist()
             if time_col in numeric_ts:
                 numeric_ts.remove(time_col)
+
+            if 'Web of Science Documents' in numeric_ts:
+                if not baseline_df.empty:
+                    base_docs_per_year = baseline_df.groupby(time_col)['Web of Science Documents'].sum()
+                    def calc_share(row):
+                        year = row[time_col]
+                        b_docs = base_docs_per_year.get(year, 0)
+                        if b_docs > 0:
+                            return (row['Web of Science Documents'] / b_docs) * 100
+                        return 0.0
+                    trend_data['Share'] = trend_data.apply(calc_share, axis=1)
+                    if 'Share' not in numeric_ts:
+                        numeric_ts.append('Share')
+
+            if 'Times Cited' in numeric_ts and 'Impact Factor' not in numeric_ts:
+                trend_data['Impact Factor'] = (trend_data['Times Cited'] / trend_data['Web of Science Documents'].replace(0, np.nan)).fillna(0)
+                numeric_ts.append('Impact Factor')
+
+            if 'Citations From Patents' in numeric_ts and 'Citations From Patents/Paper' not in numeric_ts:
+                trend_data['Citations From Patents/Paper'] = (trend_data['Citations From Patents'] / trend_data['Web of Science Documents'].replace(0, np.nan)).fillna(0)
+                numeric_ts.append('Citations From Patents/Paper')
 
             for indicator in numeric_ts:
                 series_data = []
@@ -413,6 +450,60 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
                 for sd in series_data:
                     del sd["latest_val"]
                 result["time_series"][indicator] = series_data
+
+            # Build profile_evolution (Long format)
+            evolution_raw = []
+            evolution_ecma3 = []
+            evolution_ecma5 = []
+            # Key indicators to score entities (filter truly-empty rows)
+            score_inds = [i for i in numeric_ts if 'Documents' in i or 'Cited' in i or 'Share' in i]
+            if not score_inds:
+                score_inds = numeric_ts[:1] if numeric_ts else []
+
+            for name, group in trend_data.groupby(entity_col):
+                group = group.sort_values(by=time_col)
+                # Skip entities with zero output across all years
+                if score_inds:
+                    total_docs = group[score_inds[0]].fillna(0).sum()
+                    if total_docs == 0:
+                        continue
+
+                smoothed3 = {}
+                smoothed5 = {}
+                for ind in numeric_ts:
+                    s = pd.Series(group[ind].fillna(0).tolist())
+                    smoothed3[ind] = calculate_ecma(s, 3).tolist()
+                    smoothed5[ind] = calculate_ecma(s, 5).tolist()
+                
+                times = group[time_col].astype(str).tolist()
+                for i, t in enumerate(times):
+                    row_name = f"{t}_{name}"
+                    r_raw = {"entity": row_name}
+                    r_e3  = {"entity": row_name}
+                    r_e5  = {"entity": row_name}
+                    for ind in numeric_ts:
+                        r_raw[ind] = float(group.iloc[i][ind]) if pd.notna(group.iloc[i][ind]) else 0.0
+                        r_e3[ind]  = float(smoothed3[ind][i])
+                        r_e5[ind]  = float(smoothed5[ind][i])
+                    evolution_raw.append(r_raw)
+                    evolution_ecma3.append(r_e3)
+                    evolution_ecma5.append(r_e5)
+
+            # Sort by year descending, then by first score indicator descending
+            def evo_sort_key(r):
+                year = int(r["entity"].split("_")[0]) if r["entity"].split("_")[0].isdigit() else 0
+                score = r.get(score_inds[0], 0) if score_inds else 0
+                return (-year, -score)
+
+            evolution_raw.sort(key=evo_sort_key)
+            evolution_ecma3.sort(key=evo_sort_key)
+            evolution_ecma5.sort(key=evo_sort_key)
+            
+            result["profile_evolution"] = {
+                "raw": evolution_raw,
+                "ecma3": evolution_ecma3,
+                "ecma5": evolution_ecma5
+            }
 
         else:
             # 2. Wide format: year numbers as column headers (2015, 2016, …)
@@ -445,6 +536,31 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
                 for sd in series_data:
                     del sd["latest_val"]
                 result["time_series"]["Documents (Time Series)"] = series_data
+
+                # Build profile_evolution (Wide format)
+                evolution_raw = []
+                evolution_ecma3 = []
+                evolution_ecma5 = []
+                for _, row in trend_data.iterrows():
+                    entity_name = str(row[entity_col])
+                    if pd.isna(row[entity_col]) or entity_name.strip() == "":
+                        continue
+                    raw_values = [float(row[y]) if pd.notna(row[y]) else 0.0 for y in year_cols]
+                    s = pd.Series(raw_values)
+                    smoothed3 = calculate_ecma(s, 3).tolist()
+                    smoothed5 = calculate_ecma(s, 5).tolist()
+                    
+                    for i, y in enumerate(year_cols):
+                        row_name = f"{y}_{entity_name}"
+                        evolution_raw.append({"entity": row_name, "Documents (Time Series)": raw_values[i]})
+                        evolution_ecma3.append({"entity": row_name, "Documents (Time Series)": smoothed3[i]})
+                        evolution_ecma5.append({"entity": row_name, "Documents (Time Series)": smoothed5[i]})
+                        
+                result["profile_evolution"] = {
+                    "raw": evolution_raw,
+                    "ecma3": evolution_ecma3,
+                    "ecma5": evolution_ecma5
+                }
 
     # ── Sunburst (only for Micro Topics) ──────────────────────────────
     if unit_name in ('Micro Topics', 'Meso Topics'):

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as d3Force from 'd3-force';
 import { useSomStore } from '../store/somStore';
-import { Share2, Users, FileText, Info } from 'lucide-react';
+import { Share2, Users, FileText, Info, ArrowRight } from 'lucide-react';
 
 interface ForceNode extends d3Force.SimulationNodeDatum {
   id: string;
@@ -17,7 +17,39 @@ interface ForceLink extends d3Force.SimulationLinkDatum<ForceNode> {
 }
 
 export const RedBibliometrica: React.FC = () => {
-  const { network, networksByYear, documentCount, cooccurrenceCsv, biblioActiveView, setBiblioActiveView, biblioSelectedYear, setBiblioSelectedYear } = useSomStore();
+  const { 
+    network, 
+    networksByYear, 
+    documentCount, 
+    cooccurrenceCsv, 
+    biblioActiveView, 
+    setBiblioActiveView, 
+    biblioSelectedYear, 
+    setBiblioSelectedYear,
+    loadCsvData,
+    setActiveTab
+  } = useSomStore();
+
+  const handleSendToSOM = () => {
+    let targetCsv = cooccurrenceCsv;
+    let targetName = 'Bibliometrics Co-occurrence';
+    if (selectedYear !== 'Global' && networksByYear && networksByYear[selectedYear]?.cooccurrence_csv) {
+      targetCsv = networksByYear[selectedYear].cooccurrence_csv;
+      targetName = `Bibliometrics (${selectedYear})`;
+    }
+
+    if (!targetCsv) {
+      alert("No co-occurrence matrix available to send.");
+      return;
+    }
+
+    loadCsvData(targetCsv, 0, [], 'monothematic', targetName, {
+      originType: 'bibliometrics',
+      unitName: targetName
+    });
+
+    setActiveTab('multidimensional');
+  };
   const [nodes, setNodes] = useState<ForceNode[]>([]);
   const [links, setLinks] = useState<ForceLink[]>([]);
   const [hoveredNode, setHoveredNode] = useState<ForceNode | null>(null);
@@ -339,6 +371,17 @@ export const RedBibliometrica: React.FC = () => {
               title="Download Adjacency Matrix CSV"
             >
               <span>Download CSV</span>
+            </button>
+          )}
+
+          {(cooccurrenceCsv || (networksByYear && selectedYear !== 'Global')) && (
+            <button
+              onClick={handleSendToSOM}
+              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-md shadow-indigo-900/30"
+              title="Send co-occurrence matrix to SOM & UMAP and switch tab"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+              <span>Send Data to SOM & Switch</span>
             </button>
           )}
 

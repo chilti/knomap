@@ -13,9 +13,21 @@ interface Props {
   data: MetricResult[] | null;
   loading: boolean;
   error: string | null;
+  nClusters?: number;
+  onNClustersChange?: (n: number) => void;
+  onRecluster?: () => void;
+  disabledRecluster?: boolean;
 }
 
-export const ClusterMetricsPanel: React.FC<Props> = ({ data, loading, error }) => {
+export const ClusterMetricsPanel: React.FC<Props> = ({ 
+  data, 
+  loading, 
+  error, 
+  nClusters, 
+  onNClustersChange, 
+  onRecluster, 
+  disabledRecluster 
+}) => {
   const handleDownload = (chartId: string, filename: string) => {
     const container = document.getElementById(chartId);
     const svgElement = container?.querySelector('svg');
@@ -50,12 +62,40 @@ export const ClusterMetricsPanel: React.FC<Props> = ({ data, loading, error }) =
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-2xl flex flex-col space-y-6 lg:col-span-2 xl:col-span-3">
-      <div>
-        <h3 className="text-md font-bold text-gray-200 flex items-center space-x-2">
-          <Activity className="w-5 h-5 text-indigo-400" />
-          <span>Clustering Optimization Metrics</span>
-        </h3>
-        <p className="text-xs text-gray-500 mt-1">Evaluate different values of K using agglomerative hierarchies.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-4">
+        <div>
+          <h3 className="text-md font-bold text-gray-200 flex items-center space-x-2">
+            <Activity className="w-5 h-5 text-indigo-400" />
+            <span>Clustering Optimization Metrics</span>
+          </h3>
+          <p className="text-xs text-gray-500 mt-1">Evaluate different values of K using agglomerative hierarchies.</p>
+        </div>
+
+        {onRecluster && (
+          <div className="flex items-center space-x-3 bg-gray-950 p-2.5 rounded-xl border border-gray-800">
+            <div className="flex items-center space-x-2">
+              <label className="text-xs text-gray-300 font-bold whitespace-nowrap">Target Clusters (K):</label>
+              <input
+                type="number"
+                min={2}
+                max={50}
+                value={nClusters || 2}
+                onChange={(e) => onNClustersChange?.(parseInt(e.target.value) || 2)}
+                className="w-16 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-xs font-bold text-gray-100 text-center focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <button
+              onClick={onRecluster}
+              disabled={disabledRecluster}
+              title="Apply clustering parameters without retraining"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/50 text-white rounded-xl transition cursor-pointer shadow-md shadow-indigo-900/30 flex items-center space-x-1.5 text-xs font-bold uppercase tracking-wider disabled:opacity-50"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Apply Fast Re-Clustering</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {loading && (

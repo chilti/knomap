@@ -1,30 +1,184 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download } from 'lucide-react';
 import { useSomStore, getApiUrl } from '../store/somStore';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
-    BarChart, Bar
+    BarChart, Bar, ScatterChart, Scatter, ZAxis, Cell,
+    RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
+    AreaChart, Area, ReferenceLine
 } from 'recharts';
+import chroma from 'chroma-js';
 import SunburstChart from './SunburstChart';
+
+// ── Export Chart Helpers (SVG & PNG) ──────────────────────────────────────
+const exportChartAsSVG = (containerId: string, filename: string) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const svgElement = container.querySelector('svg');
+    if (!svgElement) return;
+
+    const clonedSvg = svgElement.cloneNode(true) as SVGElement;
+    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', '100%');
+    rect.setAttribute('height', '100%');
+    rect.setAttribute('fill', '#0f172a');
+    clonedSvg.insertBefore(rect, clonedSvg.firstChild);
+
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(clonedSvg);
+    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename}.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
+const exportChartAsPNG = (containerId: string, filename: string) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const svgElement = container.querySelector('svg');
+    if (!svgElement) return;
+
+    const bbox = svgElement.getBoundingClientRect();
+    const width = bbox.width || 800;
+    const height = bbox.height || 500;
+
+    const clonedSvg = svgElement.cloneNode(true) as SVGElement;
+    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clonedSvg.setAttribute('width', String(width));
+    clonedSvg.setAttribute('height', String(height));
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', '100%');
+    rect.setAttribute('height', '100%');
+    rect.setAttribute('fill', '#0f172a');
+    clonedSvg.insertBefore(rect, clonedSvg.firstChild);
+
+    const serializer = new XMLSerializer();
+    const svgString = serializer.serializeToString(clonedSvg);
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+        const scale = 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = width * scale;
+        canvas.height = height * scale;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.scale(scale, scale);
+            ctx.drawImage(img, 0, 0, width, height);
+            const pngUrl = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = pngUrl;
+            link.download = `${filename}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(url);
+    };
+    img.src = url;
+};
+
+const ExportButtons: React.FC<{ containerId: string; filename: string }> = ({ containerId, filename }) => {
+    return (
+        <div className="flex items-center space-x-1 shrink-0">
+            <button
+                onClick={() => exportChartAsSVG(containerId, filename)}
+                className="px-2 py-1 text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 flex items-center space-x-1 transition-all shadow-sm"
+                title="Export as SVG"
+            >
+                <Download className="w-3 h-3 text-indigo-400" />
+                <span>SVG</span>
+            </button>
+            <button
+                onClick={() => exportChartAsPNG(containerId, filename)}
+                className="px-2 py-1 text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 flex items-center space-x-1 transition-all shadow-sm"
+                title="Export as PNG"
+            >
+                <Download className="w-3 h-3 text-emerald-400" />
+                <span>PNG</span>
+            </button>
+        </div>
+    );
+};
 
 // ── Unit Detail Panel ──────────────────────────────────────────────────────
 // Receives the already-loaded data for ONE unit and renders its charts/table.
 const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }) => {
+    const { loadCsvData, setActiveTab, setConfig, incitesSidebarTab, setIncitesState } = useSomStore();
+    const sidebarTab = incitesSidebarTab || 'profiles';
+    const setSidebarTab = (tab: 'profiles' | 'temporal') => setIncitesState({ incitesSidebarTab: tab });
+
     const [selectedProfileIndicators, setSelectedProfileIndicators] = useState<string[]>([]);
     const [isProfileExpanded, setIsProfileExpanded] = useState<boolean>(false);
+    const [isEntityExpanded, setIsEntityExpanded] = useState<boolean>(false);
     const [tsIndicator, setTsIndicator] = useState<string>('');
     const [tsSmoothing, setTsSmoothing] = useState<'raw' | 'ecma3' | 'ecma5'>('raw');
+    const [evolutionSmoothing, setEvolutionSmoothing] = useState<'raw' | 'ecma3' | 'ecma5'>('ecma3');
+    const [filterEvoZeros, setFilterEvoZeros] = useState<boolean>(true);
     const [useRecent, setUseRecent] = useState<boolean>(false);
-    const { loadCsvData, setActiveTab, setConfig } = useSomStore();
+    const [barInd1, setBarInd1] = useState<string>('');
+    const [barInd2, setBarInd2] = useState<string>('');
+    const [entityLimit, setEntityLimit] = useState<number | 'all' | 'custom'>(25);
+    const [entitySortBy, setEntitySortBy] = useState<string>('');
+    const [selectedChartEntities, setSelectedChartEntities] = useState<string[]>([]);
+    
+    // 4D Bubble Chart indicators
+    const [bubbleIndX, setBubbleIndX] = useState<string>('');
+    const [bubbleIndY, setBubbleIndY] = useState<string>('');
+    const [bubbleIndSize, setBubbleIndSize] = useState<string>('');
+    const [bubbleIndColor, setBubbleIndColor] = useState<string>('');
+    const [showBubbleLabels, setShowBubbleLabels] = useState<boolean>(true);
+
+    // New Visualizations state
+    const [radarEntities, setRadarEntities] = useState<string[]>([]);
+    const [areaMode, setAreaMode] = useState<'absolute' | 'percentage'>('absolute');
 
     // Initialise defaults when unit data arrives
     useEffect(() => {
         if (!unit) return;
         if (unit.indicators && unit.indicators.length > 0) {
-            const defaults = ['Share', 'National Share (%, E-3)', 'Category Normalized Citation Impact', '% Documents in Top 10%', 'Impact Factor'];
-            const initialSelected = unit.indicators.filter((ind: string) => defaults.includes(ind));
+            const defaultsExact = ['Share', 'Category Normalized Citation Impact', '% Documents in Top 10%', '% Documents in Top 1%', 'Average Percentile'];
+            const defaultsPrefix = ['% First Author', '% Last Author', '% Corresponding Author'];
+            const initialSelected = unit.indicators.filter((ind: string) => 
+                defaultsExact.includes(ind) || defaultsPrefix.some(p => ind.startsWith(p))
+            );
             if (initialSelected.length === 0) initialSelected.push(unit.indicators[0]);
             setSelectedProfileIndicators(initialSelected);
+
+            if (!barInd1 || !unit.indicators.includes(barInd1)) {
+                setBarInd1(unit.indicators.includes('Web of Science Documents') ? 'Web of Science Documents' : unit.indicators[0]);
+            }
+            if (!barInd2 || !unit.indicators.includes(barInd2)) {
+                const second = unit.indicators.find((i: string) => i !== 'Web of Science Documents' && (i.includes('Impact') || i.includes('Cited') || i.includes('Share'))) || unit.indicators[1] || unit.indicators[0];
+                setBarInd2(second);
+            }
+            if (!entitySortBy || !unit.indicators.includes(entitySortBy)) {
+                setEntitySortBy(unit.indicators.includes('Share') ? 'Share' : (unit.indicators.includes('Web of Science Documents') ? 'Web of Science Documents' : unit.indicators[0]));
+            }
+            if (!bubbleIndX || !unit.indicators.includes(bubbleIndX)) {
+                setBubbleIndX(unit.indicators.includes('Share') ? 'Share' : unit.indicators[0]);
+            }
+            if (!bubbleIndY || !unit.indicators.includes(bubbleIndY)) {
+                const yDefault = unit.indicators.find((i: string) => i.includes('% Documents in Top 10%') || i.includes('% Documents in Q1') || i.includes('Impact')) || unit.indicators[1] || unit.indicators[0];
+                setBubbleIndY(yDefault);
+            }
+            if (!bubbleIndSize || !unit.indicators.includes(bubbleIndSize)) {
+                setBubbleIndSize(unit.indicators.includes('Web of Science Documents') ? 'Web of Science Documents' : unit.indicators[0]);
+            }
+            if (!bubbleIndColor || !unit.indicators.includes(bubbleIndColor)) {
+                const cDefault = unit.indicators.find((i: string) => i.includes('CNCI') || i.includes('Q3') || i.includes('Percentile') || i.includes('Citation')) || unit.indicators[2] || unit.indicators[0];
+                setBubbleIndColor(cDefault);
+            }
         }
         if (unit.time_series) {
             const tsKeys = Object.keys(unit.time_series);
@@ -38,16 +192,89 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
         }
     }, [unit]);
 
+    useEffect(() => {
+        if (!unit || !unit.profile || !entitySortBy || entityLimit === 'custom') return;
+        const profileToUse = (useRecent && unit.profile_5years && unit.profile_5years.length > 0) ? unit.profile_5years : unit.profile;
+        const sorted = [...profileToUse].sort((a: any, b: any) => {
+            const valA = typeof a[entitySortBy] === 'number' ? a[entitySortBy] : parseFloat(String(a[entitySortBy] || '').replace('%', '').replace(',', '.')) || 0;
+            const valB = typeof b[entitySortBy] === 'number' ? b[entitySortBy] : parseFloat(String(b[entitySortBy] || '').replace('%', '').replace(',', '.')) || 0;
+            return valB - valA;
+        });
+        
+        let topEntities = sorted.map((r: any) => String(r.entity));
+        if (entityLimit !== 'all') {
+            topEntities = topEntities.slice(0, entityLimit);
+        }
+        setSelectedChartEntities(topEntities);
+    }, [unit, useRecent, entityLimit, entitySortBy]);
+
     const toggleProfileIndicator = (ind: string) => {
         setSelectedProfileIndicators(prev =>
             prev.includes(ind) ? prev.filter(i => i !== ind) : [...prev, ind]
         );
     };
 
+    const toggleChartEntity = (entity: string) => {
+        setSelectedChartEntities(prev =>
+            prev.includes(entity) ? prev.filter(e => e !== entity) : [...prev, entity]
+        );
+        setEntityLimit('custom');
+    };
+
+    // Filtered evolution data
+    const filteredEvoData = useMemo(() => {
+        const raw = unit?.profile_evolution?.[evolutionSmoothing];
+        if (!raw || raw.length === 0) return [];
+        if (!filterEvoZeros || selectedProfileIndicators.length === 0) return raw;
+        return raw.filter((row: any) =>
+            selectedProfileIndicators.some((ind: string) => {
+                const v = row[ind];
+                return typeof v === 'number' && v !== 0;
+            })
+        );
+    }, [unit, evolutionSmoothing, filterEvoZeros, selectedProfileIndicators]);
+
     const hasRecentData = unit.profile_5years && unit.profile_5years.length > 0;
     const activeProfile = useRecent && hasRecentData ? unit.profile_5years : unit.profile;
     const activeQuartiles = useRecent && hasRecentData && unit.quartiles_5years ? unit.quartiles_5years : unit.quartiles;
     const activeSunburst = useRecent && hasRecentData && unit.sunburst_5years ? unit.sunburst_5years : unit.sunburst;
+
+    const barData1 = useMemo(() => {
+        if (!activeProfile || !barInd1) return [];
+        return activeProfile
+            .map((r: any) => {
+                const rawV = r[barInd1];
+                let val = 0;
+                if (typeof rawV === 'number') val = isNaN(rawV) ? 0 : rawV;
+                else if (typeof rawV === 'string') {
+                    val = parseFloat(rawV.replace('%', '').replace(',', '.').trim()) || 0;
+                }
+                return { entity: String(r.entity || ''), value: val };
+            })
+            .filter((r: any) => selectedChartEntities.includes(r.entity) && r.value > 0)
+            .sort((a: any, b: any) => b.value - a.value);
+    }, [activeProfile, barInd1, selectedChartEntities]);
+
+    const barData2 = useMemo(() => {
+        if (!activeProfile || !barInd2) return [];
+        return activeProfile
+            .map((r: any) => {
+                const rawV = r[barInd2];
+                let val = 0;
+                if (typeof rawV === 'number') val = isNaN(rawV) ? 0 : rawV;
+                else if (typeof rawV === 'string') {
+                    val = parseFloat(rawV.replace('%', '').replace(',', '.').trim()) || 0;
+                }
+                return { entity: String(r.entity || ''), value: val };
+            })
+            .filter((r: any) => selectedChartEntities.includes(r.entity) && r.value > 0)
+            .sort((a: any, b: any) => b.value - a.value);
+    }, [activeProfile, barInd2, selectedChartEntities]);
+
+    const quartileChartData = useMemo(() => {
+        if (!activeQuartiles) return [];
+        return activeQuartiles.filter((q: any) => selectedChartEntities.includes(q.entity));
+    }, [activeQuartiles, selectedChartEntities]);
 
     const handleTrainSOM = () => {
         if (!unit || selectedProfileIndicators.length === 0) return;
@@ -63,10 +290,379 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
             ];
             csvContent += rowData.join(",") + "\n";
         });
+        loadCsvData(csvContent, 0, [], 'csv', `${unitName}_Profile`, {
+            originType: 'incites',
+            unitName: unitName,
+            subView: 'Multidimensional Profile',
+            indicatorsCount: selectedProfileIndicators.length,
+            indicatorsList: selectedProfileIndicators,
+            smoothingInfo: 'RAW'
+        });
+        setConfig({ method: 'batch', init: 'pca' });
+        setActiveTab('multidimensional');
+    };
+
+    const handleTrainSOMEvo = () => {
+        if (!unit?.profile_evolution || !unit.profile_evolution[evolutionSmoothing] || selectedProfileIndicators.length === 0) return;
+        const evoProfile = unit.profile_evolution[evolutionSmoothing];
+        if (evoProfile.length === 0) {
+            alert("No evolution profile data available.");
+            return;
+        }
+        let csvContent = "Entity," + selectedProfileIndicators.join(",") + "\n";
+        filteredEvoData.forEach((row: any) => {
+            const rowData = [
+                `"${row.entity}"`,
+                ...selectedProfileIndicators.map((ind: string) => row[ind] ?? 0)
+            ];
+            csvContent += rowData.join(",") + "\n";
+        });
+        loadCsvData(csvContent, 0, [], 'csv', `${unitName}_Evolution`, {
+            originType: 'incites',
+            unitName: unitName,
+            subView: 'Heatmap Matrix',
+            indicatorsCount: selectedProfileIndicators.length,
+            indicatorsList: selectedProfileIndicators,
+            smoothingInfo: evolutionSmoothing.toUpperCase()
+        });
+        setConfig({ method: 'batch', init: 'pca' });
+        setActiveTab('multidimensional');
+    };
+
+    const handleTrainSOMQuartiles = () => {
+        if (!quartileChartData || quartileChartData.length === 0) {
+            alert("No quartile data available to train SOM.");
+            return;
+        }
+        let csvContent = "Entity,Q1,Q2,Q3,Q4\n";
+        quartileChartData.forEach((row: any) => {
+            const rowData = [
+                `"${row.entity}"`,
+                row.Q1 ?? 0,
+                row.Q2 ?? 0,
+                row.Q3 ?? 0,
+                row.Q4 ?? 0
+            ];
+            csvContent += rowData.join(",") + "\n";
+        });
+        loadCsvData(csvContent, 0, [], 'csv', `${unitName}_Quartiles`, {
+            originType: 'incites',
+            unitName: unitName,
+            subView: 'Quartiles (Q1-Q4)',
+            indicatorsCount: 4,
+            indicatorsList: ['Q1', 'Q2', 'Q3', 'Q4'],
+            smoothingInfo: 'RAW'
+        });
+        setConfig({ method: 'batch', init: 'pca' });
+        setActiveTab('multidimensional');
+    };
+
+    const parseVal = (raw: any) => {
+        if (typeof raw === 'number') return isNaN(raw) ? 0 : raw;
+        if (typeof raw === 'string') return parseFloat(raw.replace('%', '').replace(',', '.').trim()) || 0;
+        return 0;
+    };
+
+    const bubbleChartData = useMemo(() => {
+        if (!activeProfile || !bubbleIndX || !bubbleIndY || !bubbleIndSize || !bubbleIndColor) {
+            return { points: [], minColor: 0, maxColor: 1, minSize: 0, maxSize: 1 };
+        }
+
+        const filtered = activeProfile.filter((r: any) => selectedChartEntities.includes(r.entity));
+        if (filtered.length === 0) return { points: [], minColor: 0, maxColor: 1, minSize: 0, maxSize: 1 };
+
+        let minColor = Infinity;
+        let maxColor = -Infinity;
+        let minSize = Infinity;
+        let maxSize = -Infinity;
+
+        const points = filtered.map((r: any) => {
+            const x = parseVal(r[bubbleIndX]);
+            const y = parseVal(r[bubbleIndY]);
+            const size = parseVal(r[bubbleIndSize]);
+            const colorVal = parseVal(r[bubbleIndColor]);
+
+            if (colorVal < minColor) minColor = colorVal;
+            if (colorVal > maxColor) maxColor = colorVal;
+            if (size < minSize) minSize = size;
+            if (size > maxSize) maxSize = size;
+
+            return {
+                entity: String(r.entity || ''),
+                x,
+                y,
+                size,
+                colorVal
+            };
+        });
+
+        if (minColor === Infinity) minColor = 0;
+        if (maxColor === -Infinity || maxColor === minColor) maxColor = minColor + 1;
+        if (minSize === Infinity) minSize = 0;
+        if (maxSize === -Infinity || maxSize === minSize) maxSize = minSize + 1;
+
+        const colorScale = chroma.scale(['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921']).domain([minColor, maxColor]);
+
+        const minR = 6;
+        const maxR = 26;
+
+        const pointsWithColorAndRadius = points.map((p: any) => {
+            let normSize = 0.5;
+            if (maxSize > minSize) {
+                normSize = (p.size - minSize) / (maxSize - minSize);
+            }
+            const radius = minR + Math.sqrt(Math.max(0, normSize)) * (maxR - minR);
+
+            return {
+                ...p,
+                bubbleRadius: radius,
+                fillColor: (colorScale(p.colorVal) as any).hex()
+            };
+        });
+
+        return {
+            points: pointsWithColorAndRadius,
+            minColor,
+            maxColor,
+            minSize,
+            maxSize,
+            colorScale
+        };
+    }, [activeProfile, selectedChartEntities, bubbleIndX, bubbleIndY, bubbleIndSize, bubbleIndColor]);
+
+    const handleTrainSOMBubble = () => {
+        if (!bubbleChartData.points || bubbleChartData.points.length === 0) {
+            alert("No bubble chart data available to train SOM.");
+            return;
+        }
+        const indicators = [bubbleIndX, bubbleIndY, bubbleIndSize, bubbleIndColor];
+        const uniqueInds = Array.from(new Set(indicators));
+        let csvContent = "Entity," + uniqueInds.join(",") + "\n";
+        
+        const activeProfileMap = new Map(activeProfile.map((r: any) => [String(r.entity), r]));
+        
+        bubbleChartData.points.forEach((p: any) => {
+            const origRow = activeProfileMap.get(p.entity) as Record<string, any> | undefined;
+            if (origRow) {
+                const rowData = [
+                    `"${p.entity}"`,
+                    ...uniqueInds.map(ind => parseVal(origRow[ind]))
+                ];
+                csvContent += rowData.join(",") + "\n";
+            }
+        });
+        
         loadCsvData(csvContent, 0, [], 'csv');
         setConfig({ method: 'batch', init: 'pca' });
         setActiveTab('multidimensional');
     };
+
+    // Auto-select Top 3 for Radar Chart default comparison
+    useEffect(() => {
+        if (selectedChartEntities && selectedChartEntities.length > 0) {
+            setRadarEntities(prev => {
+                if (prev.length === 0) return selectedChartEntities.slice(0, 3);
+                return prev.filter(e => selectedChartEntities.includes(e));
+            });
+        }
+    }, [selectedChartEntities]);
+
+    // 1. Radar Chart Data Hook
+    const radarChartData = useMemo(() => {
+        if (!activeProfile || selectedProfileIndicators.length === 0 || radarEntities.length === 0) return [];
+        
+        const statsMap: { [ind: string]: { min: number; max: number } } = {};
+        selectedProfileIndicators.forEach(ind => {
+            let min = Infinity;
+            let max = -Infinity;
+            activeProfile.forEach((r: any) => {
+                const v = parseVal(r[ind]);
+                if (v < min) min = v;
+                if (v > max) max = v;
+            });
+            if (min === Infinity) min = 0;
+            if (max === -Infinity || max === min) max = min + 1;
+            statsMap[ind] = { min, max };
+        });
+
+        return selectedProfileIndicators.map(ind => {
+            const row: any = { indicator: ind };
+            const { max } = statsMap[ind];
+            radarEntities.forEach(ent => {
+                const entityRow = activeProfile.find((r: any) => String(r.entity) === ent);
+                const rawV = entityRow ? parseVal(entityRow[ind]) : 0;
+                const normV = max > 0 ? Math.round((rawV / max) * 100) : 0;
+                row[ent] = normV;
+                row[`${ent}_raw`] = rawV;
+            });
+            return row;
+        });
+    }, [activeProfile, selectedProfileIndicators, radarEntities]);
+
+    // 2. Heatmap Matrix Data Hook
+    const heatmapMatrixData = useMemo(() => {
+        if (!activeProfile || selectedProfileIndicators.length === 0) return { rows: [], stats: {} };
+        const filtered = activeProfile.filter((r: any) => selectedChartEntities.includes(r.entity));
+        if (filtered.length === 0) return { rows: [], stats: {} };
+
+        const stats: { [ind: string]: { min: number; max: number } } = {};
+        selectedProfileIndicators.forEach(ind => {
+            let min = Infinity;
+            let max = -Infinity;
+            filtered.forEach((r: any) => {
+                const v = parseVal(r[ind]);
+                if (v < min) min = v;
+                if (v > max) max = v;
+            });
+            if (min === Infinity) min = 0;
+            if (max === -Infinity || max === min) max = min + 1;
+            stats[ind] = { min, max };
+        });
+
+        const colorScales: { [ind: string]: any } = {};
+        selectedProfileIndicators.forEach(ind => {
+            const { min, max } = stats[ind];
+            colorScales[ind] = chroma.scale(['#0f172a', '#1e3a8a', '#2563eb', '#06b6d4', '#10b981', '#facc15']).domain([min, max]);
+        });
+
+        const rows = filtered.map((r: any) => {
+            const cells: { [ind: string]: { val: number; color: string; textColor: string } } = {};
+            selectedProfileIndicators.forEach(ind => {
+                const val = parseVal(r[ind]);
+                const bg = colorScales[ind](val).hex();
+                const textColor = chroma(bg).luminance() > 0.45 ? '#090d16' : '#ffffff';
+                cells[ind] = {
+                    val,
+                    color: bg,
+                    textColor
+                };
+            });
+            return {
+                entity: String(r.entity),
+                cells
+            };
+        });
+
+        return { rows, stats };
+    }, [activeProfile, selectedChartEntities, selectedProfileIndicators]);
+
+    // 2b. Temporal Heatmap Matrix Data Hook
+    const temporalHeatmapMatrixData = useMemo(() => {
+        if (!filteredEvoData || filteredEvoData.length === 0 || selectedProfileIndicators.length === 0) {
+            return { rows: [], stats: {} };
+        }
+
+        const stats: { [ind: string]: { min: number; max: number } } = {};
+        selectedProfileIndicators.forEach(ind => {
+            let min = Infinity;
+            let max = -Infinity;
+            filteredEvoData.forEach((r: any) => {
+                const v = parseVal(r[ind]);
+                if (v < min) min = v;
+                if (v > max) max = v;
+            });
+            if (min === Infinity) min = 0;
+            if (max === -Infinity || max === min) max = min + 1;
+            stats[ind] = { min, max };
+        });
+
+        const colorScales: { [ind: string]: any } = {};
+        selectedProfileIndicators.forEach(ind => {
+            const { min, max } = stats[ind];
+            colorScales[ind] = chroma.scale(['#0f172a', '#1e3a8a', '#2563eb', '#06b6d4', '#10b981', '#facc15']).domain([min, max]);
+        });
+
+        const rows = filteredEvoData.slice(0, 100).map((r: any) => {
+            const cells: { [ind: string]: { val: number; color: string; textColor: string } } = {};
+            selectedProfileIndicators.forEach(ind => {
+                const val = parseVal(r[ind]);
+                const bg = colorScales[ind](val).hex();
+                const textColor = chroma(bg).luminance() > 0.45 ? '#090d16' : '#ffffff';
+                cells[ind] = {
+                    val,
+                    color: bg,
+                    textColor
+                };
+            });
+            return {
+                entity: String(r.entity),
+                cells
+            };
+        });
+
+        return { rows, stats };
+    }, [filteredEvoData, selectedProfileIndicators]);
+
+    // 3. Stacked Area Chart Data Hook
+    const stackedAreaData = useMemo(() => {
+        if (!unit?.time_series || !tsIndicator || !unit.time_series[tsIndicator]) return [];
+        const rawSeries: any[] = unit.time_series[tsIndicator];
+        const filteredSeries = rawSeries.filter((s: any) => selectedChartEntities.includes(s.entity));
+        if (filteredSeries.length === 0) return [];
+
+        const timeSet = new Set<string>();
+        filteredSeries.forEach((s: any) => s.times?.forEach((t: string) => timeSet.add(t)));
+        const times = Array.from(timeSet).sort();
+
+        return times.map(t => {
+            const point: any = { time: t };
+            let yearTotal = 0;
+            filteredSeries.forEach((s: any) => {
+                const idx = s.times?.indexOf(t);
+                const val = (idx !== undefined && idx >= 0 && s[tsSmoothing]) ? s[tsSmoothing][idx] : 0;
+                point[s.entity] = val || 0;
+                yearTotal += (val || 0);
+            });
+
+            if (areaMode === 'percentage' && yearTotal > 0) {
+                filteredSeries.forEach((s: any) => {
+                    point[s.entity] = parseFloat(((point[s.entity] / yearTotal) * 100).toFixed(2));
+                });
+            }
+            return point;
+        });
+    }, [unit, tsIndicator, tsSmoothing, selectedChartEntities, areaMode]);
+
+    // 4. CAGR Scatter Plot Data Hook
+    const cagrScatterData = useMemo(() => {
+        if (!unit?.time_series || !tsIndicator || !unit.time_series[tsIndicator]) return { points: [], medianVolume: 0, medianCagr: 0 };
+        const rawSeries: any[] = unit.time_series[tsIndicator];
+        const filteredSeries = rawSeries.filter((s: any) => selectedChartEntities.includes(s.entity));
+        if (filteredSeries.length === 0) return { points: [], medianVolume: 0, medianCagr: 0 };
+
+        const points = filteredSeries.map((s: any) => {
+            const vals: number[] = s[tsSmoothing] || [];
+            const times: string[] = s.times || [];
+            if (!vals || vals.length < 2) return null;
+
+            const firstVal = vals[0] || 0.0001;
+            const lastVal = vals[vals.length - 1] || 0;
+            const yearsCount = vals.length;
+
+            let cagr = 0;
+            if (firstVal > 0 && lastVal > 0 && yearsCount > 1) {
+                cagr = (Math.pow(lastVal / firstVal, 1 / (yearsCount - 1)) - 1) * 100;
+            }
+
+            return {
+                entity: String(s.entity),
+                volume: lastVal,
+                cagr: parseFloat(cagr.toFixed(2)),
+                startYear: times[0] || '',
+                endYear: times[times.length - 1] || ''
+            };
+        }).filter(Boolean);
+
+        if (points.length === 0) return { points: [], medianVolume: 0, medianCagr: 0 };
+
+        const volumes = points.map((p: any) => p.volume).sort((a, b) => a - b);
+        const cagrs = points.map((p: any) => p.cagr).sort((a, b) => a - b);
+        const midIdx = Math.floor(points.length / 2);
+        const medianVolume = volumes[midIdx] || 0;
+        const medianCagr = cagrs[midIdx] || 0;
+
+        return { points, medianVolume, medianCagr };
+    }, [unit, tsIndicator, tsSmoothing, selectedChartEntities]);
 
     // Build chart data for time series
     const { tsChartData, tsEntities, totalEntities } = useMemo(() => {
@@ -78,14 +674,8 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
             return { tsChartData: [], tsEntities: [], totalEntities: 0 };
         }
 
-        // Sort by last value and take top 20
-        const seriesWithScore = rawSeries.map((series: any) => {
-            const values = series[tsSmoothing];
-            const lastVal = (values && values.length > 0) ? values[values.length - 1] : 0;
-            return { ...series, _score: lastVal };
-        });
-        seriesWithScore.sort((a, b) => b._score - a._score);
-        const topSeries = seriesWithScore.slice(0, 20);
+        // Filter by selected entities
+        const topSeries = rawSeries.filter((series: any) => selectedChartEntities.includes(series.entity));
 
         // Pivot to recharts format: [{time: '2020', EntityA: 5, EntityB: 3}, ...]
         const timeSet = new Set<string>();
@@ -106,293 +696,1120 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
             tsEntities: topSeries.map((s: any) => s.entity),
             totalEntities: rawSeries.length
         };
-    }, [unit, tsIndicator, tsSmoothing]);
+    }, [unit, tsIndicator, tsSmoothing, selectedChartEntities]);
 
     const colors = ['#818cf8', '#34d399', '#f87171', '#fbbf24', '#c084fc', '#2dd4bf', '#fb923c', '#f472b6',
-                    '#60a5fa', '#a78bfa', '#4ade80', '#facc15', '#f97316', '#ec4899', '#22d3ee', '#84cc16'];
+        '#60a5fa', '#a78bfa', '#4ade80', '#facc15', '#f97316', '#ec4899', '#22d3ee', '#84cc16'];
+
+    const dynamicChartHeight = Math.max(420, selectedChartEntities.length * 25);
 
     return (
         <div className="flex flex-col h-full space-y-6 overflow-y-auto">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                {/* Controls Sidebar */}
-                <div className="lg:col-span-1 bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col space-y-6">
-                    {/* Period Toggle */}
-                    <div className="flex items-center space-x-3 p-3 bg-gray-950 rounded-xl border border-gray-800">
-                        <input 
-                            type="checkbox" 
-                            id="useRecentData"
-                            className="w-4 h-4 text-indigo-600 bg-gray-900 border-gray-700 rounded focus:ring-indigo-600 focus:ring-2"
-                            checked={useRecent}
-                            onChange={(e) => setUseRecent(e.target.checked)}
-                            disabled={!hasRecentData}
-                        />
-                        <div>
-                            <label htmlFor="useRecentData" className={`text-sm font-bold block ${hasRecentData ? 'text-gray-200 cursor-pointer' : 'text-gray-600 cursor-not-allowed'}`}>
-                                Use 2021-2025 Data
-                            </label>
-                            <p className="text-[10px] text-gray-500">
-                                {hasRecentData ? 'Applies to Profile, Quartiles, and Sunburst.' : 'No 2021-2025 file uploaded.'}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div>
+                {/* Controls Sidebar with Tabs */}
+                <div className="lg:col-span-1 bg-gray-900 border border-gray-800 rounded-2xl flex flex-col overflow-hidden">
+                    {/* Tab Headers */}
+                    <div className="flex border-b border-gray-800 shrink-0 p-1.5 gap-1.5 bg-gray-950">
                         <button
-                            onClick={() => setIsProfileExpanded(!isProfileExpanded)}
-                            className="w-full flex items-center justify-between text-left group mb-2 bg-transparent border-0"
+                            onClick={() => setSidebarTab('profiles')}
+                            className={`flex-1 py-2 px-2 text-[11px] font-bold rounded-xl transition-all border ${
+                                sidebarTab === 'profiles'
+                                    ? 'bg-blue-950/70 text-blue-400 border-blue-500/80 shadow-md shadow-blue-950/50'
+                                    : 'bg-gray-900/60 text-gray-400 border-gray-800 hover:text-gray-200 hover:bg-gray-800/80'
+                            }`}
                         >
-                            <div>
-                                <h3 className="text-sm font-bold text-gray-200 group-hover:text-indigo-400 transition-colors">Multidimensional Profile</h3>
-                                <p className="text-xs text-gray-500">Select indicators for the profile table and SOM export.</p>
-                            </div>
-                            {isProfileExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                            <span className="flex items-center justify-center space-x-1.5">
+                                <span className={`w-2 h-2 rounded-full ${sidebarTab === 'profiles' ? 'bg-blue-400 animate-pulse' : 'bg-gray-600'}`} />
+                                <span>Multidimensional Profiles</span>
+                            </span>
                         </button>
-
-                        {isProfileExpanded && (
-                            <div className="max-h-48 overflow-y-auto space-y-1 pr-2 mt-3 bg-gray-950 p-2 rounded-xl border border-gray-800">
-                                {unit.indicators?.map((ind: string) => (
-                                    <button
-                                        key={ind}
-                                        onClick={() => toggleProfileIndicator(ind)}
-                                        className={`flex items-center space-x-2 text-xs w-full text-left p-1.5 rounded transition border-0 ${
-                                            selectedProfileIndicators.includes(ind)
-                                                ? 'bg-gray-800 hover:bg-gray-800'
-                                                : 'bg-transparent hover:bg-gray-800'
-                                        }`}
-                                    >
-                                        {selectedProfileIndicators.includes(ind)
-                                            ? <CheckSquare className="w-4 h-4 text-indigo-400 shrink-0" />
-                                            : <Square className="w-4 h-4 text-gray-600 shrink-0" />
-                                        }
-                                        <span className={`truncate ${selectedProfileIndicators.includes(ind) ? 'text-gray-200' : 'text-gray-500'}`} title={ind}>
-                                            {ind}
-                                        </span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-
-
-                    <div className="pt-4 border-t border-gray-800 mt-auto">
                         <button
-                            onClick={handleTrainSOM}
-                            disabled={selectedProfileIndicators.length === 0}
-                            className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-900/50 transition-all flex items-center justify-center space-x-2"
+                            onClick={() => setSidebarTab('temporal')}
+                            className={`flex-1 py-2 px-2 text-[11px] font-bold rounded-xl transition-all border ${
+                                sidebarTab === 'temporal'
+                                    ? 'bg-purple-950/70 text-purple-400 border-purple-500/80 shadow-md shadow-purple-950/50'
+                                    : 'bg-gray-900/60 text-gray-400 border-gray-800 hover:text-gray-200 hover:bg-gray-800/80'
+                            }`}
                         >
-                            <Activity className="w-4 h-4" />
-                            <span>Entrenar en SOM</span>
+                            <span className="flex items-center justify-center space-x-1.5">
+                                <span className={`w-2 h-2 rounded-full ${sidebarTab === 'temporal' ? 'bg-purple-400 animate-pulse' : 'bg-gray-600'}`} />
+                                <span>Temporal Analysis</span>
+                            </span>
                         </button>
                     </div>
 
-                    {/* Profile Table inside Sidebar */}
-                    {activeProfile && activeProfile.length > 0 && (
-                        <div className="bg-gray-950 border border-gray-800 rounded-2xl overflow-hidden mt-6">
-                            <div className="p-3 border-b border-gray-800">
-                                <h3 className="text-sm font-bold text-gray-200">
-                                    Profile Data
-                                    <span className="text-gray-500 ml-2 font-normal text-xs">({activeProfile.length} entities)</span>
-                                </h3>
-                            </div>
-                            <div className="overflow-x-auto max-h-64">
-                                <table className="w-full text-[10px]">
-                                    <thead className="sticky top-0 bg-gray-950 border-b border-gray-800 shadow-sm">
-                                        <tr>
-                                            <th className="text-left px-3 py-2 text-gray-400 font-semibold whitespace-nowrap">Entity</th>
-                                            {selectedProfileIndicators.map(ind => (
-                                                <th key={ind} className="text-right px-3 py-2 text-gray-400 font-semibold whitespace-nowrap truncate max-w-[120px]" title={ind}>
-                                                    {ind}
-                                                </th>
+                    {/* Tab Content */}
+                    <div className="flex flex-col flex-1 space-y-4 p-4 overflow-y-auto">
+
+                        {/* ── GLOBAL CHART ENTITIES SELECTOR ───────────────────── */}
+                        <div className="bg-gray-950 p-3 rounded-xl border border-gray-800">
+                            <button
+                                onClick={() => setIsEntityExpanded(!isEntityExpanded)}
+                                className="w-full flex items-center justify-between text-left group bg-transparent border-0"
+                            >
+                                <div>
+                                    <h3 className="text-sm font-bold text-gray-200 group-hover:text-blue-400 transition-colors">Chart Entities</h3>
+                                    <p className="text-[10px] text-gray-500">{selectedChartEntities.length} selected</p>
+                                </div>
+                                {isEntityExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                            </button>
+                            
+                            {isEntityExpanded && (
+                                <div className="mt-3 space-y-3 pt-3 border-t border-gray-800/50">
+                                    <div className="flex flex-col space-y-1">
+                                        <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Top N Limit</label>
+                                        <div className="flex space-x-1">
+                                            {([10, 25, 50, 'all'] as const).map(lim => (
+                                                <button
+                                                    key={lim}
+                                                    onClick={() => setEntityLimit(lim)}
+                                                    className={`flex-1 py-1 text-[10px] rounded transition-colors font-medium border ${entityLimit === lim ? 'bg-blue-900/50 text-blue-400 border-blue-700' : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-800'}`}
+                                                >
+                                                    {lim === 'all' ? 'All' : lim}
+                                                </button>
                                             ))}
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-800/50">
-                                        {activeProfile.slice(0, 50).map((row: any, i: number) => (
-                                            <tr key={i} className="hover:bg-gray-800/40 transition-colors">
-                                                <td className="px-3 py-1.5 text-gray-300 max-w-[150px] truncate" title={row.entity}>{row.entity}</td>
-                                                {selectedProfileIndicators.map((ind: string) => (
-                                                    <td key={ind} className="px-3 py-1.5 text-right text-gray-400">
-                                                        {typeof row[ind] === 'number' ? row[ind].toFixed(2) : row[ind] ?? '-'}
-                                                    </td>
-                                                ))}
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                            <button
+                                                disabled
+                                                className={`flex-1 py-1 text-[10px] rounded transition-colors font-medium border ${entityLimit === 'custom' ? 'bg-orange-900/50 text-orange-400 border-orange-700' : 'bg-gray-900 text-gray-600 border-gray-800'}`}
+                                            >
+                                                Custom
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col space-y-1">
+                                        <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Sort by</label>
+                                        <select
+                                            value={entitySortBy}
+                                            onChange={e => setEntitySortBy(e.target.value)}
+                                            className="w-full bg-gray-900 border border-gray-700 rounded p-1 text-[11px] text-gray-200"
+                                        >
+                                            {unit.indicators?.map((ind: string) => (
+                                                <option key={ind} value={ind}>{ind}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    
+                                    <div className="flex flex-col space-y-1 pt-2 border-t border-gray-800/50">
+                                        <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Select Entities</label>
+                                        <div className="max-h-48 overflow-y-auto pr-1 space-y-1 custom-scrollbar bg-gray-900 rounded p-1">
+                                            {unit.profile?.map((r: any) => r.entity).sort().map((ent: string) => (
+                                                <button
+                                                    key={ent}
+                                                    onClick={() => toggleChartEntity(ent)}
+                                                    className={`flex items-center space-x-2 text-[11px] w-full text-left p-1 rounded transition border-0 ${selectedChartEntities.includes(ent) ? 'bg-blue-600/20 text-gray-200' : 'hover:bg-gray-800 text-gray-500'}`}
+                                                >
+                                                    {selectedChartEntities.includes(ent) ? <CheckSquare size={12} className="text-blue-400 shrink-0" /> : <Square size={12} className="opacity-50 shrink-0" />}
+                                                    <span className={`truncate ${selectedChartEntities.includes(ent) ? 'text-gray-200' : 'text-gray-500'}`} title={ent}>
+                                                        {ent}
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    )}
+
+                        {/* ── PROFILES TAB ───────────────────────────── */}
+                        {sidebarTab === 'profiles' && (<>
+                            {/* Period Toggle */}
+                            <div className="flex items-center space-x-3 p-3 bg-gray-950 rounded-xl border border-gray-800">
+                                <input
+                                    type="checkbox"
+                                    id="useRecentData"
+                                    className="w-4 h-4 text-indigo-600 bg-gray-900 border-gray-700 rounded focus:ring-indigo-600 focus:ring-2"
+                                    checked={useRecent}
+                                    onChange={(e) => setUseRecent(e.target.checked)}
+                                    disabled={!hasRecentData}
+                                />
+                                <div>
+                                    <label htmlFor="useRecentData" className={`text-sm font-bold block ${hasRecentData ? 'text-gray-200 cursor-pointer' : 'text-gray-600 cursor-not-allowed'}`}>
+                                        Use 2021-2025 Data
+                                    </label>
+                                    <p className="text-[10px] text-gray-500">
+                                        {hasRecentData ? 'Applies to Profile, Quartiles, and Sunburst.' : 'No 2021-2025 file uploaded.'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Indicator Selector */}
+                            <div>
+                                <button
+                                    onClick={() => setIsProfileExpanded(!isProfileExpanded)}
+                                    className="w-full flex items-center justify-between text-left group mb-2 bg-transparent border-0"
+                                >
+                                    <div>
+                                        <h3 className="text-sm font-bold text-gray-200 group-hover:text-indigo-400 transition-colors">Multidimensional Profile</h3>
+                                        <p className="text-xs text-gray-500">Select indicators for the profile table and SOM export.</p>
+                                    </div>
+                                    {isProfileExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                                </button>
+
+                                {isProfileExpanded && (
+                                    <div className="max-h-48 overflow-y-auto space-y-1 pr-2 mt-3 bg-gray-950 p-2 rounded-xl border border-gray-800">
+                                        {unit.indicators?.map((ind: string) => (
+                                            <button
+                                                key={ind}
+                                                onClick={() => toggleProfileIndicator(ind)}
+                                                className={`flex items-center space-x-2 text-xs w-full text-left p-1.5 rounded transition border-0 ${selectedProfileIndicators.includes(ind)
+                                                        ? 'bg-gray-800 hover:bg-gray-800'
+                                                        : 'bg-transparent hover:bg-gray-800'
+                                                    }`}
+                                            >
+                                                {selectedProfileIndicators.includes(ind)
+                                                    ? <CheckSquare className="w-4 h-4 text-indigo-400 shrink-0" />
+                                                    : <Square className="w-4 h-4 text-gray-600 shrink-0" />
+                                                }
+                                                <span className={`truncate ${selectedProfileIndicators.includes(ind) ? 'text-gray-200' : 'text-gray-500'}`} title={ind}>
+                                                    {ind}
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Heatmap Matrix Card */}
+                            {heatmapMatrixData.rows.length > 0 && (
+                                <div className="bg-gray-950 border border-gray-800 rounded-2xl overflow-hidden mt-3">
+                                    <div className="p-3 border-b border-gray-800 flex items-center justify-between gap-2">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2">
+                                                <span>Heatmap Matrix</span>
+                                                <span className="text-gray-500 font-normal text-xs">({heatmapMatrixData.rows.length} entities)</span>
+                                            </h3>
+                                            <p className="text-[10px] text-gray-400 font-medium">Min-Max column normalization [0 to 1].</p>
+                                        </div>
+                                        <button
+                                            onClick={handleTrainSOM}
+                                            disabled={selectedProfileIndicators.length === 0}
+                                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-900/40 transition-all flex items-center space-x-1.5 shrink-0"
+                                        >
+                                            <Activity className="w-3.5 h-3.5" />
+                                            <span>Train SOM</span>
+                                        </button>
+                                    </div>
+                                    <div className="overflow-x-auto max-h-72 custom-scrollbar">
+                                        <table className="w-full text-[10px] border-collapse">
+                                            <thead className="sticky top-0 bg-gray-950 border-b border-gray-800 shadow-sm">
+                                                <tr>
+                                                    <th className="text-left px-2 py-2 text-gray-400 font-semibold whitespace-nowrap bg-gray-950">Entity</th>
+                                                    {selectedProfileIndicators.map(ind => (
+                                                        <th key={ind} className="text-right px-2 py-2 text-gray-400 font-semibold whitespace-nowrap truncate max-w-[100px] bg-gray-950" title={ind}>
+                                                            {ind}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-900">
+                                                {heatmapMatrixData.rows.map((row: any, i: number) => (
+                                                    <tr key={i} className="hover:opacity-90 transition-opacity">
+                                                        <td className="px-2 py-1.5 text-gray-300 font-medium max-w-[130px] truncate bg-gray-950" title={row.entity}>
+                                                            {row.entity}
+                                                        </td>
+                                                        {selectedProfileIndicators.map((ind: string) => {
+                                                            const cell = row.cells[ind];
+                                                            return (
+                                                                <td
+                                                                    key={ind}
+                                                                    className="px-2 py-1.5 text-right font-bold transition-colors"
+                                                                    style={{
+                                                                        backgroundColor: cell?.color || '#0f172a',
+                                                                        color: cell?.textColor || '#ffffff'
+                                                                    }}
+                                                                    title={`${row.entity} - ${ind}: ${cell?.val}`}
+                                                                >
+                                                                    {typeof cell?.val === 'number' ? cell.val.toFixed(2) : cell?.val ?? '-'}
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </>)}
+
+                        {/* ── TEMPORAL ANALYSIS TAB ─────────────────── */}
+                        {sidebarTab === 'temporal' && (<>
+                            {unit.profile_evolution && unit.profile_evolution[evolutionSmoothing] && unit.profile_evolution[evolutionSmoothing].length > 0 ? (<>
+                                {/* Header row: title + Hide zeros */}
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-sm font-bold text-gray-200">Temporal Analysis</h3>
+                                        <p className="text-[10px] text-gray-500">{filteredEvoData.length} rows</p>
+                                    </div>
+                                    <label className="flex items-center space-x-1.5 cursor-pointer" title="Hide rows where all selected indicators are zero">
+                                        <input
+                                            type="checkbox"
+                                            checked={filterEvoZeros}
+                                            onChange={e => setFilterEvoZeros(e.target.checked)}
+                                            className="w-3.5 h-3.5 text-indigo-600 bg-gray-900 border-gray-700 rounded focus:ring-indigo-600"
+                                        />
+                                        <span className="text-[10px] text-gray-400 whitespace-nowrap">Hide zeros</span>
+                                    </label>
+                                </div>
+
+                                {/* Smoothing buttons */}
+                                <div className="flex space-x-1">
+                                    {(['raw', 'ecma3', 'ecma5'] as const).map(mode => (
+                                        <button
+                                            key={mode}
+                                            onClick={() => setEvolutionSmoothing(mode)}
+                                            className={`px-2 py-1 text-[10px] font-medium rounded transition-colors ${
+                                                evolutionSmoothing === mode ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                                            }`}
+                                        >
+                                            {mode.toUpperCase()}
+                                        </button>
+                                    ))}
+                                </div>
+                            </>) : (
+                                <div className="flex flex-col items-center justify-center h-40 text-center text-gray-600">
+                                    <Activity className="w-8 h-8 mb-2 opacity-30" />
+                                    <p className="text-xs">No temporal evolution data available.<br/>Upload a Trend file to enable this tab.</p>
+                                </div>
+                            )}
+                        </>)}
+                    </div>
                 </div>
 
                 {/* Main Content Area */}
                 <div className="lg:col-span-3 flex flex-col space-y-6">
 
-                    {/* Time Series Chart */}
-                    {tsChartData.length > 0 ? (
-                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 h-80 flex flex-col">
-                            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                                <h3 className="text-sm font-bold text-gray-200 flex-shrink-0">
-                                    Time Series Chart
-                                    {tsEntities.length > 0 && <span className="text-gray-500 ml-2 font-normal">(Top {tsEntities.length} de {totalEntities})</span>}
-                                </h3>
-                                <div className="flex items-center space-x-3 ml-auto flex-wrap gap-y-2">
-                                    <select
-                                        value={tsIndicator}
-                                        onChange={e => setTsIndicator(e.target.value)}
-                                        className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200"
-                                    >
-                                        {unit.time_series && Object.keys(unit.time_series).map(ind => (
-                                            <option key={ind} value={ind}>{ind}</option>
-                                        ))}
-                                    </select>
-                                    <div className="flex space-x-1">
-                                        {(['raw', 'ecma3', 'ecma5'] as const).map(mode => (
-                                            <button
-                                                key={mode}
-                                                onClick={() => setTsSmoothing(mode)}
-                                                className={`text-[10px] uppercase font-bold px-2 py-1 rounded-lg border ${
-                                                    tsSmoothing === mode
-                                                    ? 'bg-indigo-600 border-indigo-500 text-white'
-                                                    : 'bg-gray-950 border-gray-700 text-gray-400 hover:text-gray-200'
-                                                }`}
+                    {/* ── TEMPORAL ANALYSIS TAB CHARTS ──────────────── */}
+                    {sidebarTab === 'temporal' && (
+                        <>
+                            {/* Time Series Chart */}
+                            {tsChartData.length > 0 ? (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 h-96 flex flex-col">
+                                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                                        <h3 className="text-sm font-bold text-gray-200 flex-shrink-0">
+                                            Time Series Chart
+                                            {tsEntities.length > 0 && <span className="text-gray-500 ml-2 font-normal">(Top {tsEntities.length} de {totalEntities})</span>}
+                                        </h3>
+                                        <div className="flex items-center space-x-3 ml-auto flex-wrap gap-y-2">
+                                            <ExportButtons containerId="chart-time-series" filename={`time_series_${tsIndicator || 'data'}`} />
+                                            <select
+                                                value={tsIndicator}
+                                                onChange={e => setTsIndicator(e.target.value)}
+                                                className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200"
                                             >
-                                                {mode}
-                                            </button>
-                                        ))}
+                                                {unit.time_series && Object.keys(unit.time_series).map(ind => (
+                                                    <option key={ind} value={ind}>{ind}</option>
+                                                ))}
+                                            </select>
+                                            <div className="flex space-x-1">
+                                                {(['raw', 'ecma3', 'ecma5'] as const).map(mode => (
+                                                    <button
+                                                        key={mode}
+                                                        onClick={() => setTsSmoothing(mode)}
+                                                        className={`text-[10px] uppercase font-bold px-2 py-1 rounded-lg border ${tsSmoothing === mode
+                                                                ? 'bg-indigo-600 border-indigo-500 text-white'
+                                                                : 'bg-gray-950 border-gray-700 text-gray-400 hover:text-gray-200'
+                                                            }`}
+                                                    >
+                                                        {mode}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex-1 min-h-0" id="chart-time-series">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={tsChartData}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                                <XAxis dataKey="time" stroke="#4b5563" tick={{ fontSize: 10 }} />
+                                                <YAxis stroke="#4b5563" tick={{ fontSize: 10 }} width={40} />
+                                                 <RechartsTooltip
+                                                     content={({ active, payload, label }) => {
+                                                         if (!active || !payload || !payload.length) return null;
+                                                         const activeItems = payload
+                                                             .filter((item: any) => typeof item.value === 'number' && item.value > 0)
+                                                             .sort((a: any, b: any) => (b.value || 0) - (a.value || 0));
+                                                         if (activeItems.length === 0) return null;
+                                                         return (
+                                                             <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-xl shadow-xl text-xs space-y-1 max-h-60 overflow-y-auto">
+                                                                 <p className="font-bold text-gray-300 border-b border-gray-800 pb-1 mb-1">{label}</p>
+                                                                 {activeItems.map((item: any, idx: number) => (
+                                                                     <div key={idx} className="flex items-center justify-between space-x-4">
+                                                                         <span className="font-medium truncate max-w-[220px]" style={{ color: item.color }}>
+                                                                             {item.name}:
+                                                                         </span>
+                                                                         <span className="font-bold text-gray-200 ml-2">
+                                                                             {typeof item.value === 'number' ? item.value.toFixed(2) : item.value}
+                                                                         </span>
+                                                                     </div>
+                                                                 ))}
+                                                             </div>
+                                                         );
+                                                     }}
+                                                 />
+                                                {tsEntities.map((entity: string, i: number) => (
+                                                    <Line
+                                                        key={entity}
+                                                        type="monotone"
+                                                        dataKey={entity}
+                                                        stroke={colors[i % colors.length]}
+                                                        dot={false}
+                                                        strokeWidth={2}
+                                                        connectNulls
+                                                    />
+                                                ))}
+                                            </LineChart>
+                                        </ResponsiveContainer>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="flex-1 min-h-0">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <LineChart data={tsChartData}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                                        <XAxis dataKey="time" stroke="#4b5563" tick={{fontSize: 10}} />
-                                        <YAxis stroke="#4b5563" tick={{fontSize: 10}} width={40} />
-                                        <RechartsTooltip
-                                            contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', fontSize: '12px' }}
-                                        />
-                                        {tsEntities.map((entity: string, i: number) => (
-                                            <Line
-                                                key={entity}
-                                                type="monotone"
-                                                dataKey={entity}
-                                                stroke={colors[i % colors.length]}
-                                                dot={false}
-                                                strokeWidth={2}
-                                                connectNulls
-                                            />
-                                        ))}
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-40 flex flex-col justify-center items-center text-center">
-                            <h3 className="text-sm font-bold text-gray-300 mb-1">Time Series (Series de Tiempo)</h3>
-                            <p className="text-xs text-gray-500 max-w-md">Para visualizar esta gráfica, sube reportes InCites de tipo 'Trend' o archivos que incluyan columnas temporales por años.</p>
-                        </div>
+                            ) : (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-40 flex flex-col justify-center items-center text-center">
+                                    <h3 className="text-sm font-bold text-gray-300 mb-1">Time Series (Series de Tiempo)</h3>
+                                    <p className="text-xs text-gray-500 max-w-md">Para visualizar esta gráfica, sube reportes InCites de tipo 'Trend' o archivos que incluyan columnas temporales por años.</p>
+                                </div>
+                            )}
+
+                            {/* ── STACKED AREA CHART ────────────────────────────────────── */}
+                            {stackedAreaData.length > 0 && (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col space-y-3">
+                                    <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-gray-800">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-200">
+                                                Stacked Area Evolution ({tsIndicator})
+                                            </h3>
+                                            <p className="text-[11px] text-gray-500">Cumulative share & volume evolution over time.</p>
+                                        </div>
+
+                                        <div className="flex items-center space-x-2 flex-wrap gap-2">
+                                            <ExportButtons containerId="chart-stacked-area" filename={`stacked_area_${tsIndicator || 'data'}`} />
+                                            <div className="flex space-x-1 bg-gray-950 p-1 rounded-xl border border-gray-800">
+                                            <button
+                                                onClick={() => setAreaMode('absolute')}
+                                                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${
+                                                    areaMode === 'absolute' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                                                }`}
+                                            >
+                                                Absolute Volume
+                                            </button>
+                                            <button
+                                                onClick={() => setAreaMode('percentage')}
+                                                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${
+                                                    areaMode === 'percentage' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                                                }`}
+                                            >
+                                                100% Share (%)
+                                            </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="w-full" style={{ height: 380 }} id="chart-stacked-area">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={stackedAreaData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-800, #1e293b)" />
+                                                <XAxis dataKey="time" stroke="var(--gray-400, #64748b)" tick={{ fontSize: 10, fill: 'var(--gray-300, #cbd5e1)' }} />
+                                                <YAxis
+                                                    type="number"
+                                                    domain={areaMode === 'percentage' ? [0, 100] : [0, 'auto']}
+                                                    unit={areaMode === 'percentage' ? '%' : ''}
+                                                    stroke="var(--gray-400, #64748b)"
+                                                    tick={{ fontSize: 10, fill: 'var(--gray-300, #cbd5e1)' }}
+                                                />
+                                                <RechartsTooltip />
+                                                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                                                {selectedChartEntities.slice(0, 15).map((ent, i) => (
+                                                    <Area
+                                                        key={ent}
+                                                        type="monotone"
+                                                        dataKey={ent}
+                                                        stackId="1"
+                                                        stroke={colors[i % colors.length]}
+                                                        fill={colors[i % colors.length]}
+                                                        fillOpacity={0.6}
+                                                    />
+                                                ))}
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── CAGR VS VOLUME SCATTER PLOT ─────────────────────────────── */}
+                            {cagrScatterData.points.length > 0 && (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col space-y-3">
+                                    <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-gray-800">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-200">
+                                                Strategic Growth Matrix (CAGR % vs. Current Volume)
+                                            </h3>
+                                            <p className="text-[11px] text-gray-500">Compound Annual Growth Rate vs. latest volume ({tsIndicator}).</p>
+                                        </div>
+                                        <ExportButtons containerId="chart-cagr-scatter" filename="cagr_growth_matrix" />
+                                    </div>
+
+                                    <div className="w-full relative" style={{ height: 420 }} id="chart-cagr-scatter">
+                                        {/* Quadrant Labels Background Overlay */}
+                                        <div className="absolute inset-0 pointer-events-none grid grid-cols-2 grid-rows-2 text-[10px] font-bold p-8 opacity-40">
+                                            <div className="text-green-400 self-start justify-self-start bg-green-950/40 p-1.5 rounded border border-green-800/40">
+                                                ⭐ Emerging Stars (High Growth, Low Vol)
+                                            </div>
+                                            <div className="text-indigo-400 self-start justify-self-end text-right bg-indigo-950/40 p-1.5 rounded border border-indigo-800/40">
+                                                🚀 Star Leaders (High Growth, High Vol)
+                                            </div>
+                                            <div className="text-gray-500 self-end justify-self-start bg-gray-950/40 p-1.5 rounded border border-gray-800/40">
+                                                🔻 Low Priority / Declining
+                                            </div>
+                                            <div className="text-amber-400 self-end justify-self-end text-right bg-amber-950/40 p-1.5 rounded border border-amber-800/40">
+                                                🏰 Established Giants (Low Growth, High Vol)
+                                            </div>
+                                        </div>
+
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ScatterChart margin={{ top: 20, right: 30, bottom: 25, left: 20 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-800, #1e293b)" />
+                                                <XAxis
+                                                    type="number"
+                                                    dataKey="volume"
+                                                    name="Volume"
+                                                    stroke="var(--gray-400, #64748b)"
+                                                    tick={{ fontSize: 10, fill: 'var(--gray-300, #cbd5e1)' }}
+                                                    label={{ value: `Current Volume (${tsIndicator})`, position: 'bottom', offset: 5, fill: 'var(--gray-300, #cbd5e1)', fontSize: 11, fontWeight: 'bold' }}
+                                                />
+                                                <YAxis
+                                                    type="number"
+                                                    dataKey="cagr"
+                                                    name="CAGR %"
+                                                    unit="%"
+                                                    stroke="var(--gray-400, #64748b)"
+                                                    tick={{ fontSize: 10, fill: 'var(--gray-300, #cbd5e1)' }}
+                                                    label={{ value: 'CAGR (Annual Growth %)', angle: -90, position: 'left', offset: -5, fill: 'var(--gray-300, #cbd5e1)', fontSize: 11, fontWeight: 'bold' }}
+                                                />
+                                                <ReferenceLine x={cagrScatterData.medianVolume} stroke="#64748b" strokeDasharray="4 4" label={{ value: 'Median Vol', fill: '#94a3b8', fontSize: 10, position: 'top' }} />
+                                                <ReferenceLine y={cagrScatterData.medianCagr} stroke="#64748b" strokeDasharray="4 4" label={{ value: 'Median CAGR', fill: '#94a3b8', fontSize: 10, position: 'right' }} />
+                                                <RechartsTooltip
+                                                    content={({ active, payload }) => {
+                                                        if (!active || !payload || !payload.length) return null;
+                                                        const d = payload[0].payload;
+                                                        return (
+                                                            <div className="bg-gray-900 border border-gray-700 p-3 rounded-xl shadow-xl text-xs space-y-1">
+                                                                <p className="font-bold text-gray-200 border-b border-gray-800 pb-1">{d.entity}</p>
+                                                                <p className="text-indigo-400 font-bold">CAGR ({d.startYear} - {d.endYear}): {d.cagr}%</p>
+                                                                <p className="text-gray-300">Volume ({d.endYear}): {d.volume}</p>
+                                                            </div>
+                                                        );
+                                                    }}
+                                                />
+                                                <Scatter name="Entities" data={cagrScatterData.points}>
+                                                    {cagrScatterData.points.map((_: any, index: number) => (
+                                                        <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                                                    ))}
+                                                </Scatter>
+                                            </ScatterChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── TEMPORAL HEATMAP MATRIX ─────────────────────────────────── */}
+                            {temporalHeatmapMatrixData.rows.length > 0 && (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col space-y-3">
+                                    <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-gray-800">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2">
+                                                <span>Temporal Heatmap Matrix</span>
+                                                <span className="text-gray-500 font-normal text-xs">({temporalHeatmapMatrixData.rows.length} rows)</span>
+                                            </h3>
+                                            <p className="text-[11px] text-gray-500">Min-Max column normalization [0 to 1] per entity across indicator series.</p>
+                                        </div>
+                                        <button
+                                            onClick={handleTrainSOMEvo}
+                                            disabled={selectedProfileIndicators.length === 0}
+                                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-900/40 transition-all flex items-center space-x-1.5 shrink-0"
+                                        >
+                                            <Activity className="w-3.5 h-3.5" />
+                                            <span>Train SOM</span>
+                                        </button>
+                                    </div>
+
+                                    <div className="overflow-x-auto max-h-[450px] custom-scrollbar rounded-xl border border-gray-800">
+                                        <table className="w-full text-xs border-collapse">
+                                            <thead className="sticky top-0 bg-gray-950 border-b border-gray-800 shadow-sm">
+                                                <tr>
+                                                    <th className="text-left px-3 py-2.5 text-gray-400 font-semibold whitespace-nowrap bg-gray-950">Year_Entity</th>
+                                                    {selectedProfileIndicators.map((ind: string) => (
+                                                        <th key={ind} className="text-right px-3 py-2.5 text-gray-400 font-semibold whitespace-nowrap truncate max-w-[150px] bg-gray-950" title={ind}>
+                                                            {ind}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-900">
+                                                {temporalHeatmapMatrixData.rows.map((row: any, i: number) => (
+                                                    <tr key={i} className="hover:opacity-90 transition-opacity">
+                                                        <td className="px-3 py-2 text-gray-300 font-medium max-w-[200px] truncate bg-gray-950" title={row.entity}>
+                                                            {row.entity}
+                                                        </td>
+                                                        {selectedProfileIndicators.map((ind: string) => {
+                                                            const cell = row.cells[ind];
+                                                            return (
+                                                                <td
+                                                                    key={ind}
+                                                                    className="px-3 py-2 text-right font-bold transition-colors"
+                                                                    style={{
+                                                                        backgroundColor: cell?.color || '#0f172a',
+                                                                        color: cell?.textColor || '#ffffff'
+                                                                    }}
+                                                                    title={`${row.entity} - ${ind}: ${cell?.val}`}
+                                                                >
+                                                                    {typeof cell?.val === 'number' ? cell.val.toFixed(2) : cell?.val ?? '-'}
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     )}
 
-                    {/* Quartiles Chart */}
-                    {activeQuartiles && activeQuartiles.length > 0 ? (
-                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 h-64 flex flex-col">
-                            <h3 className="text-sm font-bold text-gray-200 mb-4">Quartile Distribution</h3>
-                            <div className="flex-1 min-h-0">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={activeQuartiles.slice(0, 20)} layout="vertical">
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" horizontal={false} />
-                                        <XAxis type="number" hide />
-                                        <YAxis dataKey="entity" type="category" width={150} stroke="#4b5563" tick={{fontSize: 9}} />
-                                        <RechartsTooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', fontSize: '12px' }}/>
-                                        <Legend wrapperStyle={{ fontSize: '10px' }}/>
-                                        <Bar dataKey="Q1" stackId="q" fill="#6366f1" />
-                                        <Bar dataKey="Q2" stackId="q" fill="#34d399" />
-                                        <Bar dataKey="Q3" stackId="q" fill="#fbbf24" />
-                                        <Bar dataKey="Q4" stackId="q" fill="#f87171" />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-40 flex flex-col justify-center items-center text-center">
-                            <h3 className="text-sm font-bold text-gray-300 mb-1">Quartile Distribution (Q1–Q4)</h3>
-                            <p className="text-xs text-gray-500 max-w-md">Esta unidad de análisis no contiene datos de distribución por cuartiles en los archivos cargados.</p>
-                        </div>
+                    {/* ── MULTIDIMENSIONAL PROFILES TAB CHARTS ───────── */}
+                    {sidebarTab === 'profiles' && (
+                        <>
+                            {/* ── 4D BUBBLE CHART ─────────────────────────────────────────── */}
+                            {activeProfile && activeProfile.length > 0 && unit.indicators && unit.indicators.length > 0 && (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col space-y-4">
+                                    {/* Card Header & Indicator Selectors */}
+                                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-3 border-b border-gray-800">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2">
+                                                <span>4D Bubble Chart Analysis</span>
+                                                <span className="text-gray-500 font-normal text-xs">({bubbleChartData.points.length} entities)</span>
+                                            </h3>
+                                            <p className="text-[11px] text-gray-500">Configure 4 distinct indicators for X, Y, Size, and Color.</p>
+                                        </div>
+                                        
+                                        <div className="flex items-center space-x-3">
+                                            <ExportButtons containerId="chart-4d-bubble" filename="4d_bubble_chart" />
+                                            <label className="flex items-center space-x-1.5 cursor-pointer text-xs text-gray-300">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={showBubbleLabels}
+                                                    onChange={e => setShowBubbleLabels(e.target.checked)}
+                                                    className="w-3.5 h-3.5 text-blue-600 bg-gray-950 border-gray-700 rounded"
+                                                />
+                                                <span>Show Labels</span>
+                                            </label>
+                                            
+                                            <button
+                                                onClick={handleTrainSOMBubble}
+                                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-900/30 transition-all flex items-center space-x-1.5"
+                                            >
+                                                <Activity className="w-3.5 h-3.5" />
+                                                <span>Train SOM</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* 4 Indicator Dropdowns Grid */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-gray-950 p-3 rounded-xl border border-gray-800/80">
+                                        <div className="flex flex-col space-y-1">
+                                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center space-x-1">
+                                                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                                <span>X-Axis</span>
+                                            </label>
+                                            <select
+                                                value={bubbleIndX}
+                                                onChange={e => setBubbleIndX(e.target.value)}
+                                                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 truncate"
+                                            >
+                                                {unit.indicators.map((ind: string) => (
+                                                    <option key={ind} value={ind}>{ind}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="flex flex-col space-y-1">
+                                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center space-x-1">
+                                                <span className="w-2 h-2 rounded-full bg-green-500" />
+                                                <span>Y-Axis</span>
+                                            </label>
+                                            <select
+                                                value={bubbleIndY}
+                                                onChange={e => setBubbleIndY(e.target.value)}
+                                                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 truncate"
+                                            >
+                                                {unit.indicators.map((ind: string) => (
+                                                    <option key={ind} value={ind}>{ind}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="flex flex-col space-y-1">
+                                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center space-x-1">
+                                                <span className="w-2 h-2 rounded-full bg-orange-500" />
+                                                <span>Bubble Size</span>
+                                            </label>
+                                            <select
+                                                value={bubbleIndSize}
+                                                onChange={e => setBubbleIndSize(e.target.value)}
+                                                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 truncate"
+                                            >
+                                                {unit.indicators.map((ind: string) => (
+                                                    <option key={ind} value={ind}>{ind}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="flex flex-col space-y-1">
+                                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center space-x-1">
+                                                <span className="w-2 h-2 rounded-full bg-purple-500" />
+                                                <span>Bubble Color</span>
+                                            </label>
+                                            <select
+                                                value={bubbleIndColor}
+                                                onChange={e => setBubbleIndColor(e.target.value)}
+                                                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 truncate"
+                                            >
+                                                {unit.indicators.map((ind: string) => (
+                                                    <option key={ind} value={ind}>{ind}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Main Chart Area & Continuous Colorbar */}
+                                    <div className="flex flex-row items-stretch gap-4" style={{ height: 480 }}>
+                                        {/* Scatter Chart Canvas */}
+                                        <div className="flex-1 bg-gray-950/60 border border-gray-800/80 rounded-xl p-2 min-w-0" id="chart-4d-bubble">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <ScatterChart margin={{ top: 20, right: 30, bottom: 25, left: 20 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-800, #1e293b)" />
+                                                    <XAxis
+                                                        type="number"
+                                                        dataKey="x"
+                                                        name={bubbleIndX}
+                                                        stroke="var(--gray-400, #64748b)"
+                                                        tick={{ fontSize: 10, fill: 'var(--gray-400, #94a3b8)' }}
+                                                        label={{ value: bubbleIndX, position: 'bottom', offset: 5, fill: 'var(--gray-300, #cbd5e1)', fontSize: 11, fontWeight: 'bold' }}
+                                                    />
+                                                    <YAxis
+                                                        type="number"
+                                                        dataKey="y"
+                                                        name={bubbleIndY}
+                                                        stroke="var(--gray-400, #64748b)"
+                                                        tick={{ fontSize: 10, fill: 'var(--gray-400, #94a3b8)' }}
+                                                        label={{ value: bubbleIndY, angle: -90, position: 'left', offset: -5, fill: 'var(--gray-300, #cbd5e1)', fontSize: 11, fontWeight: 'bold' }}
+                                                    />
+                                                    <ZAxis type="number" dataKey="size" range={[100, 1000]} name={bubbleIndSize} />
+                                                    <RechartsTooltip
+                                                        cursor={{ strokeDasharray: '3 3', stroke: '#64748b' }}
+                                                        content={({ active, payload }) => {
+                                                            if (!active || !payload || !payload.length) return null;
+                                                            const data = payload[0].payload;
+                                                            return (
+                                                                <div className="bg-gray-900 border border-gray-700 p-3 rounded-xl shadow-2xl text-xs space-y-1 z-50">
+                                                                    <p className="font-bold text-gray-100 text-sm border-b border-gray-800 pb-1">{data.entity}</p>
+                                                                    <p className="text-gray-300"><span className="text-gray-400 font-semibold">{bubbleIndX}:</span> {typeof data.x === 'number' ? data.x.toFixed(2) : data.x}</p>
+                                                                    <p className="text-gray-300"><span className="text-gray-400 font-semibold">{bubbleIndY}:</span> {typeof data.y === 'number' ? data.y.toFixed(2) : data.y}</p>
+                                                                    <p className="text-gray-300"><span className="text-gray-400 font-semibold">{bubbleIndSize} (Size):</span> {typeof data.size === 'number' ? data.size.toFixed(2) : data.size}</p>
+                                                                    <p className="text-gray-300"><span className="text-gray-400 font-semibold">{bubbleIndColor} (Color):</span> <span className="font-bold" style={{ color: data.fillColor }}>{typeof data.colorVal === 'number' ? data.colorVal.toFixed(2) : data.colorVal}</span></p>
+                                                                </div>
+                                                            );
+                                                        }}
+                                                    />
+                                                    <Scatter
+                                                        name="Entities"
+                                                        data={bubbleChartData.points}
+                                                        shape={(props: any) => {
+                                                            const { cx, cy, payload } = props;
+                                                            const r = payload.bubbleRadius || props.r || 8;
+                                                            return (
+                                                                <g key={`bubble_${payload.entity}`}>
+                                                                    <circle
+                                                                        cx={cx}
+                                                                        cy={cy}
+                                                                        r={r}
+                                                                        fill={payload.fillColor}
+                                                                        fillOpacity={0.8}
+                                                                        stroke="#ffffff"
+                                                                        strokeWidth={1.5}
+                                                                        className="transition-all hover:stroke-width-3 cursor-pointer"
+                                                                    />
+                                                                    {showBubbleLabels && (
+                                                                        <text
+                                                                            x={cx + r + 4}
+                                                                            y={cy + 3}
+                                                                            fill="#cbd5e1"
+                                                                            fontSize={9}
+                                                                            fontWeight={500}
+                                                                            className="pointer-events-none select-none drop-shadow"
+                                                                        >
+                                                                            {payload.entity}
+                                                                        </text>
+                                                                    )}
+                                                                </g>
+                                                            );
+                                                        }}
+                                                    >
+                                                        {bubbleChartData.points.map((entry: any, index: number) => (
+                                                            <Cell key={`cell-${index}`} fill={entry.fillColor} />
+                                                        ))}
+                                                    </Scatter>
+                                                </ScatterChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        {/* Continuous Colorbar Bar Legend */}
+                                        <div className="w-28 bg-gray-950/60 border border-gray-800/80 rounded-xl p-3 flex flex-col justify-between items-center shrink-0 select-none">
+                                            <div className="text-[10px] font-bold text-gray-300 text-center uppercase tracking-wider mb-2 max-w-full truncate" title={bubbleIndColor}>
+                                                {bubbleIndColor}
+                                            </div>
+                                            
+                                            <div className="flex-1 flex items-center space-x-3 w-full justify-center">
+                                                {/* Gradient Bar */}
+                                                <div
+                                                    className="w-4 h-full rounded-md shadow-inner border border-gray-700/50"
+                                                    style={{
+                                                        background: 'linear-gradient(to top, #0d0887, #6a00a8, #b12a90, #e16462, #fca636, #f0f921)'
+                                                    }}
+                                                />
+                                                
+                                                {/* Labels & Ticks */}
+                                                <div className="h-full flex flex-col justify-between text-[10px] font-semibold text-gray-400">
+                                                    <span>{typeof bubbleChartData.maxColor === 'number' ? bubbleChartData.maxColor.toFixed(1) : bubbleChartData.maxColor}</span>
+                                                    <span>{typeof bubbleChartData.maxColor === 'number' && typeof bubbleChartData.minColor === 'number' ? ((bubbleChartData.maxColor + bubbleChartData.minColor) / 2).toFixed(1) : '-'}</span>
+                                                    <span>{typeof bubbleChartData.minColor === 'number' ? bubbleChartData.minColor.toFixed(1) : bubbleChartData.minColor}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── RADAR / SPIDER CHART ────────────────────────────────────── */}
+                            {activeProfile && activeProfile.length > 0 && selectedProfileIndicators.length >= 3 && (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden flex flex-col space-y-0">
+                                    {/* Header */}
+                                    <div className="px-4 pt-4 pb-3 border-b border-gray-800 flex items-center justify-between gap-2">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-gray-200">Radar Profile Comparison</h3>
+                                            <p className="text-[11px] text-gray-400 font-medium">Normalized by column Maximum [0% to 100% of column max].</p>
+                                        </div>
+                                        <ExportButtons containerId="chart-radar-comparison" filename="radar_profile_comparison" />
+                                    </div>
+
+                                    {/* Entity Selection — dedicated scrollable row */}
+                                    <div className="w-full max-w-full overflow-hidden shrink-0 px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-950/60">
+                                        <div
+                                            className="flex items-center gap-2 custom-scrollbar min-w-0"
+                                            style={{ overflowX: 'auto', scrollbarWidth: 'thin', scrollbarColor: '#94a3b8 transparent' }}
+                                        >
+                                            <span className="text-[10px] text-gray-400 font-semibold uppercase shrink-0 pr-1">Compare:</span>
+                                            {selectedChartEntities.map(ent => (
+                                                <button
+                                                    key={ent}
+                                                    onClick={() => {
+                                                        setRadarEntities(prev =>
+                                                            prev.includes(ent) ? prev.filter(e => e !== ent) : [...prev, ent]
+                                                        );
+                                                    }}
+                                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all border whitespace-nowrap shrink-0 ${
+                                                        radarEntities.includes(ent)
+                                                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                                                            : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-800 hover:text-gray-200'
+                                                    }`}
+                                                >
+                                                    {ent}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="w-full flex justify-center items-center" style={{ height: 380 }} id="chart-radar-comparison">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <RadarChart data={radarChartData} margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
+                                                <PolarGrid stroke="var(--gray-800, #334155)" />
+                                                <PolarAngleAxis dataKey="indicator" stroke="var(--gray-300, #cbd5e1)" tick={{ fontSize: 10, fill: 'var(--gray-300, #cbd5e1)' }} />
+                                                <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="var(--gray-600, #475569)" tick={{ fontSize: 9, fill: 'var(--gray-500, #64748b)' }} unit="%" />
+                                                <RechartsTooltip
+                                                    content={({ active, payload, label }) => {
+                                                        if (!active || !payload || !payload.length) return null;
+                                                        return (
+                                                            <div className="bg-gray-900 border border-gray-700 p-3 rounded-xl shadow-xl text-xs space-y-1 z-50">
+                                                                <p className="font-bold text-gray-200 border-b border-gray-800 pb-1">{label}</p>
+                                                                {payload.map((entry: any) => (
+                                                                    <p key={entry.name} style={{ color: entry.color }}>
+                                                                        <span className="font-semibold">{entry.name}:</span> {entry.value}% <span className="text-gray-400 text-[10px]">({entry.payload[`${entry.name}_raw`]})</span>
+                                                                    </p>
+                                                                ))}
+                                                            </div>
+                                                        );
+                                                    }}
+                                                />
+                                                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                                                {radarEntities.map((ent, i) => (
+                                                    <Radar
+                                                        key={ent}
+                                                        name={ent}
+                                                        dataKey={ent}
+                                                        stroke={colors[i % colors.length]}
+                                                        fill={colors[i % colors.length]}
+                                                        fillOpacity={0.25}
+                                                        strokeWidth={2}
+                                                    />
+                                                ))}
+                                            </RadarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Quartiles Chart */}
+                            {quartileChartData && quartileChartData.length > 0 ? (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="text-sm font-bold text-gray-200">
+                                            Quartile Distribution (Q1–Q4)
+                                            <span className="text-gray-500 ml-2 font-normal text-xs">({quartileChartData.length} entities)</span>
+                                        </h3>
+                                        <div className="flex items-center space-x-2">
+                                            <ExportButtons containerId="chart-quartile-distribution" filename="quartile_distribution" />
+                                            <button
+                                                onClick={handleTrainSOMQuartiles}
+                                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-900/30 transition-all flex items-center space-x-1.5"
+                                            >
+                                                <Activity className="w-3.5 h-3.5" />
+                                                <span>Train SOM</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="w-full overflow-y-auto custom-scrollbar h-[420px]" id="chart-quartile-distribution">
+                                        <div style={{ height: dynamicChartHeight }}>
+                                            <ResponsiveContainer width="100%" height={dynamicChartHeight} key={`qchart_${sidebarTab}_${dynamicChartHeight}`}>
+                                                <BarChart data={quartileChartData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-700, #334155)" horizontal={false} />
+                                                <XAxis type="number" domain={[0, 100]} stroke="var(--gray-400, #64748b)" tick={{ fontSize: 10, fill: 'var(--gray-300, #64748b)' }} unit="%" />
+                                                <YAxis dataKey="entity" type="category" width={160} stroke="var(--gray-400, #64748b)" tick={{ fontSize: 9, fill: 'var(--gray-300, #64748b)' }} interval={0} />
+                                                <RechartsTooltip
+                                                    content={({ active, payload, label }) => {
+                                                        if (!active || !payload || !payload.length) return null;
+                                                        return (
+                                                            <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-xl shadow-xl text-xs space-y-1">
+                                                                <p className="font-bold text-gray-200 border-b border-gray-800 pb-1 mb-1">{label}</p>
+                                                                {payload.map((entry: any, i: number) => (
+                                                                    <div key={i} className="flex items-center justify-between space-x-4">
+                                                                        <span className="font-medium" style={{ color: entry.fill }}>
+                                                                            {entry.name}:
+                                                                        </span>
+                                                                        <span className="font-bold text-gray-200 ml-2">
+                                                                            {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}%
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        );
+                                                    }}
+                                                />
+                                                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                                                <Bar dataKey="Q1" name="Q1 (Top 25%)" stackId="q" fill="#6366f1" radius={[0, 0, 0, 0]} />
+                                                <Bar dataKey="Q2" name="Q2 (25%-50%)" stackId="q" fill="#34d399" radius={[0, 0, 0, 0]} />
+                                                <Bar dataKey="Q3" name="Q3 (50%-75%)" stackId="q" fill="#fbbf24" radius={[0, 0, 0, 0]} />
+                                                <Bar dataKey="Q4" name="Q4 (75%-100%)" stackId="q" fill="#f87171" radius={[0, 4, 4, 0]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-40 flex flex-col justify-center items-center text-center">
+                                    <h3 className="text-sm font-bold text-gray-300 mb-1">Quartile Distribution (Q1–Q4)</h3>
+                                    <p className="text-xs text-gray-500 max-w-md">Esta unidad de análisis no contiene datos de distribución por cuartiles en los archivos cargados.</p>
+                                </div>
+                            )}
+
+                            {/* ── Indicator Bar Charts Pair (Ordered Largest Top to Smallest Bottom) ── */}
+                            {activeProfile && activeProfile.length > 0 && unit.indicators && unit.indicators.length > 0 && (
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Chart 1 */}
+                                    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col">
+                                        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                                            <h3 className="text-xs font-bold text-gray-200 truncate max-w-[240px]" title={`${unitName}_${barInd1}`}>
+                                                {unitName}_{barInd1}
+                                            </h3>
+                                            <div className="flex items-center space-x-2">
+                                                <ExportButtons containerId="chart-bar-1" filename={`bar_${barInd1 || '1'}`} />
+                                                <select
+                                                    value={barInd1}
+                                                    onChange={e => setBarInd1(e.target.value)}
+                                                    className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 max-w-[200px] truncate"
+                                                >
+                                                    {unit.indicators.map((ind: string) => (
+                                                        <option key={ind} value={ind}>{ind}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="w-full overflow-y-auto custom-scrollbar h-[520px]" id="chart-bar-1">
+                                            <div style={{ height: dynamicChartHeight }}>
+                                                <ResponsiveContainer width="100%" height={dynamicChartHeight} key={`barchart1_${barInd1}_${dynamicChartHeight}`}>
+                                                    <BarChart data={barData1} layout="vertical" margin={{ top: 5, right: 25, left: 10, bottom: 5 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-700, #334155)" horizontal={false} />
+                                                    <XAxis type="number" stroke="var(--gray-400, #64748b)" tick={{ fontSize: 10, fill: 'var(--gray-300, #64748b)' }} />
+                                                    <YAxis dataKey="entity" type="category" width={180} stroke="var(--gray-400, #64748b)" tick={{ fontSize: 9, fill: 'var(--gray-300, #64748b)' }} interval={0} />
+                                                    <RechartsTooltip
+                                                        content={({ active, payload, label }) => {
+                                                            if (!active || !payload || !payload.length) return null;
+                                                            const val = payload[0].value;
+                                                            return (
+                                                                <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-xl shadow-xl text-xs">
+                                                                    <p className="font-bold text-gray-200">{label}</p>
+                                                                    <p className="text-indigo-400 font-bold mt-1">
+                                                                        {barInd1}: {typeof val === 'number' ? val.toFixed(2) : val}
+                                                                    </p>
+                                                                </div>
+                                                            );
+                                                        }}
+                                                    />
+                                                    <Bar dataKey="value" name={barInd1} fill="#6366f1" radius={[0, 4, 4, 0]} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Chart 2 */}
+                                    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col">
+                                        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                                            <h3 className="text-xs font-bold text-gray-200 truncate max-w-[240px]" title={`${unitName}_${barInd2}`}>
+                                                {unitName}_{barInd2}
+                                            </h3>
+                                            <div className="flex items-center space-x-2">
+                                                <ExportButtons containerId="chart-bar-2" filename={`bar_${barInd2 || '2'}`} />
+                                                <select
+                                                    value={barInd2}
+                                                    onChange={e => setBarInd2(e.target.value)}
+                                                    className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 max-w-[200px] truncate"
+                                                >
+                                                    {unit.indicators.map((ind: string) => (
+                                                        <option key={ind} value={ind}>{ind}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="w-full overflow-y-auto custom-scrollbar h-[520px]" id="chart-bar-2">
+                                            <div style={{ height: dynamicChartHeight }}>
+                                                <ResponsiveContainer width="100%" height={dynamicChartHeight} key={`barchart2_${barInd2}_${dynamicChartHeight}`}>
+                                                    <BarChart data={barData2} layout="vertical" margin={{ top: 5, right: 25, left: 10, bottom: 5 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-700, #334155)" horizontal={false} />
+                                                    <XAxis type="number" stroke="var(--gray-400, #64748b)" tick={{ fontSize: 10, fill: 'var(--gray-300, #64748b)' }} />
+                                                    <YAxis dataKey="entity" type="category" width={180} stroke="var(--gray-400, #64748b)" tick={{ fontSize: 9, fill: 'var(--gray-300, #64748b)' }} interval={0} />
+                                                    <RechartsTooltip
+                                                        content={({ active, payload, label }) => {
+                                                            if (!active || !payload || !payload.length) return null;
+                                                            const val = payload[0].value;
+                                                            return (
+                                                                <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-xl shadow-xl text-xs">
+                                                                    <p className="font-bold text-gray-200">{label}</p>
+                                                                    <p className="text-purple-400 font-bold mt-1">
+                                                                        {barInd2}: {typeof val === 'number' ? val.toFixed(2) : val}
+                                                                    </p>
+                                                                </div>
+                                                            );
+                                                        }}
+                                                    />
+                                                    <Bar dataKey="value" name={barInd2} fill="#a855f7" radius={[0, 4, 4, 0]} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Sunburst Hierarchy (Micro Topics only) */}
+                            {unitName === 'Micro Topics' && activeSunburst && activeSunburst.nodes && activeSunburst.nodes.length > 0 && (
+                                <SunburstChart data={activeSunburst} />
+                            )}
+                        </>
                     )}
                 </div>
             </div>
-
-            {/* Sunburst Hierarchy (Micro Topics only) */}
-            {unitName === 'Micro Topics' && activeSunburst && activeSunburst.nodes && activeSunburst.nodes.length > 0 && (
-                <SunburstChart data={activeSunburst} />
-            )}
-
-
         </div>
     );
 };
 
 
+const PREFERRED_INCITES_ORDER = [
+    'Locations',
+    'Publication Sources',
+    'SDG',
+    'ESI',
+    'WoS Categories',
+    'Macro Topics',
+    'Meso Topics',
+    'Micro Topics',
+    'Organizations',
+    'Funding Agencies',
+    'Researchers'
+];
+
+const sortInCitesUnits = (names: string[]): string[] => {
+    return [...names].sort((a, b) => {
+        const idxA = PREFERRED_INCITES_ORDER.indexOf(a);
+        const idxB = PREFERRED_INCITES_ORDER.indexOf(b);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.localeCompare(b);
+    });
+};
+
 // ── Main Explorer Shell ────────────────────────────────────────────────────
 export const InCitesExplorer: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [isUploading, setIsUploading] = useState(false);
     const [isLoadingUnit, setIsLoadingUnit] = useState(false);
-    
-    // Get state and setter from global store to persist across tab changes
-    const { incitesUnitNames: unitNames, incitesUnitCache: unitCache, incitesActiveUnit: activeUnit, setIncitesState } = useSomStore();
+
+    // Get state and setters from global store to persist across tab changes
+    const { 
+        incitesUnitNames: unitNames, 
+        incitesUnitCache: unitCache, 
+        incitesActiveUnit: activeUnit, 
+        incitesIsUploading: isUploading,
+        uploadInCitesFiles,
+        setIncitesState 
+    } = useSomStore();
 
     // Helper setters to keep code similar
-    const setUnitNames = (names: string[] | null) => setIncitesState({ incitesUnitNames: names });
     const setActiveUnit = (unit: string | null) => setIncitesState({ incitesActiveUnit: unit });
-    const setUnitCache = (value: Record<string, any> | ((prev: Record<string, any>) => Record<string, any>)) => {
-        if (typeof value === 'function') {
-            setIncitesState({ incitesUnitCache: value(unitCache) });
-        } else {
-            setIncitesState({ incitesUnitCache: value });
+
+    const sortedUnitNames = useMemo(() => {
+        if (!unitNames) return [];
+        return sortInCitesUnits(unitNames);
+    }, [unitNames]);
+
+    // Ensure default active tab is Locations
+    useEffect(() => {
+        if (sortedUnitNames.length > 0 && (!activeUnit || !sortedUnitNames.includes(activeUnit))) {
+            const defaultUnit = sortedUnitNames.includes('Locations') ? 'Locations' : sortedUnitNames[0];
+            setActiveUnit(defaultUnit);
         }
-    };
+    }, [sortedUnitNames, activeUnit]);
 
     // ── Step 1: Upload → get names only ───────────────────────────────
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0) return;
 
-        setIsUploading(true);
-        setUnitNames(null);
-        setUnitCache({});
-        setActiveUnit(null);
-
         const formData = new FormData();
         Array.from(e.target.files).forEach(file => formData.append('files', file));
 
-        try {
-            const response = await fetch(getApiUrl('/api/incites/process'), {
-                method: 'POST',
-                body: formData
-            });
-            const data = await response.json();
+        // Background upload in store (persists across tab changes)
+        uploadInCitesFiles(formData);
 
-            if (!data.success) {
-                alert("Error procesando InCites: " + data.error);
-                return;
-            }
-
-            const names: string[] = data.unit_names ?? [];
-            setUnitNames(names);
-
-            // Auto-select first unit
-            if (names.length > 0) {
-                const first = names.includes('Researchers') ? 'Researchers' : names[0];
-                setActiveUnit(first);
-            }
-        } catch (err) {
-            alert('Upload failed: ' + err);
-        } finally {
-            setIsUploading(false);
-            // Reset input so the same file can be re-uploaded
-            if (fileInputRef.current) fileInputRef.current.value = '';
-        }
+        // Reset input so the same file can be re-uploaded
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     // ── Step 2: Tab click → fetch that unit on demand ─────────────────
@@ -406,7 +1823,9 @@ export const InCitesExplorer: React.FC = () => {
                 const res = await fetch(getApiUrl(`/api/incites/unit/${encodeURIComponent(activeUnit)}`));
                 const data = await res.json();
                 if (data.success && data.unit) {
-                    setUnitCache(prev => ({ ...prev, [activeUnit]: data.unit }));
+                    setIncitesState({
+                        incitesUnitCache: { ...useSomStore.getState().incitesUnitCache, [activeUnit]: data.unit }
+                    });
                 } else {
                     alert(`Error cargando la unidad '${activeUnit}': ${data.error}`);
                 }
@@ -428,7 +1847,7 @@ export const InCitesExplorer: React.FC = () => {
             <div className="flex items-center justify-between shrink-0">
                 <div>
                     <h2 className="text-2xl font-bold text-white tracking-tight">InCites Data</h2>
-                    <p className="text-sm text-gray-400 mt-1">Explora y procesa indicadores bibliométricos de Clarivate InCites</p>
+                    <p className="text-sm text-gray-400 mt-1">Explore and process Clarivate InCites bibliometric indicators</p>
                 </div>
                 <div className="flex items-center space-x-4">
                     <button
@@ -437,7 +1856,7 @@ export const InCitesExplorer: React.FC = () => {
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-indigo-900/50 transition flex items-center space-x-2 disabled:opacity-50"
                     >
                         {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                        <span>{isUploading ? 'Procesando...' : 'Cargar ZIP / Excel'}</span>
+                        <span>{isUploading ? 'Processing...' : 'Upload ZIP / Excel'}</span>
                     </button>
                     <input
                         type="file"
@@ -454,7 +1873,7 @@ export const InCitesExplorer: React.FC = () => {
             {!unitNames && !isUploading && (
                 <div className="flex-1 flex flex-col items-center justify-center text-gray-500 border-2 border-dashed border-gray-800 rounded-3xl">
                     <BarChart2 className="w-16 h-16 mb-4 text-gray-700" />
-                    <p>Carga archivos CSV/Excel de InCites o un archivo ZIP para comenzar.</p>
+                    <p>Upload InCites CSV/Excel files or a ZIP file to get started.</p>
                 </div>
             )}
 
@@ -462,25 +1881,24 @@ export const InCitesExplorer: React.FC = () => {
             {isUploading && (
                 <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
                     <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-500" />
-                    <p className="text-sm font-medium">Procesando archivos InCites…</p>
-                    <p className="text-xs text-gray-600 mt-1">Esto puede tomar 30–60 segundos para ZIPs grandes</p>
+                    <p className="text-sm font-medium">Processing InCites files…</p>
+                    <p className="text-xs text-gray-600 mt-1">This may take 30–60 seconds for large ZIPs</p>
                 </div>
             )}
 
             {/* Tabs + content */}
-            {unitNames && unitNames.length > 0 && (
+            {sortedUnitNames && sortedUnitNames.length > 0 && (
                 <div className="flex-1 flex flex-col space-y-4 min-h-0">
                     {/* Unit Tabs */}
                     <div className="flex space-x-2 border-b border-gray-800 pb-2 overflow-x-auto shrink-0">
-                        {unitNames.map(name => (
+                        {sortedUnitNames.map(name => (
                             <button
                                 key={name}
                                 onClick={() => setActiveUnit(name)}
-                                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors whitespace-nowrap ${
-                                    activeUnit === name
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-900 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                                }`}
+                                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors whitespace-nowrap ${activeUnit === name
+                                        ? 'bg-indigo-600 text-white'
+                                        : 'bg-gray-900 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                                    }`}
                             >
                                 {name}
                                 {/* Show dot if already cached */}

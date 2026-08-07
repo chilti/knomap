@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import chroma from 'chroma-js';
 import { line, curveCatmullRom } from 'd3-shape';
 import { useSomStore } from '../store/somStore';
@@ -19,6 +20,7 @@ interface MallaHexagonalProps {
   colorScale?: 'standard' | 'viridis' | 'cividis';
   onColorScaleChange?: (scale: 'standard' | 'viridis' | 'cividis') => void;
   trajectories?: Trajectory[];
+  onNeuronClick?: (neuronIndex: number) => void;
 }
 
 export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
@@ -28,7 +30,8 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
   initialScale,
   colorScale = 'standard',
   onColorScaleChange,
-  trajectories = []
+  trajectories = [],
+  onNeuronClick
 }) => {
   const { 
     result, 
@@ -56,6 +59,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
 
   const [scale, setScale] = useState(calculatedScale); // pixel scale factor
   const [selectedNeuron, setSelectedNeuron] = useState<number | null>(null);
+  const [hoveredNeuron, setHoveredNeuron] = useState<{ index: number; x: number; y: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   
   // Local state to control filters modal visibility
@@ -424,7 +428,13 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                     strokeWidth={isSelected ? 2 : 0.4}
                     opacity={0.9}
                     className="cursor-pointer transition-colors duration-150 hover:opacity-100"
-                    onClick={() => setSelectedNeuron(neuron.index)}
+                    onClick={() => {
+                      setSelectedNeuron(neuron.index);
+                      onNeuronClick?.(neuron.index);
+                    }}
+                    onMouseEnter={(e) => setHoveredNeuron({ index: neuron.index, x: e.clientX, y: e.clientY })}
+                    onMouseMove={(e) => setHoveredNeuron({ index: neuron.index, x: e.clientX, y: e.clientY })}
+                    onMouseLeave={() => setHoveredNeuron(null)}
                   />
                 );
               })}
@@ -446,6 +456,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                       stroke="#000000"
                       strokeWidth={2}
                       strokeLinecap="round"
+                      className="pointer-events-none"
                     />
                   );
                 });
@@ -621,39 +632,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
         )}
       </div>
 
-      {/* Hex Detail Information Panel */}
-      {selectedNeuron !== null && (() => {
-        const docs = mappedLabels[selectedNeuron] || [];
-        const activeDocs = docs.filter(label => {
-          if (labelSearchQuery && !label.toLowerCase().includes(labelSearchQuery.toLowerCase())) {
-            return false;
-          }
-          if (excludedLabels.has(label)) {
-            return false;
-          }
-          return true;
-        });
-        
-        return (
-          <div className="p-5 bg-gray-950 border-t border-gray-800 text-sm text-gray-300 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-y-2 leading-relaxed">
-              <span className="font-bold text-gray-400">Neuron:</span> <span className="text-white font-semibold ml-1">[{Math.floor(selectedNeuron / cols)}, {selectedNeuron % cols}]</span> (Index {selectedNeuron})
-              <span className="mx-3 text-gray-850">|</span>
-              <span className="font-bold text-gray-400">Cluster ID:</span> <span className="text-indigo-400 font-semibold ml-1">{clustering[selectedNeuron]}</span>
-              <span className="mx-3 text-gray-850">|</span>
-              <span className="text-indigo-200 font-medium ml-1">
-                {activeDocs.length > 0 ? activeDocs.join(', ') : 'None'}
-              </span>
-            </div>
-            <button
-              onClick={() => setSelectedNeuron(null)}
-              className="text-xs text-gray-500 hover:text-gray-300 uppercase tracking-wider font-bold shrink-0 cursor-pointer"
-            >
-              Close Details
-            </button>
-          </div>
-        );
-      })()}
+
 
       {/* 5. INTERACTIVE POP-UP MODAL: LABEL FILTER MANAGER */}
       {isFilterModalOpen && (
@@ -760,6 +739,73 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* 5. Floating Hover Tooltip: Mapped Units (up to 5) via Portal */}
+      {hoveredNeuron && result && createPortal(
+        (() => {
+          // Resolve mapped labels for hovered neuron with fallbacks
+          let allMapped: string[] = [];
+          if (mappedLabels && mappedLabels[hoveredNeuron.index] && mappedLabels[hoveredNeuron.index].length > 0) {
+            allMapped = mappedLabels[hoveredNeuron.index];
+          } else if (result.bmus && labels && labels.length > 0) {
+            result.bmus.forEach((bmuIdx, dIdx) => {
+              if (bmuIdx === hoveredNeuron.index && labels[dIdx]) {
+                allMapped.push(labels[dIdx]);
+              }
+            });
+          }
+
+          const displayList = allMapped.slice(0, 5);
+          const extraCount = Math.max(0, allMapped.length - 5);
+          const clusterId = result.clustering ? result.clustering[hoveredNeuron.index] : null;
+
+          return (
+            <div 
+              className="fixed z-[99999] pointer-events-none bg-[#090d16]/95 border border-[#1e293b] rounded-xl p-3 shadow-2xl backdrop-blur-md max-w-xs text-xs text-gray-200"
+              style={{
+                left: Math.min(window.innerWidth - 250, hoveredNeuron.x + 14),
+                top: Math.min(window.innerHeight - 200, hoveredNeuron.y + 14)
+              }}
+            >
+              <div className="flex items-center justify-between border-b border-gray-800 pb-1.5 mb-2 gap-3">
+                <span className="font-black text-indigo-400 text-[11px] uppercase tracking-wider">
+                  Neuron #{hoveredNeuron.index}
+                </span>
+                {clusterId !== null && clusterId !== -1 && (
+                  <span className="px-1.5 py-0.5 bg-purple-900/60 border border-purple-500/50 text-purple-200 text-[9px] font-bold rounded">
+                    Cluster {clusterId}
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">
+                  Mapped Units ({allMapped.length}):
+                </p>
+                {displayList.length > 0 ? (
+                  <ul className="space-y-1">
+                    {displayList.map((unitName, i) => (
+                      <li key={i} className="flex items-center space-x-1.5 text-[11px] text-gray-200 truncate">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+                        <span className="truncate">{unitName}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] text-gray-500 italic">No units mapped to this cell</p>
+                )}
+
+                {extraCount > 0 && (
+                  <p className="text-[10px] text-indigo-400 font-semibold pt-1">
+                    + {extraCount} more unit{extraCount > 1 ? 's' : ''}...
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })(),
+        document.body
       )}
     </div>
   );
