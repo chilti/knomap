@@ -7,6 +7,7 @@ export interface MetricResult {
   silhouette: number;
   davies_bouldin: number;
   calinski_harabasz: number;
+  labels: number[];
 }
 
 interface Props {
@@ -14,8 +15,11 @@ interface Props {
   loading: boolean;
   error: string | null;
   nClusters?: number;
+  maxK?: number;
   onNClustersChange?: (n: number) => void;
+  onMaxKChange?: (n: number) => void;
   onRecluster?: () => void;
+  onApplyK?: () => void;
   disabledRecluster?: boolean;
 }
 
@@ -23,9 +27,12 @@ export const ClusterMetricsPanel: React.FC<Props> = ({
   data, 
   loading, 
   error, 
-  nClusters, 
-  onNClustersChange, 
-  onRecluster, 
+  nClusters,
+  maxK,
+  onNClustersChange,
+  onMaxKChange,
+  onRecluster,
+  onApplyK,
   disabledRecluster 
 }) => {
   const handleDownload = (chartId: string, filename: string) => {
@@ -69,6 +76,19 @@ export const ClusterMetricsPanel: React.FC<Props> = ({
             <span>Clustering Optimization Metrics</span>
           </h3>
           <p className="text-xs text-gray-500 mt-1">Evaluate different values of K using agglomerative hierarchies.</p>
+          {onMaxKChange && (
+            <div className="flex items-center space-x-2 mt-2">
+              <label className="text-[10px] text-gray-400 font-semibold">Max K to Evaluate:</label>
+              <input
+                type="number"
+                min={5}
+                max={50}
+                value={maxK || 15}
+                onChange={(e) => onMaxKChange(parseInt(e.target.value) || 15)}
+                className="w-14 bg-gray-950 border border-gray-800 rounded px-1.5 py-1 text-[10px] text-gray-200 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+          )}
         </div>
 
         {onRecluster && (
@@ -85,15 +105,26 @@ export const ClusterMetricsPanel: React.FC<Props> = ({
               />
             </div>
 
-            <button
-              onClick={onRecluster}
-              disabled={disabledRecluster}
-              title="Apply clustering parameters without retraining"
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/50 text-white rounded-xl transition cursor-pointer shadow-md shadow-indigo-900/30 flex items-center space-x-1.5 text-xs font-bold uppercase tracking-wider disabled:opacity-50"
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>Apply Fast Re-Clustering</span>
-            </button>
+            <div className="flex flex-col space-y-1">
+              <button
+                onClick={onApplyK}
+                disabled={disabledRecluster || !data?.some(d => d.k === nClusters)}
+                title="Apply stored clustering instantaneously"
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 border border-emerald-500/50 text-white rounded-lg transition cursor-pointer shadow-md flex items-center justify-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+              >
+                <Activity className="w-3 h-3" />
+                <span>APPLY K</span>
+              </button>
+              
+              <button
+                onClick={onRecluster}
+                disabled={disabledRecluster}
+                title="Send request to backend to compute new clustering"
+                className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-lg transition cursor-pointer flex items-center justify-center space-x-1.5 text-[9px] font-bold uppercase tracking-wider disabled:opacity-50"
+              >
+                <span>Backend Re-cluster</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

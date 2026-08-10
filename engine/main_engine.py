@@ -40,6 +40,65 @@ def handle_preprocess(params):
     except Exception as e:
         return {"success": False, "error": f"Preprocess error: {str(e)}"}
 
+def handle_suggest_size(params):
+    import math
+    try:
+        from sklearn.decomposition import TruncatedSVD
+    except ImportError:
+        return {"success": False, "error": "scikit-learn is not installed."}
+
+    data_list = params.get("data", [])
+    if not data_list:
+        return {"success": False, "error": "Empty data matrix provided."}
+        
+    data = np.array(data_list, dtype=np.float64)
+    N = data.shape[0]
+    
+    # 1. Big SOM (N <= 1000 defaults to Big SOM, but we calculate it anyway)
+    # Target Neurons = 10 * N
+    big_target = 10 * N
+    
+    try:
+        # Use TruncatedSVD to find top 2 singular values (fast for large sparse/dense matrices)
+        svd = TruncatedSVD(n_components=2, n_iter=7, random_state=42)
+        svd.fit(data)
+        # Ratio of singular values is ratio of lengths in PCA space
+        # Variance is singular_value^2, so std_dev (length) is singular_value
+        if len(svd.singular_values_) == 2 and svd.singular_values_[1] > 0:
+            ratio = svd.singular_values_[0] / svd.singular_values_[1]
+        else:
+            ratio = 1.0
+    except Exception as e:
+        ratio = 1.0
+
+    # Limit ratio to a reasonable range (e.g. max 3:1) to prevent extremely long/wide maps
+    ratio = max(1/3, min(3.0, ratio))
+
+    # width / height = ratio, width * height = big_target
+    # width = sqrt(big_target * ratio)
+    # height = sqrt(big_target / ratio)
+    big_width = max(1, int(round(math.sqrt(big_target * ratio))))
+    big_height = max(1, int(round(math.sqrt(big_target / ratio))))
+    
+    # 2. Small SOM
+    # Target Neurons = 5 * sqrt(N)
+    small_target = 5 * math.sqrt(N)
+    # Square grid for small SOM
+    small_width = max(1, int(round(math.sqrt(small_target))))
+    small_height = small_width
+    
+    recommended = "big" if N <= 1000 else "small"
+    
+    return {
+        "success": True,
+        "N": N,
+        "recommended": recommended,
+        "bigSomWidth": big_width,
+        "bigSomHeight": big_height,
+        "smallSomWidth": small_width,
+        "smallSomHeight": small_height
+    }
+
 def handle_train(params):
     data_list = params.get("data", [])
     if not data_list:
@@ -340,6 +399,9 @@ def main():
             print(json.dumps(result))
     elif action == "train":
         res = handle_train(params)
+        print(json.dumps(res))
+    elif action == "suggest_size":
+        res = handle_suggest_size(params)
         print(json.dumps(res))
     elif action == "evaluate_clusters":
         res = handle_evaluate_clusters(params)

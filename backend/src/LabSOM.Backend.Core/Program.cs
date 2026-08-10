@@ -143,6 +143,12 @@ app.MapGet("/api/incites/unit/{unitName}", async (string unitName, InCitesServic
 
 
 // 3. SOM and UMAP Training Endpoint
+app.MapPost("/api/som/suggest_size", async (SuggestSizeRequest request, SOMEngineService engine) =>
+{
+    var result = await engine.SuggestSizeAsync(request);
+    return Results.Ok(result);
+});
+
 app.MapPost("/api/som/train", async (SOMTrainingRequest request, SOMEngineService engine) =>
 {
     if (request.Data == null || request.Data.Count == 0)

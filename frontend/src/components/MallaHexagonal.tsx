@@ -210,14 +210,14 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
     const neuronIdx = j + i * cols;
     const clusterId = clustering[neuronIdx];
     
-    // Hexagonal neighbors based on row i parity
+    // Hexagonal neighbors based on column j parity
     const neighborsMap: Record<string, { r: number; c: number; edgeIdxs: [number, number] }> = {
-      n1: { r: i + 1, c: i % 2 === 0 ? j : j + 1, edgeIdxs: [0, 1] }, // right-bottom
-      n2: { r: i, c: j + 1, edgeIdxs: [1, 2] },                     // bottom
-      n3: { r: i - 1, c: i % 2 === 0 ? j : j + 1, edgeIdxs: [2, 3] }, // left-bottom
-      n4: { r: i - 1, c: i % 2 === 0 ? j - 1 : j, edgeIdxs: [3, 4] }, // left-top
-      n5: { r: i, c: j - 1, edgeIdxs: [4, 5] },                     // top
-      n6: { r: i + 1, c: i % 2 === 0 ? j - 1 : j, edgeIdxs: [5, 0] }  // right-top
+      n1: { r: j % 2 === 0 ? i : i + 1, c: j + 1, edgeIdxs: [0, 1] },     // bottom-right
+      n2: { r: i + 1, c: j, edgeIdxs: [1, 2] },                           // bottom
+      n3: { r: j % 2 === 0 ? i : i + 1, c: j - 1, edgeIdxs: [2, 3] },     // bottom-left
+      n4: { r: j % 2 === 0 ? i - 1 : i, c: j - 1, edgeIdxs: [3, 4] },     // top-left
+      n5: { r: i - 1, c: j, edgeIdxs: [4, 5] },                           // top
+      n6: { r: j % 2 === 0 ? i - 1 : i, c: j + 1, edgeIdxs: [5, 0] }      // top-right
     };
 
     // Calculate vertex coordinates for a given cell center (xc, yc)

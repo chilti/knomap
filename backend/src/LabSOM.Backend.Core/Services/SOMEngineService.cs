@@ -31,6 +31,85 @@ namespace LabSOM.Backend.Core.Services
             _enginePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine");
         }
 
+        public async Task<SuggestSizeResult> SuggestSizeAsync(SuggestSizeRequest request)
+        {
+            var scriptPath = Path.GetFullPath(Path.Combine(_enginePath, "main_engine.py"));
+            
+            // Create temporary folder inside the engine directory
+            string tempDir = Path.GetFullPath(Path.Combine(_enginePath, "temp"));
+            if (!Directory.Exists(tempDir))
+            {
+                Directory.CreateDirectory(tempDir);
+            }
+            
+            string tempFile = Path.Combine(tempDir, $"som_suggest_{Guid.NewGuid():N}.json");
+            
+            try
+            {
+                string jsonPayload = JsonSerializer.Serialize(request);
+                await File.WriteAllTextAsync(tempFile, jsonPayload);
+                
+                var psi = new ProcessStartInfo
+                {
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
+                    Arguments = $"\"{scriptPath}\" suggest_size \"{tempFile}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                var stderrTask = process.StandardError.ReadToEndAsync();
+                
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                try
+                {
+                    await process.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    process.Kill(entireProcessTree: true);
+                    return new SuggestSizeResult { Success = false, Error = "Timeout calculating PCA" };
+                }
+                
+                string stdout = await stdoutTask;
+                string stderr = await stderrTask;
+
+                if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+                {
+                    int jsonStart = stdout.IndexOf('{');
+                    string jsonOnly = jsonStart >= 0 ? stdout[jsonStart..] : stdout;
+                    
+                    try
+                    {
+                        var result = JsonSerializer.Deserialize<SuggestSizeResult>(jsonOnly, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (result != null) return result;
+                    }
+                    catch (Exception ex)
+                    {
+                        return new SuggestSizeResult { Success = false, Error = "JSON Parse error: " + ex.Message };
+                    }
+                }
+                
+                return new SuggestSizeResult { Success = false, Error = "Execution failed: " + stderr };
+            }
+            catch (Exception ex)
+            {
+                return new SuggestSizeResult { Success = false, Error = "Exception: " + ex.Message };
+            }
+            finally
+            {
+                if (File.Exists(tempFile))
+                {
+                    try { File.Delete(tempFile); } catch { }
+                }
+            }
+        }
+
         public async Task<SOMTrainingResult> TrainAsync(SOMTrainingRequest request)
         {
             var scriptPath = Path.GetFullPath(Path.Combine(_enginePath, "main_engine.py"));
@@ -737,5 +816,38 @@ public class SOMTrainingRequest
 
         [JsonPropertyName("reduced_data")]
         public List<List<double>> ReducedData { get; set; }
+    }
+
+    public class SuggestSizeRequest
+    {
+        [JsonPropertyName("data")]
+        public List<List<double>> Data { get; set; }
+    }
+
+    public class SuggestSizeResult
+    {
+        [JsonPropertyName("success")]
+        public bool Success { get; set; }
+
+        [JsonPropertyName("error")]
+        public string Error { get; set; }
+
+        [JsonPropertyName("N")]
+        public int N { get; set; }
+
+        [JsonPropertyName("recommended")]
+        public string Recommended { get; set; }
+
+        [JsonPropertyName("bigSomWidth")]
+        public int BigSomWidth { get; set; }
+
+        [JsonPropertyName("bigSomHeight")]
+        public int BigSomHeight { get; set; }
+
+        [JsonPropertyName("smallSomWidth")]
+        public int SmallSomWidth { get; set; }
+
+        [JsonPropertyName("smallSomHeight")]
+        public int SmallSomHeight { get; set; }
     }
 }

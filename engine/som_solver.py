@@ -25,8 +25,8 @@ class SOMSolver:
             for j in range(cols):
                 idx = j + i * cols
                 # Flat-topped hexagonal layout coordinates
-                self.coords_np[idx, 0] = i * avanceX
-                self.coords_np[idx, 1] = j * avanceY + (apotema if i % 2 != 0 else 0.0)
+                self.coords_np[idx, 0] = j * avanceX
+                self.coords_np[idx, 1] = i * avanceY + (apotema if j % 2 != 0 else 0.0)
                 
         # Calculate pair-wise grid distances for all neurons
         self.grid_dist_np = dist.squareform(dist.pdist(self.coords_np, metric='euclidean'))
@@ -207,7 +207,8 @@ class SOMSolver:
                 "k": k,
                 "silhouette": float(sil),
                 "davies_bouldin": float(db),
-                "calinski_harabasz": float(ch)
+                "calinski_harabasz": float(ch),
+                "labels": labels.tolist()
             })
             
         return results

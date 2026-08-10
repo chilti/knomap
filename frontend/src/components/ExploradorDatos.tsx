@@ -82,6 +82,10 @@ export const ExploradorDatos: React.FC = () => {
     deleteRun,
     renameRun,
     incitesIsUploading,
+    somSizeMode,
+    setSomSizeMode,
+    suggestedBigSom,
+    suggestedSmallSom
   } = useSomStore();
 
   // Alias store names to match local usage in JSX
@@ -151,7 +155,7 @@ export const ExploradorDatos: React.FC = () => {
     setIsAnalyzingClusters(true);
     setClusterMetricsError(null);
     try {
-      const payload = { weights: currentResult.weights, max_k: 15 };
+      const payload = { weights: currentResult.weights, max_k: config.maxK || 15 };
       const apiUrl = getApiUrl('/api/som/evaluate_clusters');
       const res = await fetch(apiUrl, {
         method: 'POST',
@@ -395,6 +399,7 @@ export const ExploradorDatos: React.FC = () => {
       const json = await res.json();
       if (json.success && json.clustering) {
         reclusterLocally(json.clustering);
+        setSubTab('maps');
       } else {
         const errMsg = json.error || json.title || json.detail || JSON.stringify(json);
         alert(typeof errMsg === 'string' ? errMsg : "Failed to re-cluster");
@@ -1468,8 +1473,7 @@ export const ExploradorDatos: React.FC = () => {
       <div className="flex-1">
         
         {/* SUBTAB 1: DATA IMPORT & EXPLORATION */}
-        {subTab === 'import' && (
-          <div className="space-y-6">
+        <div className={subTab === 'import' ? "space-y-6" : "hidden"}>
             {/* Header Control Card: Compact Import Controls */}
             <div 
               onDragOver={e => e.preventDefault()}
@@ -1774,12 +1778,10 @@ export const ExploradorDatos: React.FC = () => {
                 <p className="text-sm mt-1 max-w-sm">Use the "Import CSV Data" button above, or preprocess files from PubMed/WoS in the Bibliometrics tab to begin.</p>
               </div>
             )}
-          </div>
-        )}
+        </div>
 
         {/* SUBTAB 2: TRAINING AND HYBRID SOLVER STATUS */}
-        {subTab === 'training' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+        <div className={subTab === 'training' ? "grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto" : "hidden"}>
             {/* Form configuration card */}
             <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-6">
               <div>
@@ -1792,13 +1794,63 @@ export const ExploradorDatos: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
+                  <div className="flex flex-col space-y-2 mb-4 bg-gray-950 p-3 rounded-xl border border-gray-800">
+                    <span className="text-xs text-gray-400 font-semibold mb-1">Grid Size Mode</span>
+                    <label className="flex items-center space-x-2 text-xs text-gray-300 cursor-pointer hover:text-indigo-300">
+                      <input 
+                        type="radio" 
+                        name="somSizeMode" 
+                        value="big" 
+                        className="text-indigo-500 bg-gray-900 border-gray-700"
+                        checked={somSizeMode === 'big'} 
+                        onChange={() => {
+                          setSomSizeMode('big');
+                          if (suggestedBigSom) {
+                            setConfig({ cols: suggestedBigSom.width, rows: suggestedBigSom.height });
+                          }
+                        }} 
+                      />
+                      <span>Big SOM, Visualization {suggestedBigSom ? `(Suggested: ${suggestedBigSom.width}x${suggestedBigSom.height})` : ''}</span>
+                    </label>
+                    <label className="flex items-center space-x-2 text-xs text-gray-300 cursor-pointer hover:text-indigo-300">
+                      <input 
+                        type="radio" 
+                        name="somSizeMode" 
+                        value="small" 
+                        className="text-indigo-500 bg-gray-900 border-gray-700"
+                        checked={somSizeMode === 'small'} 
+                        onChange={() => {
+                          setSomSizeMode('small');
+                          if (suggestedSmallSom) {
+                            setConfig({ cols: suggestedSmallSom.width, rows: suggestedSmallSom.height });
+                          }
+                        }} 
+                      />
+                      <span>Small SOM, Clustering {suggestedSmallSom ? `(Suggested: ${suggestedSmallSom.width}x${suggestedSmallSom.height})` : ''}</span>
+                    </label>
+                    <label className="flex items-center space-x-2 text-xs text-gray-300 cursor-pointer hover:text-indigo-300">
+                      <input 
+                        type="radio" 
+                        name="somSizeMode" 
+                        value="custom" 
+                        className="text-indigo-500 bg-gray-900 border-gray-700"
+                        checked={somSizeMode === 'custom'} 
+                        onChange={() => setSomSizeMode('custom')} 
+                      />
+                      <span>User Defined</span>
+                    </label>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs text-gray-400 font-semibold mb-1.5">Grid Rows</label>
                       <input
                         type="number"
                         value={config.rows}
-                        onChange={(e) => setConfig({ rows: parseInt(e.target.value) || 5 })}
+                        onChange={(e) => {
+                          setConfig({ rows: parseInt(e.target.value) || 5 });
+                          setSomSizeMode('custom');
+                        }}
                         className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
                       />
                     </div>
@@ -1807,7 +1859,10 @@ export const ExploradorDatos: React.FC = () => {
                       <input
                         type="number"
                         value={config.cols}
-                        onChange={(e) => setConfig({ cols: parseInt(e.target.value) || 5 })}
+                        onChange={(e) => {
+                          setConfig({ cols: parseInt(e.target.value) || 5 });
+                          setSomSizeMode('custom');
+                        }}
                         className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
                       />
                     </div>
@@ -1818,7 +1873,7 @@ export const ExploradorDatos: React.FC = () => {
                     <input
                       type="number"
                       value={config.iterations}
-                      onChange={(e) => setConfig({ iterations: parseInt(e.target.value) || 10 })}
+                      onChange={(e) => setConfig({ iterations: parseInt(e.target.value) || 1000 })}
                       className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
@@ -1996,17 +2051,26 @@ export const ExploradorDatos: React.FC = () => {
                 loading={isAnalyzingClusters} 
                 error={clusterMetricsError}
                 nClusters={config.nClusters}
+                maxK={config.maxK}
                 onNClustersChange={(k) => setConfig({ nClusters: k })}
+                onMaxKChange={(k) => setConfig({ maxK: k })}
                 onRecluster={handleRecluster}
+                onApplyK={() => {
+                  const targetMetric = clusterMetricsData?.find(d => d.k === config.nClusters);
+                  if (targetMetric && targetMetric.labels) {
+                    reclusterLocally(targetMetric.labels);
+                    setSubTab('maps');
+                  } else {
+                    alert("No pre-calculated labels found for this K. Please click 'Analyze Optimal Clusters' first or use 'Backend Re-cluster'.");
+                  }
+                }}
                 disabledRecluster={!result || dataMatrix.length === 0}
               />
             )}
-          </div>
-        )}
+        </div>
 
         {/* SUBTAB 3: SOM MAPS VIEWPORTS AND 3X3 GRID CLONER */}
-        {subTab === 'maps' && (
-          <div className="space-y-8">
+        <div className={subTab === 'maps' ? "space-y-8" : "hidden"}>
             {result ? (
               <>
                 {/* Section A: Top Row - Clustering Map (First Map!) & Cluster Centroid + 2 Nearest Units Radar Chart */}
@@ -2457,25 +2521,23 @@ export const ExploradorDatos: React.FC = () => {
                 <p className="text-sm mt-1 max-w-sm">Configure parameters and execute training under the SOM Training tab to render coordinates.</p>
               </div>
             )}
-          </div>
-        )}
+        </div>
 
         {/* SUBTAB 4: RESPONSIVE UMAP scatterplot */}
-        {subTab === 'umap' && (
-          <div className="space-y-6">
+        <div className={subTab === 'umap' ? "space-y-6" : "hidden"}>
             <div className="flex justify-between items-center bg-gray-900 border border-gray-800 p-4 rounded-xl shadow-inner">
               <div className="flex-1 max-w-md">
                 <label className="block text-xs text-gray-400 font-semibold mb-2">UMAP Data Source</label>
                 <select
-                  value={config.umapDataSource || 'data'}
+                  value={config.umapDataSource || 'original'}
                   onChange={(e) => setConfig({ umapDataSource: e.target.value as any })}
                   className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs text-gray-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
                 >
-                  <option value="data">Original Data Matrix (High Detail)</option>
+                  <option value="original">Original Data Matrix (High Detail)</option>
                   <option value="weights">SOM Neuron Weights (Fast Outline)</option>
                 </select>
                 <p className="text-[10px] text-gray-500 mt-2">
-                  {config.umapDataSource === 'data' 
+                  {(config.umapDataSource as string) === 'original' || (config.umapDataSource as string) === 'data'
                     ? "Projects all original documents into 2D space. Best for accurate labels and trajectories."
                     : "Projects only the trained SOM neurons. Faster, but abstracts individual documents."}
                 </p>
@@ -2727,7 +2789,6 @@ export const ExploradorDatos: React.FC = () => {
                 </div>
               )}
             </div>
-          )}
         </div>
       </div>
     </>

@@ -47,7 +47,10 @@ if exist Output\knoMap_Linux rmdir /s /q Output\knoMap_Linux
 mkdir Output\knoMap_Linux
 xcopy publish_linux\* Output\knoMap_Linux\ /s /e /y /q >nul
 robocopy engine Output\knoMap_Linux\engine /s /e /xd __pycache__ .venv venv temp >nul
-powershell -Command "Compress-Archive -Path 'Output\knoMap_Linux\*' -DestinationPath 'Output\knoMap_Linux.zip' -Force"
+timeout /t 5 /nobreak >nul
+pushd Output\knoMap_Linux
+tar -a -c -f ..\knoMap_Linux.zip *
+popd
 
 echo   - Creando empaquetado para Mac (Intel)...
 if exist Output\knoMap_Mac_Intel rmdir /s /q Output\knoMap_Mac_Intel
@@ -57,7 +60,10 @@ copy backend\src\LabSOM.Backend.Core\Info.plist Output\knoMap_Mac_Intel\knoMap.a
 xcopy publish_mac_intel\* Output\knoMap_Mac_Intel\knoMap.app\Contents\MacOS\ /s /e /y /q >nul
 robocopy engine Output\knoMap_Mac_Intel\knoMap.app\Contents\MacOS\engine /s /e /xd __pycache__ .venv venv temp >nul
 powershell -Command "Out-File -FilePath 'Output\knoMap_Mac_Intel\INSTRUCCIONES_MAC.txt' -Encoding utf8 -InputObject \"==============================================`nINSTRUCCIONES DE INSTALACION PARA MAC`n==============================================`n`nDado que la aplicacion se ha comprimido en formato ZIP, macOS puede revocar el permiso de ejecucion.`nSi al abrir 'knoMap' aparece un mensaje indicando que esta danada o no se puede abrir,`nabre la Terminal en esta carpeta y ejecuta:`n`nchmod +x knoMap.app/Contents/MacOS/knoMap`n`nLuego podras abrirla normalmente haciendo doble clic en el icono.\""
-powershell -Command "Compress-Archive -Path 'Output\knoMap_Mac_Intel\*' -DestinationPath 'Output\knoMap_Mac_Intel.zip' -Force"
+timeout /t 5 /nobreak >nul
+pushd Output\knoMap_Mac_Intel
+tar -a -c -f ..\knoMap_Mac_Intel.zip *
+popd
 
 echo   - Creando empaquetado para Mac (Apple Silicon)...
 if exist Output\knoMap_Mac_Arm rmdir /s /q Output\knoMap_Mac_Arm
@@ -67,7 +73,10 @@ copy backend\src\LabSOM.Backend.Core\Info.plist Output\knoMap_Mac_Arm\knoMap.app
 xcopy publish_mac_arm\* Output\knoMap_Mac_Arm\knoMap.app\Contents\MacOS\ /s /e /y /q >nul
 robocopy engine Output\knoMap_Mac_Arm\knoMap.app\Contents\MacOS\engine /s /e /xd __pycache__ .venv venv temp >nul
 powershell -Command "Out-File -FilePath 'Output\knoMap_Mac_Arm\INSTRUCCIONES_MAC.txt' -Encoding utf8 -InputObject \"==============================================`nINSTRUCCIONES DE INSTALACION PARA MAC`n==============================================`n`nDado que la aplicacion se ha comprimido en formato ZIP, macOS puede revocar el permiso de ejecucion.`nSi al abrir 'knoMap' aparece un mensaje indicando que esta danada o no se puede abrir,`nabre la Terminal en esta carpeta y ejecuta:`n`nchmod +x knoMap.app/Contents/MacOS/knoMap`n`nLuego podras abrirla normalmente haciendo doble clic en el icono.\""
-powershell -Command "Compress-Archive -Path 'Output\knoMap_Mac_Arm\*' -DestinationPath 'Output\knoMap_Mac_Silicon.zip' -Force"
+timeout /t 5 /nobreak >nul
+pushd Output\knoMap_Mac_Arm
+tar -a -c -f ..\knoMap_Mac_Silicon.zip *
+popd
 echo.
 
 echo [4/4] Empaquetando el Instalador de Windows (Inno Setup)...

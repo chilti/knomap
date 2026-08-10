@@ -31,7 +31,8 @@ export interface SOMConfig {
   nClusters: number;
   eps: number;
   minSamples: number;
-  umapDataSource: 'data' | 'weights';
+  umapDataSource?: 'original' | 'weights';
+  maxK?: number;
 }
 
 export interface TrainingResult {
@@ -115,6 +116,13 @@ interface SOMState {
   savedRuns: SomRun[];
   activeRunId: string | null;
   pendingProvenance: DataProvenance | null;
+
+  // Size Suggestions
+  somSizeMode: 'big' | 'small' | 'custom';
+  suggestedBigSom: { width: number, height: number } | null;
+  suggestedSmallSom: { width: number, height: number } | null;
+  setSomSizeMode: (mode: 'big' | 'small' | 'custom') => void;
+  fetchSizeSuggestions: (data: number[][]) => Promise<void>;
 
   setActiveRunId: (id: string | null) => void;
   deleteRun: (id: string) => void;
@@ -322,16 +330,17 @@ export const useSomStore = create<SOMState>((set, get) => ({
   config: {
     rows: 8,
     cols: 8,
-    iterations: 100,
+    iterations: 1000,
     method: 'batch',
     init: 'pca',
     metric: 'euclidean',
     learningRate: 0.5,
     clusteringAlgorithm: 'agglomerative',
     nClusters: 4,
-    eps: 1.5,
-    minSamples: 2,
-    umapDataSource: 'data',
+    eps: 0.5,
+    minSamples: 3,
+    umapDataSource: 'original',
+    maxK: 15
   },
   hardware: null,
   isTraining: false,
@@ -339,6 +348,39 @@ export const useSomStore = create<SOMState>((set, get) => ({
   isPreprocessing: false,
   uploadProgress: null,
   activeTab: 'multidimensional',
+  
+  // Size Suggestions
+  somSizeMode: 'small',
+  suggestedBigSom: null,
+  suggestedSmallSom: null,
+  setSomSizeMode: (mode) => set({ somSizeMode: mode }),
+  fetchSizeSuggestions: async (data: number[][]) => {
+    try {
+      const response = await fetch(getApiUrl('/api/som/suggest_size'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data })
+      });
+      const result = await response.json();
+      if (result.success) {
+        set((state) => {
+          const newState = {
+            suggestedBigSom: { width: result.bigSomWidth, height: result.bigSomHeight },
+            suggestedSmallSom: { width: result.smallSomWidth, height: result.smallSomHeight },
+            somSizeMode: result.recommended as 'big' | 'small',
+            config: {
+              ...state.config,
+              cols: result.recommended === 'big' ? result.bigSomWidth : result.smallSomWidth,
+              rows: result.recommended === 'big' ? result.bigSomHeight : result.smallSomHeight
+            }
+          };
+          return newState;
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching size suggestions:", err);
+    }
+  },
   
   // Semantic Bibliometrics Initial State
   semanticRecords: null,
@@ -708,6 +750,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       activeTrajectories: new Set<string>(),
       entityColorOverrides: {}
     });
+    get().fetchSizeSuggestions(parsed.matrix);
   },
 
   preprocessBibliometrics: async (file: File, networkType: string, customTag?: string, maxTerms?: number, minCooc?: number, onlyMajor?: boolean, temporal?: boolean) => {
@@ -770,14 +813,31 @@ export const useSomStore = create<SOMState>((set, get) => ({
         }
         
         set({
+          dataMatrix: get().dataMatrix,
+          originalDataMatrix: null,
+          matrixOrigin: networkType === 'bipartite' ? 'bipartite' : 'monothematic',
+          labels: get().labels,
+          compNames: get().compNames,
+          normalizationInfo: null,
+          result: null,
+          fileName: file.name,
+          activeTab: 'multidimensional',
           documentCount: result.document_count,
           termCounts: result.term_counts,
-          network: result.network,
+          network: networkType === 'bipartite' ? null : result.network,
           networksByYear: result.networks_by_year || null,
-          cooccurrenceCsv: result.cooccurrence_csv,
+          cooccurrenceCsv: result.cooccurrence_csv || null,
           isPreprocessing: false,
-          uploadProgress: null
+          pendingProvenance: {
+            originType: 'bibliometrics',
+            unitName: networkType,
+            indicatorsCount: get().dataMatrix[0]?.length || 0,
+            indicatorsList: get().compNames
+          },
+          activeTrajectories: new Set(),
+          entityColorOverrides: {}
         });
+        get().fetchSizeSuggestions(get().dataMatrix);
       } else {
         alert("Preprocess error: " + (result?.error || "Unknown error"));
         set({ isPreprocessing: false, uploadProgress: null });
@@ -914,7 +974,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
     set({ isGeneratingUmap: true });
     try {
       const payload = {
-        weights: config.umapDataSource === 'data' ? dataMatrix : result.weights,
+        weights: (config.umapDataSource as string) === 'original' || (config.umapDataSource as string) === 'data' ? dataMatrix : result.weights,
         n_neighbors: 15,
         min_dist: 0.1,
         metric: config.metric
