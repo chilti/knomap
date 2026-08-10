@@ -1,11 +1,16 @@
+using LabSOM.Backend.Core.Data;
 using LabSOM.Backend.Core.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
 using System.Diagnostics;
-
 using System.IO;
+using System.Security.Claims;
+using System.Text;
 using System.Threading;
 
 // Ensure the working directory is the executable's directory (crucial for Start Menu shortcuts)
@@ -28,6 +33,42 @@ builder.Services.AddSingleton<PreprocessService>();
 builder.Services.AddSingleton<InCitesService>();
 builder.Services.AddSingleton<SOMEngineService>();
 builder.Services.AddSingleton<SemanticService>();
+
+// SQLite Database & Persistence
+string dbPath = Path.Combine(AppContext.BaseDirectory, "App_Data", "knomap.db");
+string dbDir = Path.GetDirectoryName(dbPath)!;
+if (!Directory.Exists(dbDir)) Directory.CreateDirectory(dbDir);
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite($"Data Source={dbPath}"));
+
+builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<ProjectService>();
+
+// JWT Authentication Setup
+string jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") 
+    ?? "knomap_super_secret_jwt_key_2026_change_in_production_environment_998877665544332211";
+var jwtKeyBytes = Encoding.ASCII.GetBytes(jwtSecret);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.RequireHttpsMetadata = false;
+    options.SaveToken = true;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(jwtKeyBytes),
+        ValidateIssuer = false,
+        ValidateAudience = false
+    };
+});
+
+builder.Services.AddAuthorization();
 
 // Allow large matrices (e.g. for SOM Weights)
 builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
@@ -72,6 +113,16 @@ app.UseCors(policy => policy
     .AllowAnyOrigin()
     .AllowAnyHeader()
     .AllowAnyMethod());
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Ensure Database & Initial Admin User exist on startup
+using (var scope = app.Services.CreateScope())
+{
+    var authSvc = scope.ServiceProvider.GetRequiredService<AuthService>();
+    await authSvc.EnsureAdminCreatedAsync();
+}
 
 // 1. System Hardware Status Endpoint
 app.MapGet("/api/system/status", async (HardwareDetectorService detector) =>
@@ -311,6 +362,183 @@ app.MapPost("/api/semantic/cluster", async (SemanticClusterRequest request, Sema
     var result = await service.ClusterSemanticAsync(request);
     return Results.Ok(result);
 });
+
+// ----------------------------------------------------
+// AUTH & USER MANAGEMENT ENDPOINTS
+// ----------------------------------------------------
+
+app.MapPost("/api/auth/login", async (HttpContext ctx, AuthService authSvc) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var doc = System.Text.Json.JsonDocument.Parse(body);
+    string username = doc.RootElement.GetProperty("username").GetString() ?? "";
+    string password = doc.RootElement.GetProperty("password").GetString() ?? "";
+
+    var user = await authSvc.AuthenticateAsync(username, password);
+    if (user == null)
+    {
+        return Results.Json(new { success = false, error = "Invalid username or password" }, statusCode: 401);
+    }
+
+    string token = authSvc.GenerateJwtToken(user);
+    return Results.Ok(new
+    {
+        success = true,
+        token,
+        user = new { id = user.Id, username = user.Username, email = user.Email, role = user.Role }
+    });
+});
+
+app.MapGet("/api/auth/me", async (HttpContext ctx, AuthService authSvc, AppDbContext db) =>
+{
+    // Auto-login as desktop_local for standalone desktop mode
+    if (!isHeadless)
+    {
+        var localUser = await db.Users.FirstOrDefaultAsync(u => u.Username == "desktop_local");
+        if (localUser != null)
+        {
+            string token = authSvc.GenerateJwtToken(localUser);
+            return Results.Ok(new
+            {
+                success = true,
+                isWebMode = false,
+                token,
+                user = new { id = localUser.Id, username = localUser.Username, email = localUser.Email, role = localUser.Role }
+            });
+        }
+    }
+
+    var userIdClaim = ctx.User.FindFirst(ClaimTypes.NameIdentifier);
+    if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+    {
+        return Results.Ok(new { success = false, isWebMode = true });
+    }
+
+    var user = await db.Users.FindAsync(userId);
+    if (user == null) return Results.Ok(new { success = false, isWebMode = true });
+
+    return Results.Ok(new
+    {
+        success = true,
+        isWebMode = true,
+        user = new { id = user.Id, username = user.Username, email = user.Email, role = user.Role }
+    });
+});
+
+app.MapPost("/api/auth/users", async (HttpContext ctx, AuthService authSvc) =>
+{
+    var roleClaim = ctx.User.FindFirst(ClaimTypes.Role)?.Value;
+    if (roleClaim != "Admin") return Results.Forbid();
+
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var doc = System.Text.Json.JsonDocument.Parse(body);
+    string username = doc.RootElement.GetProperty("username").GetString() ?? "";
+    string email = doc.RootElement.GetProperty("email").GetString() ?? "";
+    string password = doc.RootElement.GetProperty("password").GetString() ?? "";
+    string role = doc.RootElement.TryGetProperty("role", out var r) ? r.GetString() ?? "User" : "User";
+
+    try
+    {
+        var newUser = await authSvc.CreateUserAsync(username, email, password, role);
+        return Results.Ok(new { success = true, user = new { id = newUser!.Id, username = newUser.Username, email = newUser.Email, role = newUser.Role } });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+}).RequireAuthorization();
+
+app.MapGet("/api/auth/users", async (AppDbContext db) =>
+{
+    var users = await db.Users
+        .Select(u => new { id = u.Id, username = u.Username, email = u.Email, role = u.Role })
+        .ToListAsync();
+    return Results.Ok(new { success = true, users });
+}).RequireAuthorization();
+
+// ----------------------------------------------------
+// SERVER PROJECT PERSISTENCE & SHARING ENDPOINTS
+// ----------------------------------------------------
+
+static int GetUserId(HttpContext ctx)
+{
+    var claim = ctx.User.FindFirst(ClaimTypes.NameIdentifier);
+    return claim != null && int.TryParse(claim.Value, out int id) ? id : 0;
+}
+
+app.MapGet("/api/projects", async (HttpContext ctx, ProjectService projSvc) =>
+{
+    int userId = GetUserId(ctx);
+    var result = await projSvc.GetUserProjectsAsync(userId);
+    return Results.Ok(new { success = true, data = result });
+}).RequireAuthorization();
+
+app.MapPost("/api/projects", async (HttpContext ctx, ProjectService projSvc) =>
+{
+    int userId = GetUserId(ctx);
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var doc = System.Text.Json.JsonDocument.Parse(body);
+    
+    string? projectId = doc.RootElement.TryGetProperty("id", out var idP) ? idP.GetString() : null;
+    string title = doc.RootElement.GetProperty("title").GetString() ?? "Untitled Project";
+    string? description = doc.RootElement.TryGetProperty("description", out var dP) ? dP.GetString() : null;
+    string payloadJson = doc.RootElement.GetProperty("payload").GetRawText();
+
+    var project = await projSvc.SaveProjectAsync(userId, projectId, title, description, payloadJson);
+    return Results.Ok(new { success = true, project = new { id = project.Id, title = project.Title } });
+}).RequireAuthorization();
+
+app.MapGet("/api/projects/{id}", async (string id, HttpContext ctx, ProjectService projSvc) =>
+{
+    int userId = GetUserId(ctx);
+    try
+    {
+        string payload = await projSvc.LoadProjectPayloadAsync(userId, id);
+        return Results.Content(payload, "application/json");
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+}).RequireAuthorization();
+
+app.MapDelete("/api/projects/{id}", async (string id, HttpContext ctx, ProjectService projSvc) =>
+{
+    int userId = GetUserId(ctx);
+    try
+    {
+        await projSvc.DeleteProjectAsync(userId, id);
+        return Results.Ok(new { success = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+}).RequireAuthorization();
+
+app.MapPost("/api/projects/{id}/share", async (string id, HttpContext ctx, ProjectService projSvc) =>
+{
+    int userId = GetUserId(ctx);
+    using var reader = new StreamReader(ctx.Request.Body);
+    var body = await reader.ReadToEndAsync();
+    var doc = System.Text.Json.JsonDocument.Parse(body);
+
+    string target = doc.RootElement.GetProperty("target").GetString() ?? "";
+    string permission = doc.RootElement.TryGetProperty("permission", out var pP) ? pP.GetString() ?? "Read" : "Read";
+
+    try
+    {
+        await projSvc.ShareProjectAsync(userId, id, target, permission);
+        return Results.Ok(new { success = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+}).RequireAuthorization();
 
 // Health check
 app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", app = "newknoMap Local API" }));

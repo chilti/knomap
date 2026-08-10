@@ -106,6 +106,9 @@ export const ExploradorDatos: React.FC = () => {
   const [clusterMetricsData, setClusterMetricsData] = useState<MetricResult[] | null>(null);
   const [isAnalyzingClusters, setIsAnalyzingClusters] = useState(false);
   const [clusterMetricsError, setClusterMetricsError] = useState<string | null>(null);
+
+  useEffect(() => {
+  }, []);
   
   const [umapHeatmapScale, setUmapHeatmapScale] = useState(1); // 1 = 240x200, 1.5 = 360x300, 2 = 480x400
 

@@ -131,6 +131,46 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
   const handleSelectAllLabels = () => setExcludedLabels(new Set<string>());
   const handleClearAllLabels = () => setExcludedLabels(new Set<string>(uniqueLabels));
 
+  // Pre-calculate color scale functions and expensive aggregations to avoid O(N^2) overhead per cell
+  const colorScales = useMemo(() => {
+    const scales: any = {
+      umatrixFn: null,
+      freqFn: chroma.scale(['#38a169', '#dd6b20', '#e53e3e']).domain([0, 1]),
+      qeFn: chroma.scale(['#cbd5e0', '#4a5568']).domain([0, 1]),
+      compFn: null
+    };
+
+    if (!result) return scales;
+
+    // 1. U-Matrix Scale
+    if (visualizationMode === 'umatrix' && result.umatrix) {
+      const flatUmatrix = result.umatrix.flat();
+      const minU = Math.min(...flatUmatrix);
+      const maxU = Math.max(...flatUmatrix);
+      scales.umatrixFn = chroma.scale(['#e53e3e', '#ecc94b']).domain([minU, maxU]);
+    }
+
+    // 2. Component Scale
+    if (visualizationMode === 'component' && result.weights && result.weights.length > 0) {
+      const compWeights = result.weights.map(w => w[selectedComponentIndex]);
+      const minW = Math.min(...compWeights);
+      const maxW = Math.max(...compWeights);
+      
+      if (colorScale === 'viridis') {
+        scales.compFn = chroma.scale(['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725']).domain([minW, maxW]);
+      } else if (colorScale === 'cividis') {
+        scales.compFn = chroma.scale(['#00204d', '#414d6b', '#7c7b78', '#b9ad71', '#ffea46']).domain([minW, maxW]);
+      } else {
+        let mid = centerReference ?? (minW + maxW) / 2.0;
+        if (mid <= minW || mid >= maxW) {
+          mid = (minW + maxW) / 2.0;
+        }
+        scales.compFn = chroma.scale(['#38a169', '#ecc94b', '#e53e3e']).domain([minW, mid, maxW]);
+      }
+    }
+    return scales;
+  }, [visualizationMode, result, selectedComponentIndex, colorScale, centerReference]);
+
   // Get color for a specific cell based on visualization mode
   const getCellColor = (neuronIdx: number): string => {
     switch (visualizationMode) {
@@ -138,15 +178,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
         const row = Math.floor(neuronIdx / cols);
         const col = neuronIdx % cols;
         const val = umatrix[row][col];
-        
-        // Find global min and max of U-matrix
-        const flatU = umatrix.flat();
-        const minU = Math.min(...flatU);
-        const maxU = Math.max(...flatU);
-        
-        // Red-to-Yellow colormap
-        const scaleFn = chroma.scale(['#e53e3e', '#ecc94b']).domain([minU, maxU]);
-        return scaleFn(val).hex();
+        return colorScales.umatrixFn ? colorScales.umatrixFn(val).hex() : '#ffffff';
       }
       
       case 'clustering': {
@@ -162,41 +194,19 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
       
       case 'frequencies': {
         const val = frequencies[neuronIdx];
-        // Green-to-Red frequency colormap
-        const scaleFn = chroma.scale(['#38a169', '#dd6b20', '#e53e3e']).domain([0, 1]);
-        return scaleFn(val).hex();
+        return colorScales.freqFn(val).hex();
       }
       
       case 'qe': {
         const val = quantizationErrors[neuronIdx];
         // Greyscale or black if zero
         if (val === 0) return '#1a202c'; // dark grey/black for empty cells
-        const scaleFn = chroma.scale(['#cbd5e0', '#4a5568']).domain([0, 1]);
-        return scaleFn(val).hex();
+        return colorScales.qeFn(val).hex();
       }
       
       case 'component': {
         const val = weights[neuronIdx][selectedComponentIndex];
-        const compWeights = weights.map(w => w[selectedComponentIndex]);
-        const minW = Math.min(...compWeights);
-        const maxW = Math.max(...compWeights);
-        
-        if (colorScale === 'viridis') {
-          const scaleFn = chroma.scale(['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725']).domain([minW, maxW]);
-          return scaleFn(val).hex();
-        }
-        if (colorScale === 'cividis') {
-          const scaleFn = chroma.scale(['#00204d', '#414d6b', '#7c7b78', '#b9ad71', '#ffea46']).domain([minW, maxW]);
-          return scaleFn(val).hex();
-        }
-
-        // standard: low=Green, middle=Yellow, high=Red
-        let mid = centerReference ?? (minW + maxW) / 2.0;
-        if (mid <= minW || mid >= maxW) {
-          mid = (minW + maxW) / 2.0;
-        }
-        const scaleFn = chroma.scale(['#38a169', '#ecc94b', '#e53e3e']).domain([minW, mid, maxW]);
-        return scaleFn(val).hex();
+        return colorScales.compFn ? colorScales.compFn(val).hex() : '#4a5568';
       }
       
       default:
@@ -414,177 +424,191 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                 <path d="M 0,0 L 8,4 L 0,8 Z" fill="context-stroke" />
               </marker>
             </defs>
-            <g>
-              {/* 1. Hexagon Cells */}
-              {hexGrid.map((neuron) => {
-                const isSelected = selectedNeuron === neuron.index;
-                const fillClr = getCellColor(neuron.index);
-                return (
-                  <polygon
-                    key={neuron.index}
-                    points={getHexPolygonPoints(neuron.x, neuron.y)}
-                    fill={fillClr}
-                    stroke={isSelected ? '#ffffff' : '#4a5568'}
-                    strokeWidth={isSelected ? 2 : 0.4}
-                    opacity={0.9}
-                    className="cursor-pointer transition-colors duration-150 hover:opacity-100"
-                    onClick={() => {
-                      setSelectedNeuron(neuron.index);
-                      onNeuronClick?.(neuron.index);
-                    }}
-                    onMouseEnter={(e) => setHoveredNeuron({ index: neuron.index, x: e.clientX, y: e.clientY })}
-                    onMouseMove={(e) => setHoveredNeuron({ index: neuron.index, x: e.clientX, y: e.clientY })}
-                    onMouseLeave={() => setHoveredNeuron(null)}
-                  />
-                );
-              })}
-
-              {/* 2. Cluster Contours / Frontiers */}
-              {hexGrid.map((neuron) => {
-                const borders = getClusteringBorders(neuron.row, neuron.col);
-                return borders.map((bStr, idx) => {
-                  const [p1, p2] = bStr.split(' ');
-                  const [x1, y1] = p1.split(',');
-                  const [x2, y2] = p2.split(',');
+            {useMemo(() => (
+              <g>
+                {/* 1. Hexagon Cells */}
+                {hexGrid.map((neuron) => {
+                  const isSelected = selectedNeuron === neuron.index;
+                  const fillClr = getCellColor(neuron.index);
                   return (
-                    <line
-                      key={`${neuron.index}_b_${idx}`}
-                      x1={x1}
-                      y1={y1}
-                      x2={x2}
-                      y2={y2}
-                      stroke="#000000"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      className="pointer-events-none"
+                    <polygon
+                      key={neuron.index}
+                      points={getHexPolygonPoints(neuron.x, neuron.y)}
+                      fill={fillClr}
+                      stroke={isSelected ? '#ffffff' : '#4a5568'}
+                      strokeWidth={isSelected ? 2 : 0.4}
+                      opacity={0.9}
+                      className="cursor-pointer transition-colors duration-150 hover:opacity-100"
+                      onClick={() => {
+                        setSelectedNeuron(neuron.index);
+                        onNeuronClick?.(neuron.index);
+                      }}
+                      onMouseEnter={(e) => setHoveredNeuron({ index: neuron.index, x: e.clientX, y: e.clientY })}
+                      onMouseMove={(e) => setHoveredNeuron({ index: neuron.index, x: e.clientX, y: e.clientY })}
+                      onMouseLeave={() => setHoveredNeuron(null)}
                     />
                   );
-                });
-              })}
+                })}
 
-              {/* 3. Spline PATH Trajectories (PathSOM) */}
-              {trajectories.map((traj, idx) => {
-                if (traj.points.length < 2) return null;
-
-                // Create coords for the spline
-                const coords = traj.points.map(p => {
-                  const node = hexGrid[p.index];
-                  // Add slight random offset if multiple points land on same node? 
-                  // For now, center exact
-                  return [node.x * scale, node.y * scale] as [number, number];
-                });
-
-                const lineGen = line()
-                  .curve(curveCatmullRom.alpha(0.5)) // Spline curve smoothing
-                  .x(d => d[0])
-                  .y(d => d[1]);
-
-                const pathData = lineGen(coords) || '';
-
-                return (
-                  <g key={`traj_${idx}_${traj.name}`}>
-                    <path
-                      d={pathData}
-                      fill="none"
-                      stroke={traj.color}
-                      strokeWidth={traj.width || 2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      markerEnd="url(#arrowhead)"
-                      className="transition-all duration-300"
-                      style={{ filter: 'drop-shadow(0px 2px 4px rgba(0,0,0,0.8))' }}
-                    />
-                    
-                    {/* Trajectory waypoints (dots) */}
-                    {coords.map((c, i) => (
-                      <circle
-                        key={`traj_p_${idx}_${i}`}
-                        cx={c[0]}
-                        cy={c[1]}
-                        r={(traj.width || 2) * 1.5}
-                        fill={traj.color}
-                        stroke="#050508"
-                        strokeWidth={1}
-                        style={{ filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.5))' }}
+                {/* 2. Cluster Contours / Frontiers */}
+                {hexGrid.map((neuron) => {
+                  const borders = getClusteringBorders(neuron.row, neuron.col);
+                  return borders.map((bStr, idx) => {
+                    const [p1, p2] = bStr.split(' ');
+                    const [x1, y1] = p1.split(',');
+                    const [x2, y2] = p2.split(',');
+                    return (
+                      <line
+                        key={`${neuron.index}_b_${idx}`}
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        stroke="#000000"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        className="pointer-events-none"
                       />
-                    ))}
-                    
-                    {/* Trajectory specific labels */}
-                    {coords.map((c, i) => {
-                      const dataIndex = traj.points[i].dataIndex;
-                      const labelText = labels[dataIndex];
-                      if (!labelText) return null;
-                      return (
-                        <text
-                          key={`traj_lbl_${idx}_${i}`}
-                          x={c[0]}
-                          y={c[1] - (traj.width || 2) * 1.5 - 4}
-                          textAnchor="middle"
-                          dominantBaseline="alphabetic"
-                          fill={traj.color}
-                          fontSize="10px"
-                          fontWeight="900"
-                          className="font-sans select-none pointer-events-none uppercase tracking-tight"
-                          style={{ textShadow: '0px 0px 4px rgba(0,0,0,0.9), 0px 0px 1px rgba(255,255,255,0.5)' }}
-                        >
-                          {labelText}
-                        </text>
-                      );
-                    })}
-                  </g>
-                );
-              })}
+                    );
+                  });
+                })}
 
-              {/* 4. Flat, Centered SVG Document Labels Overlays (Matches WPF 1:1) */}
-              {shouldRenderLabels() &&
-                hexGrid.map((neuron) => {
-                  const docList = mappedLabels[neuron.index] || [];
-                  if (docList.length === 0) return null;
+                {/* 3. Spline PATH Trajectories (PathSOM) */}
+                {trajectories.map((traj, idx) => {
+                  if (traj.points.length < 2) return null;
 
-                  // Filter labels dynamically based on text query, exclusion set and max density limit
-                  const filteredDocs = docList
-                    .filter(label => {
-                      if (labelSearchQuery && !label.toLowerCase().includes(labelSearchQuery.toLowerCase())) {
-                        return false;
-                      }
-                      if (excludedLabels.has(label)) {
-                        return false;
-                      }
-                      return true;
-                    })
-                    .slice(0, maxLabelsPerNeuron);
+                  // Create coords for the spline
+                  const coords = traj.points.map(p => {
+                    const node = hexGrid[p.index];
+                    return [node.x * scale, node.y * scale] as [number, number];
+                  });
 
-                  if (filteredDocs.length === 0) return null;
+                  const lineGen = line()
+                    .curve(curveCatmullRom.alpha(0.5))
+                    .x(d => d[0])
+                    .y(d => d[1]);
 
-                  const xc = neuron.x * scale;
-                  const yc = neuron.y * scale;
+                  const pathData = lineGen(coords) || '';
 
                   return (
-                    <g key={`lbl_group_${neuron.index}`} className="pointer-events-none">
-                      {filteredDocs.map((label, idx) => {
-                        // Offset y coordinate slightly for multiple stacked labels inside a cell
-                        const yOffset = (idx - (filteredDocs.length - 1) / 2) * 11;
+                    <g key={`traj_${idx}_${traj.name}`}>
+                      <path
+                        d={pathData}
+                        fill="none"
+                        stroke={traj.color}
+                        strokeWidth={traj.width || 2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        markerEnd="url(#arrowhead)"
+                        className="transition-all duration-300"
+                        style={{ filter: 'drop-shadow(0px 2px 4px rgba(0,0,0,0.8))' }}
+                      />
+                      
+                      {/* Trajectory waypoints (dots) */}
+                      {coords.map((c, i) => (
+                        <circle
+                          key={`traj_p_${idx}_${i}`}
+                          cx={c[0]}
+                          cy={c[1]}
+                          r={(traj.width || 2) * 1.5}
+                          fill={traj.color}
+                          stroke="#050508"
+                          strokeWidth={1}
+                          style={{ filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.5))' }}
+                        />
+                      ))}
+                      
+                      {/* Trajectory specific labels */}
+                      {coords.map((c, i) => {
+                        const dataIndex = traj.points[i].dataIndex;
+                        const labelText = labels[dataIndex];
+                        if (!labelText) return null;
                         return (
                           <text
-                            key={`${label}_${idx}`}
-                            x={xc}
-                            y={yc + yOffset}
+                            key={`traj_lbl_${idx}_${i}`}
+                            x={c[0]}
+                            y={c[1] - (traj.width || 2) * 1.5 - 4}
                             textAnchor="middle"
-                            dominantBaseline="middle"
-                            fill="#0e121a" // Flat solid graphite/dark obsidian text matching WPF branding
-                            fontSize="8px"
-                            fontWeight="bold"
+                            dominantBaseline="alphabetic"
+                            fill={traj.color}
+                            fontSize="10px"
+                            fontWeight="900"
                             className="font-sans select-none pointer-events-none uppercase tracking-tight"
-                            style={{ textShadow: '0px 0px 2px rgba(255,255,255,0.7)' }} // Subtle white text shadow for perfect contrast on saturated cell colors!
+                            style={{ textShadow: '0px 0px 4px rgba(0,0,0,0.9), 0px 0px 1px rgba(255,255,255,0.5)' }}
                           >
-                            {label}
+                            {labelText}
                           </text>
                         );
                       })}
                     </g>
                   );
                 })}
-            </g>
+
+                {/* 4. Flat, Centered SVG Document Labels Overlays */}
+                {shouldRenderLabels() &&
+                  hexGrid.map((neuron) => {
+                    const docList = mappedLabels[neuron.index] || [];
+                    if (docList.length === 0) return null;
+
+                    const filteredDocs = docList
+                      .filter(label => {
+                        if (labelSearchQuery && !label.toLowerCase().includes(labelSearchQuery.toLowerCase())) {
+                          return false;
+                        }
+                        if (excludedLabels.has(label)) {
+                          return false;
+                        }
+                        return true;
+                      })
+                      .slice(0, maxLabelsPerNeuron);
+
+                    if (filteredDocs.length === 0) return null;
+
+                    const xc = neuron.x * scale;
+                    const yc = neuron.y * scale;
+
+                    return (
+                      <g key={`lbl_group_${neuron.index}`} className="pointer-events-none">
+                        {filteredDocs.map((label, idx) => {
+                          const yOffset = (idx - (filteredDocs.length - 1) / 2) * 11;
+                          return (
+                            <text
+                              key={`${label}_${idx}`}
+                              x={xc}
+                              y={yc + yOffset}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              fill="#0e121a"
+                              fontSize="8px"
+                              fontWeight="bold"
+                              className="font-sans select-none pointer-events-none uppercase tracking-tight"
+                              style={{ textShadow: '0px 0px 2px rgba(255,255,255,0.7)' }}
+                            >
+                              {label}
+                            </text>
+                          );
+                        })}
+                      </g>
+                    );
+                  })}
+              </g>
+            ), [
+              hexGrid, 
+              selectedNeuron, 
+              clustering, 
+              scale, 
+              colorScales,
+              visualizationMode,
+              showLabels,
+              showLabelsOnComponents,
+              mappedLabels,
+              excludedLabels,
+              labelSearchQuery,
+              maxLabelsPerNeuron,
+              trajectories,
+              labels,
+              onNeuronClick
+            ])}
           </svg>
         </div>
 

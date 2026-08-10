@@ -43,12 +43,28 @@ To host the platform on a server and provide access to multiple users:
 **Requirements:** Docker with the Compose V2 plugin. Nvidia Container Toolkit (optional, recommended).
 
 ```bash
-git clone https://github.com/chilti/newknoMap.git
-cd newknoMap
+git clone https://github.com/chilti/knomap.git
+cd knomap
 docker compose up -d --build
 ```
 
 The platform will be available on port `5015`. Configure an Nginx reverse proxy to `http://localhost:5015`.
+
+### 🔑 Server Authentication & Initial Administrator Account
+
+When deployed to a server, **knoMap** enforces JWT user authentication, server-side project persistence, and project sharing:
+
+- **Initial Admin Credentials:** Upon first startup, the system automatically initializes SQLite database migrations and creates a default administrator account:
+  - **Username:** `admin`
+  - **Default Password:** `admin123`
+- **Custom Admin Password (Recommended):** You can define a custom administrator password and JWT secret using environment variables in `docker-compose.yml` or `docker run`:
+  ```yaml
+  environment:
+    - ADMIN_PASSWORD=MySecretPassword2026!
+    - JWT_SECRET=CustomSuperSecretJWTKey123!
+  ```
+- **User Management:** Log in as `admin` on the web interface and click **Users** in the header to register new user accounts for your team members.
+- **Desktop Mode Note:** Standing desktop installations auto-authenticate as `@desktop_local` in background, requiring zero login prompts for local users.
 
 ---
 
