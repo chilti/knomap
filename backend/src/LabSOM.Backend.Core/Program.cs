@@ -16,12 +16,14 @@ using System.Threading;
 // Ensure the working directory is the executable's directory (crucial for Start Menu shortcuts)
 Directory.SetCurrentDirectory(System.AppContext.BaseDirectory);
 
-// Prevent multiple instances of the application
+bool isHeadless = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" || args.Contains("--headless");
+
+// Prevent multiple instances of the desktop GUI application
 bool createdNew;
 using var mutex = new Mutex(true, "knoMap_SingleInstance_Mutex", out createdNew);
-if (!createdNew)
+if (!isHeadless && !createdNew)
 {
-    // If it's not headless, we just exit. The user can't start a second instance.
+    // If it's a second desktop GUI window, exit to avoid duplicate windows
     return;
 }
 
@@ -78,8 +80,6 @@ builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServe
 
 // Enable CORS for local SPA frontends (Vite runs on localhost)
 builder.Services.AddCors();
-
-bool isHeadless = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" || args.Contains("--headless");
 
 // Listen on a stable local port (19080) for desktop UI so localStorage and WebView2 state persist properly
 if (!isHeadless)
@@ -560,6 +560,13 @@ Console.WriteLine($"[Backend] API Server running at {localUrl}");
 if (isHeadless)
 {
     Console.WriteLine("[Backend] Running in headless mode. Press Ctrl+C to shut down.");
+    Console.CancelKeyPress += (sender, eventArgs) =>
+    {
+        Console.WriteLine("[Backend] Shutting down server...");
+        eventArgs.Cancel = true;
+        _ = app.StopAsync(TimeSpan.FromSeconds(1));
+        Environment.Exit(0);
+    };
     await app.WaitForShutdownAsync();
 }
 else
