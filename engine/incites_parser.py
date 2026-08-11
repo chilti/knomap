@@ -75,8 +75,18 @@ def clean_and_read_file(filepath):
     try:
         lower_path = filepath.lower()
         if lower_path.endswith('.csv'):
-            # InCites CSVs often have 1 or 2 rows of metadata at the top.
-            df = pd.read_csv(filepath, on_bad_lines='skip')
+            # Try different encodings. InCites often exports in utf-8, but sometimes windows-1252 or utf-16
+            encodings_to_try = ['utf-8-sig', 'utf-8', 'cp1252', 'utf-16']
+            df = None
+            for enc in encodings_to_try:
+                try:
+                    df = pd.read_csv(filepath, encoding=enc, on_bad_lines='skip')
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if df is None:
+                # Fallback to ignoring errors
+                df = pd.read_csv(filepath, encoding='utf-8', encoding_errors='replace', on_bad_lines='skip')
         elif lower_path.endswith('.xlsx') or lower_path.endswith('.xls') or lower_path.endswith('.xlsb'):
             df = pd.read_excel(filepath)
         else:
