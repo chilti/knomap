@@ -75,29 +75,51 @@ def clean_and_read_file(filepath):
     try:
         lower_path = filepath.lower()
         if lower_path.endswith('.csv'):
-            # InCites CSVs often have 1 or 2 rows of metadata at the top (e.g., dataset update date).
-            # If pandas reads line 1 and it has 1 column, it will drop all actual data rows as 'bad lines'.
-            # We try reading normally, and if we end up with 1 column, we try skipping rows until we find the real header.
+            # InCites CSVs often have 1 or 2 rows of metadata at the top.
             df = pd.read_csv(filepath, on_bad_lines='skip')
-            
-            if len(df.columns) <= 2:
-                # Likely hit a metadata row. Try to find the real header row.
-                with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-                    lines = [f.readline() for _ in range(5)]
-                
-                # Find the line with the most commas
-                comma_counts = [l.count(',') for l in lines]
-                header_idx = comma_counts.index(max(comma_counts))
-                
-                if header_idx > 0:
-                    df = pd.read_csv(filepath, skiprows=header_idx, on_bad_lines='skip')
         elif lower_path.endswith('.xlsx') or lower_path.endswith('.xls') or lower_path.endswith('.xlsb'):
             df = pd.read_excel(filepath)
         else:
             return None
 
+        if df is None or df.empty:
+            return df
+            
+        # Check if the current columns are actually metadata (e.g., 'InCites dataset updated...')
+        # or if they are 'Unnamed' which happens when reading Excel with a metadata title.
+        first_col_name = str(df.columns[0]).lower()
+        
+        if "incites dataset" in first_col_name or "unnamed" in first_col_name or len(df.columns) <= 2:
+            # The real header is likely in the first few rows.
+            # Search for the row that has the most non-null values.
+            best_row_idx = 0
+            max_valid = 0
+            for i in range(min(10, len(df))):
+                valid_count = df.iloc[i].dropna().astype(str).str.strip().replace('', pd.NA).dropna().count()
+                if valid_count > max_valid:
+                    max_valid = valid_count
+                    best_row_idx = i
+                    
+            if max_valid > 2: # Found a row that looks like a header
+                new_header = df.iloc[best_row_idx]
+                df = df.iloc[best_row_idx + 1:].copy()
+                df.columns = new_header
+                df.reset_index(drop=True, inplace=True)
+
         df = df.dropna(how='all', axis=1)
         df = df.dropna(how='all', axis=0)
+        
+        # After setting the correct header, numeric columns might still be 'object' type.
+        # We must convert them to numeric so that select_dtypes([np.number]) works.
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                try:
+                    # pd.to_numeric handles conversion; if it fails (e.g., entity name), it throws an error.
+                    # We catch it and leave the column as string.
+                    df[col] = pd.to_numeric(df[col])
+                except:
+                    pass
+
         return df
     except Exception as e:
         print(f"Error loading {filepath}: {e}")
