@@ -426,11 +426,18 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
 
     # ── Profile and Quartiles (Whole and 5Years) ───────────────
     p_whole, q_whole, c_whole, df_entities = extract_profile_data(df_whole)
-    result["profile"] = p_whole
-    result["quartiles"] = q_whole
-    result["indicators"] = c_whole
+    p_5y, q_5y, c_5y, _ = extract_profile_data(df_5years)
 
-    p_5y, q_5y, _, _ = extract_profile_data(df_5years)
+    # If Whole is missing or empty, fall back to 5Years data for main profile & indicators
+    if not p_whole and p_5y:
+        result["profile"] = p_5y
+        result["quartiles"] = q_5y
+        result["indicators"] = c_5y
+    else:
+        result["profile"] = p_whole
+        result["quartiles"] = q_whole
+        result["indicators"] = c_whole if c_whole else c_5y
+
     result["profile_5years"] = p_5y
     result["quartiles_5years"] = q_5y
 
@@ -660,7 +667,7 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
 
 
 
-def extract_baseline_data_from_dfs(df_whole, df_trend, whole_path, trend_path):
+def extract_baseline_data_from_dfs(df_whole, df_5years, df_trend, whole_path, path_5y, trend_path):
     summary = []
     indicators = []
 
@@ -673,13 +680,16 @@ def extract_baseline_data_from_dfs(df_whole, df_trend, whole_path, trend_path):
         except:
             return str(v)
 
-    if df_whole is not None and not df_whole.empty:
-        ent_col1 = df_whole.columns[0]
-        b1 = df_whole[df_whole[ent_col1].astype(str).str.contains(r'Baseline', case=False, na=False)]
+    target_df = df_whole if (df_whole is not None and not df_whole.empty) else df_5years
+    target_path = whole_path if (df_whole is not None and not df_whole.empty) else path_5y
+
+    if target_df is not None and not target_df.empty:
+        ent_col1 = target_df.columns[0]
+        b1 = target_df[target_df[ent_col1].astype(str).str.contains(r'Baseline', case=False, na=False)]
         for _, row in b1.iterrows():
             name = str(row[ent_col1]).strip()
             item = {'name': name}
-            for col in df_whole.columns[1:]:
+            for col in target_df.columns[1:]:
                 item[col] = clean_val(row[col])
             summary.append(item)
 
@@ -713,7 +723,7 @@ def extract_baseline_data_from_dfs(df_whole, df_trend, whole_path, trend_path):
         "summary": summary,
         "trend": trend_list,
         "indicators": indicators,
-        "whole_filename": os.path.basename(whole_path) if whole_path else None,
+        "whole_filename": os.path.basename(target_path) if target_path else None,
         "trend_filename": os.path.basename(trend_path) if trend_path else None,
     }
 
@@ -749,9 +759,10 @@ def build_incites_inventory(payload_path):
     baseline_sources = {}
     for unit_name, files in units.items():
         df_whole = clean_and_read_file(files["Whole"]) if files["Whole"] else None
+        df_5years = clean_and_read_file(files["5Years"]) if files["5Years"] else None
         df_trend = clean_and_read_file(files["Trend"]) if files["Trend"] else None
 
-        b_data = extract_baseline_data_from_dfs(df_whole, df_trend, files["Whole"], files["Trend"])
+        b_data = extract_baseline_data_from_dfs(df_whole, df_5years, df_trend, files["Whole"], files["5Years"], files["Trend"])
         if b_data:
             b_data["unit_name"] = unit_name
             baseline_sources[unit_name] = b_data
