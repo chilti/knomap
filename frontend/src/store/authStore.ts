@@ -48,7 +48,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: localStorage.getItem('knomap_jwt_token'),
   user: null,
-  isWebMode: false,
+  isWebMode: typeof window !== 'undefined' && window.location.protocol.startsWith('http'),
   isAuthenticated: false,
   isLoading: true,
   error: null,
@@ -91,7 +91,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     } catch (err: any) {
       console.error('Auth check error:', err);
-      set({ isLoading: false, isAuthenticated: false });
+      // If we are over HTTP/HTTPS, fallback to web mode so we don't bypass login screen on network errors
+      const fallbackWebMode = typeof window !== 'undefined' && window.location.protocol.startsWith('http');
+      set({ isLoading: false, isAuthenticated: false, isWebMode: fallbackWebMode });
     }
   },
 
