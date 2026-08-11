@@ -18,8 +18,8 @@ services:
       dockerfile: backend/Dockerfile
       network: host
     environment:
-      - ADMIN_PASSWORD=admin123
-      - JWT_SECRET=knomap_super_secret_jwt_key_2026_change_in_production_environment_998877665544332211
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - JWT_SECRET=${JWT_SECRET:-knomap_super_secret_jwt_key_2026_change_in_production_environment_998877665544332211}
       - DOTNET_RUNNING_IN_CONTAINER=true
     volumes:
       - knomap_data:/app/backend/App_Data
