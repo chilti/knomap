@@ -53,4 +53,4 @@ ENV DOTNET_RUNNING_IN_CONTAINER=true
 EXPOSE 5123
 
 WORKDIR /app/backend
-ENTRYPOINT ["dotnet", "LabSOM.Backend.Core.dll"]
+ENTRYPOINT ["dotnet", "knoMap.dll"]
