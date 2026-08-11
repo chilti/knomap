@@ -1738,6 +1738,15 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                     )}
                 </div>
             </div>
+            {/* AI Assistant for Unit Profile */}
+            <AIAssistantCard 
+                systemPrompt={`Eres un experto cienciómetra y científico de datos. Analiza los siguientes datos bibliométricos de InCites correspondientes a la unidad: ${unitName}. Destaca tendencias, anomalías y ofrece conclusiones estratégicas.`}
+                contextData={{
+                    unidad: unitName,
+                    indicadores_disponibles: unit.indicators,
+                    top_20_entidades: unit.profile?.slice(0, 20) || []
+                }}
+            />
         </div>
     );
 };
@@ -2057,16 +2066,6 @@ const DataIndicatorsPanel: React.FC = () => {
                     </div>
                 </div>
             </div>
-            
-            <AIAssistantCard 
-                systemPrompt={`Eres un experto cienciómetra y científico de datos. Analiza los siguientes datos bibliométricos de InCites correspondientes a la unidad: ${unitName}. Destaca tendencias, anomalías y ofrece conclusiones estratégicas.`}
-                contextData={{
-                    unidad: unitName,
-                    indicadores_disponibles: unit.indicators,
-                    top_20_entidades: unit.profile?.slice(0, 20) || [],
-                    baseline: datasetBaselineSummary || allItemsBaselineSummary || null
-                }}
-            />
         </div>
     );
 };
