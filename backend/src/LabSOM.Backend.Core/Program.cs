@@ -35,6 +35,7 @@ builder.Services.AddSingleton<PreprocessService>();
 builder.Services.AddSingleton<InCitesService>();
 builder.Services.AddSingleton<SOMEngineService>();
 builder.Services.AddSingleton<SemanticService>();
+builder.Services.AddSingleton<LlmService>();
 
 // SQLite Database & Persistence
 string dbPath = Path.Combine(AppContext.BaseDirectory, "App_Data", "knomap.db");
@@ -553,7 +554,27 @@ app.MapPost("/api/projects/{id}/share", async (string id, HttpContext ctx, Proje
     }
 }).RequireAuthorization();
 
-// Health check
+// Health check// LLM Analysis Endpoint
+app.MapPost("/api/llm/analyze", async (HttpContext ctx, LlmService llmSvc) =>
+{
+    try
+    {
+        using var reader = new StreamReader(ctx.Request.Body);
+        var body = await reader.ReadToEndAsync();
+        using var doc = JsonDocument.Parse(body);
+        
+        string systemPrompt = doc.RootElement.GetProperty("systemPrompt").GetString() ?? "";
+        string userPrompt = doc.RootElement.GetProperty("userPrompt").GetString() ?? "";
+
+        var response = await llmSvc.AnalyzeAsync(systemPrompt, userPrompt);
+        return Results.Ok(new { success = true, response });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+});
+
 app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", app = "newknoMap Local API" }));
 
 // Fallback to index.html for Single Page Application (SPA) client-side routing

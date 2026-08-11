@@ -9,6 +9,7 @@ import {
 } from 'recharts';
 import chroma from 'chroma-js';
 import SunburstChart from './SunburstChart';
+import { AIAssistantCard } from './AIAssistantCard';
 
 // ── Export Chart Helpers (SVG & PNG) ──────────────────────────────────────
 const exportChartAsSVG = (containerId: string, filename: string) => {
@@ -2056,6 +2057,16 @@ const DataIndicatorsPanel: React.FC = () => {
                     </div>
                 </div>
             </div>
+            
+            <AIAssistantCard 
+                systemPrompt={`Eres un experto cienciómetra y científico de datos. Analiza los siguientes datos bibliométricos de InCites correspondientes a la unidad: ${unitName}. Destaca tendencias, anomalías y ofrece conclusiones estratégicas.`}
+                contextData={{
+                    unidad: unitName,
+                    indicadores_disponibles: unit.indicators,
+                    top_20_entidades: unit.profile?.slice(0, 20) || [],
+                    baseline: datasetBaselineSummary || allItemsBaselineSummary || null
+                }}
+            />
         </div>
     );
 };
