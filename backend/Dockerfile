@@ -34,14 +34,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy the Python engine scripts and requirements
-COPY engine/ /app/engine/
-
 # Upgrade pip, setuptools, and wheel to get the fast, modern dependency resolver
 RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
 
+# Copy ONLY requirements first to leverage Docker cache
+COPY engine/requirements.txt /app/engine/requirements.txt
+
 # Install python dependencies
 RUN pip3 install --no-cache-dir -r /app/engine/requirements.txt
+
+# Now copy the rest of the Python engine scripts
+COPY engine/ /app/engine/
 
 # Copy the published .NET application from the build stage
 COPY --from=build /app/publish /app/backend
