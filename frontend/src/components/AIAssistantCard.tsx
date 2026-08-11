@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
-import { getApiUrl } from '../store/somStore';
+import { useSomStore, getApiUrl } from '../store/somStore';
 
 interface AIAssistantCardProps {
     systemPrompt: string;
     contextData: any;
     title?: string;
+    cacheKey?: string;
 }
 
-export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, contextData, title = "Análisis Asistido por IA" }) => {
-    const [response, setResponse] = useState<string | null>(null);
+export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, contextData, title = "Análisis Asistido por IA", cacheKey }) => {
+    const { incitesLlmCache, setIncitesState } = useSomStore();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    const response = cacheKey ? incitesLlmCache[cacheKey] || null : null;
 
     const handleAnalyze = async () => {
         setIsLoading(true);
@@ -34,7 +36,14 @@ export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, 
             const result = await res.json();
             
             if (result.success) {
-                setResponse(result.response);
+                if (cacheKey) {
+                    setIncitesState({
+                        incitesLlmCache: {
+                            ...useSomStore.getState().incitesLlmCache,
+                            [cacheKey]: result.response
+                        }
+                    });
+                }
             } else {
                 setError(result.error || "Ocurrió un error desconocido.");
             }

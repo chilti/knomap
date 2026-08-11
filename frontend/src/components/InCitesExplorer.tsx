@@ -1740,6 +1740,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
             </div>
             {/* AI Assistant for Unit Profile */}
             <AIAssistantCard 
+                cacheKey={`incites_${unitName}`}
                 systemPrompt={`Eres un experto cienciómetra y científico de datos. Analiza los siguientes datos bibliométricos de InCites correspondientes a la unidad: ${unitName}. Destaca tendencias, anomalías y ofrece conclusiones estratégicas.`}
                 contextData={{
                     unidad: unitName,

@@ -240,6 +240,7 @@ interface SOMState {
   // InCites Data State
   incitesUnitNames: string[] | null;
   incitesUnitCache: Record<string, any>;
+  incitesLlmCache: Record<string, string>;
   incitesActiveUnit: string | null;
   incitesSidebarTab: 'profiles' | 'temporal';
   incitesIsUploading: boolean;
@@ -247,7 +248,7 @@ interface SOMState {
   incitesSelectedBaselineSource: string | null;
   cloudProjectId: string | null;
   cloudProjectTitle: string | null;
-  setIncitesState: (state: Partial<{ incitesUnitNames: string[] | null, incitesUnitCache: Record<string, any>, incitesActiveUnit: string | null, incitesSidebarTab: 'profiles' | 'temporal', incitesIsUploading: boolean, incitesBaseline: any | null, incitesSelectedBaselineSource: string | null }>) => void;
+  setIncitesState: (state: Partial<{ incitesUnitNames: string[] | null, incitesUnitCache: Record<string, any>, incitesLlmCache: Record<string, string>, incitesActiveUnit: string | null, incitesSidebarTab: 'profiles' | 'temporal', incitesIsUploading: boolean, incitesBaseline: any | null, incitesSelectedBaselineSource: string | null }>) => void;
   uploadInCitesFiles: (formData: FormData) => Promise<void>;
   
   // Setters & Actions
@@ -467,6 +468,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   // InCites Data State
   incitesUnitNames: null,
   incitesUnitCache: {},
+  incitesLlmCache: {},
   incitesActiveUnit: null,
   incitesSidebarTab: 'profiles',
   incitesIsUploading: false,
@@ -478,6 +480,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       incitesIsUploading: true,
       incitesUnitNames: null,
       incitesUnitCache: {},
+      incitesLlmCache: {},
       incitesActiveUnit: null,
       incitesBaseline: null,
       incitesSelectedBaselineSource: null
