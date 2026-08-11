@@ -15,37 +15,60 @@ warnings.filterwarnings("ignore")
 def identify_file_type(filename):
     """
     Returns (unit_type, period) by inspecting the filename.
-    Handles the upload prefix added by C# backend (e.g. 'up_abc123_Incites Researchers.xlsx').
+    Dynamically extracts unit names for standard or custom InCites export files
+    (e.g., 'Incites Organizations Colab 2021-2025.xlsx' -> unit='Organizations Colab', period='5Years').
     """
     base = os.path.basename(filename)
+    name, ext = os.path.splitext(base)
+    if ext.lower() not in ('.csv', '.xlsx', '.xls', '.xlsb'):
+        return None, None
 
-    # Strip upload prefix like 'up_abc123_' before matching
-    base_clean = re.sub(r'^up_[0-9a-fA-F]+_', '', base)
+    clean = re.sub(r'^up_[a-zA-Z0-9]+_', '', name)
 
+    # Determine period
     period = "Whole"
-    if re.search(r'Trend', base_clean, re.IGNORECASE):
+    if re.search(r'Trend', clean, re.IGNORECASE):
         period = "Trend"
-    elif re.search(r'\d{4}-\d{4}', base_clean):
+        clean = re.sub(r'[\s_]*Trend[\s_]*', ' ', clean, flags=re.IGNORECASE)
+    elif re.search(r'\d{4}\s*-\s*\d{4}', clean):
         period = "5Years"
+        clean = re.sub(r'[\s_]*\d{4}\s*-\s*\d{4}[\s_]*', ' ', clean)
+    elif re.search(r'\b(19|20)\d{2}\b', clean):
+        period = "5Years"
+        clean = re.sub(r'[\s_]*\b(19|20)\d{2}\b[\s_]*', ' ', clean)
 
-    unit = None
-    b = base_clean  # shorthand
+    # Strip leading 'Incites' / 'InCites'
+    clean = re.sub(r'^(incites|in_cites)[\s_]*', '', clean, flags=re.IGNORECASE)
 
-    # Order matters: more specific patterns first
-    if   re.search(r'Micro\s+Topics', b, re.IGNORECASE):            unit = "Micro Topics"
-    elif re.search(r'Meso\s+Topics', b, re.IGNORECASE):             unit = "Meso Topics"
-    elif re.search(r'Macro\s+Topics', b, re.IGNORECASE):            unit = "Macro Topics"
-    elif re.search(r'Research Areas.*ESI|ESI', b, re.IGNORECASE):   unit = "ESI"
-    elif re.search(r'Research Areas.*SDG|SDG', b, re.IGNORECASE):   unit = "SDG"
-    elif re.search(r'Research Areas|WoS Categories', b, re.IGNORECASE): unit = "WoS Categories"
-    elif re.search(r'Publication Sources|Journals', b, re.IGNORECASE):  unit = "Publication Sources"
-    elif re.search(r'Funding Agencies|Funding', b, re.IGNORECASE):  unit = "Funding Agencies"
-    elif re.search(r'Organizations|Institutions', b, re.IGNORECASE): unit = "Organizations"
-    elif re.search(r'Locations|Countries', b, re.IGNORECASE):       unit = "Locations"
-    elif re.search(r'Researchers|Authors', b, re.IGNORECASE):       unit = "Researchers"
-    elif re.search(r'Patentometrics|Patents', b, re.IGNORECASE):    unit = "Patentometrics"
+    # Handle 'Research Areas' vs specific sub-units (ESI, SDG, Topics, etc.)
+    if re.match(r'^Research[\s_]*Areas[\s_]+(ESI|SDG|Macro|Meso|Micro|WoS)', clean, re.IGNORECASE):
+        clean = re.sub(r'^Research[\s_]*Areas[\s_]+', '', clean, flags=re.IGNORECASE)
+    else:
+        clean = re.sub(r'^Research[\s_]*Areas', 'WoS Categories', clean, flags=re.IGNORECASE)
 
-    return unit, period
+    clean = clean.strip()
+    clean = re.sub(r'\s+', ' ', clean)
+
+    # Canonical naming for standard units
+    if re.match(r'^WoS[\s_]*Categories$', clean, re.IGNORECASE):
+        clean = "WoS Categories"
+    elif re.match(r'^Publication[\s_]*Sources$', clean, re.IGNORECASE):
+        clean = "Publication Sources"
+    elif re.match(r'^Funding[\s_]*Agencies$', clean, re.IGNORECASE):
+        clean = "Funding Agencies"
+    elif re.match(r'^Organizations$', clean, re.IGNORECASE):
+        clean = "Organizations"
+    elif re.match(r'^Locations$', clean, re.IGNORECASE):
+        clean = "Locations"
+    elif re.match(r'^Researchers$', clean, re.IGNORECASE):
+        clean = "Researchers"
+    elif re.match(r'^Patentometrics$', clean, re.IGNORECASE):
+        clean = "Patentometrics"
+
+    if not clean:
+        clean = "Dataset Unit"
+
+    return clean, period
 
 
 def clean_and_read_file(filepath):
@@ -589,68 +612,162 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
 
 
 
-def extract_and_parse_incites(payload_path):
+def extract_baseline_data_from_dfs(df_whole, df_trend, whole_path, trend_path):
+    summary = []
+    indicators = []
+
+    def clean_val(v):
+        if pd.isna(v): return 0.0
+        if isinstance(v, str):
+            v = v.replace('%', '').replace(',', '').strip()
+        try:
+            return float(v)
+        except:
+            return str(v)
+
+    if df_whole is not None and not df_whole.empty:
+        ent_col1 = df_whole.columns[0]
+        b1 = df_whole[df_whole[ent_col1].astype(str).str.contains(r'Baseline', case=False, na=False)]
+        for _, row in b1.iterrows():
+            name = str(row[ent_col1]).strip()
+            item = {'name': name}
+            for col in df_whole.columns[1:]:
+                item[col] = clean_val(row[col])
+            summary.append(item)
+
+    trend_list = []
+    if df_trend is not None and not df_trend.empty:
+        ent_col2 = df_trend.columns[0]
+        time_col = next((c for c in df_trend.columns if re.search(r'year|date|period', str(c), re.IGNORECASE)), None)
+        b2 = df_trend[df_trend[ent_col2].astype(str).str.contains(r'Baseline', case=False, na=False)]
+        
+        trend_by_year = {}
+        indicators = [c for c in df_trend.columns if c not in (ent_col2, time_col)]
+        for _, row in b2.iterrows():
+            name = str(row[ent_col2]).strip()
+            year = str(row[time_col]) if time_col else 'All'
+            if year not in trend_by_year:
+                trend_by_year[year] = {'year': year}
+            if name not in trend_by_year[year]:
+                trend_by_year[year][name] = {}
+            for ind in indicators:
+                trend_by_year[year][name][ind] = clean_val(row[ind])
+        
+        trend_list = [trend_by_year[y] for y in sorted(trend_by_year.keys())]
+
+    if not summary and not trend_list:
+        return None
+
+    if not indicators and summary:
+        indicators = [k for k in summary[0].keys() if k != 'name']
+
+    return {
+        "summary": summary,
+        "trend": trend_list,
+        "indicators": indicators,
+        "whole_filename": os.path.basename(whole_path) if whole_path else None,
+        "trend_filename": os.path.basename(trend_path) if trend_path else None,
+    }
+
+
+def build_incites_inventory(payload_path):
     with open(payload_path, 'r', encoding='utf-8') as f:
         payload = json.load(f)
 
     file_paths = payload.get("files", [])
-    temp_dir = tempfile.mkdtemp()
+    session_dir = tempfile.mkdtemp(prefix="incites_session_")
 
     extracted_files = []
+    for fp in file_paths:
+        if fp.endswith('.zip'):
+            with zipfile.ZipFile(fp, 'r') as zip_ref:
+                zip_ref.extractall(session_dir)
+                for root, _, files in os.walk(session_dir):
+                    for file in files:
+                        extracted_files.append(os.path.join(root, file))
+        else:
+            target = os.path.join(session_dir, os.path.basename(fp))
+            shutil.copy2(fp, target)
+            extracted_files.append(target)
 
-    try:
-        for fp in file_paths:
-            if fp.endswith('.zip'):
-                with zipfile.ZipFile(fp, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                    for root, _, files in os.walk(temp_dir):
-                        for file in files:
-                            extracted_files.append(os.path.join(root, file))
-            else:
-                target = os.path.join(temp_dir, os.path.basename(fp))
-                shutil.copy2(fp, target)
-                extracted_files.append(target)
+    units = {}
+    for ef in extracted_files:
+        unit, period = identify_file_type(ef)
+        if unit:
+            if unit not in units:
+                units[unit] = {"Whole": None, "5Years": None, "Trend": None}
+            units[unit][period] = ef
 
-        units = {}
-        for ef in extracted_files:
-            unit, period = identify_file_type(ef)
-            if unit:
-                if unit not in units:
-                    units[unit] = {"Whole": None, "5Years": None, "Trend": None}
-                units[unit][period] = ef
+    baseline_sources = {}
+    for unit_name, files in units.items():
+        df_whole = clean_and_read_file(files["Whole"]) if files["Whole"] else None
+        df_trend = clean_and_read_file(files["Trend"]) if files["Trend"] else None
 
-        # First pass: load all whole-period dfs so Micro Topics can look up names
-        all_whole_dfs = {}
-        all_5y_dfs = {}
-        for unit_name, files in units.items():
-            df_whole = clean_and_read_file(files["Whole"]) if files["Whole"] else None
-            all_whole_dfs[unit_name] = df_whole
-            
-            df_5y = clean_and_read_file(files["5Years"]) if files["5Years"] else None
-            all_5y_dfs[unit_name] = df_5y
+        b_data = extract_baseline_data_from_dfs(df_whole, df_trend, files["Whole"], files["Trend"])
+        if b_data:
+            b_data["unit_name"] = unit_name
+            baseline_sources[unit_name] = b_data
 
-        final_results = {}
-        for unit_name, files in units.items():
-            df_whole  = all_whole_dfs[unit_name]
-            df_5years = all_5y_dfs[unit_name]
-            df_trend  = clean_and_read_file(files["Trend"])  if files["Trend"]  else None
+    default_source = None
+    PREFERRED_BASELINE_ORDER = ['WoS Categories', 'Research Areas', 'ESI', 'SDG', 'Locations', 'Organizations']
+    for p in PREFERRED_BASELINE_ORDER:
+        if p in baseline_sources:
+            default_source = p
+            break
+    if not default_source and baseline_sources:
+        default_source = list(baseline_sources.keys())[0]
 
-            parsed_unit = process_unit(unit_name, df_whole, df_5years, df_trend,
-                                       all_units_dfs=all_whole_dfs,
-                                       all_units_5y_dfs=all_5y_dfs)
-            final_results[unit_name] = parsed_unit
+    inventory_map = {
+        "session_dir": session_dir,
+        "units": units
+    }
+    with open(os.path.join(session_dir, "inventory.json"), 'w', encoding='utf-8') as f:
+        json.dump(inventory_map, f, ensure_ascii=False)
 
-        return {
-            "success": True,
-            "units": final_results
+    return {
+        "success": True,
+        "session_dir": session_dir,
+        "unit_names": list(units.keys()),
+        "baseline": {
+            "default_source": default_source,
+            "sources": baseline_sources
         }
+    }
 
-    except Exception as e:
-        import traceback
-        return {
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+
+def parse_single_unit_from_session(session_dir, unit_name):
+    inventory_file = os.path.join(session_dir, "inventory.json")
+    if not os.path.exists(inventory_file):
+        return {"success": False, "error": f"Session inventory not found in {session_dir}"}
+
+    with open(inventory_file, 'r', encoding='utf-8') as f:
+        inventory_map = json.load(f)
+
+    units = inventory_map.get("units", {})
+    if unit_name not in units:
+        return {"success": False, "error": f"Unit '{unit_name}' not found in session inventory"}
+
+    files = units[unit_name]
+    
+    all_whole_dfs = {}
+    all_5y_dfs = {}
+    for u, f_dict in units.items():
+        if u in ('Meso Topics', 'Macro Topics', 'Micro Topics'):
+            all_whole_dfs[u] = clean_and_read_file(f_dict["Whole"]) if f_dict.get("Whole") else None
+            all_5y_dfs[u] = clean_and_read_file(f_dict["5Years"]) if f_dict.get("5Years") else None
+
+    df_whole = clean_and_read_file(files["Whole"]) if files.get("Whole") else None
+    df_5years = clean_and_read_file(files["5Years"]) if files.get("5Years") else None
+    df_trend = clean_and_read_file(files["Trend"]) if files.get("Trend") else None
+
+    parsed = process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=all_whole_dfs, all_units_5y_dfs=all_5y_dfs)
+    return {
+        "success": True,
+        "unit_name": unit_name,
+        "unit": parsed
+    }
+
+
+def extract_and_parse_incites(payload_path):
+    # Backwards-compatible wrapper that calls build_incites_inventory
+    return build_incites_inventory(payload_path)

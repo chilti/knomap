@@ -25,7 +25,9 @@ namespace LabSOM.Backend.Core.Services
         // and the list of unit names discovered, keyed by a session ID.
         // Using a simple singleton approach (single-user desktop app).
         private string? _resultFilePath = null;
+        private string? _sessionDir = null;
         private List<string> _unitNames = new();
+        private Dictionary<string, string> _unitCacheRaw = new();
 
         private static readonly JsonSerializerOptions _jsonOpts = new()
         {
@@ -143,20 +145,35 @@ namespace LabSOM.Backend.Core.Services
                     }
                 }
 
-                // Read unit names from the result file without loading the whole thing
+                // Read unit names and session_dir from result file
                 using var stream2 = File.OpenRead(resultFile);
                 using var doc = await JsonDocument.ParseAsync(stream2);
                 var root = doc.RootElement;
 
-                if (root.TryGetProperty("units", out var unitsEl))
+                if (root.TryGetProperty("unit_names", out var namesEl))
                 {
-                    _unitNames = unitsEl.EnumerateObject()
-                                       .Select(p => p.Name)
-                                       .ToList();
+                    _unitNames = namesEl.EnumerateArray().Select(x => x.GetString()!).Where(x => x != null).ToList();
+                }
+                else if (root.TryGetProperty("units", out var unitsEl))
+                {
+                    _unitNames = unitsEl.EnumerateObject().Select(p => p.Name).ToList();
                 }
                 else
                 {
                     _unitNames.Clear();
+                }
+
+                if (root.TryGetProperty("session_dir", out var sDirEl))
+                {
+                    _sessionDir = sDirEl.GetString();
+                }
+
+                _unitCacheRaw.Clear();
+
+                JsonElement? baselineEl = null;
+                if (root.TryGetProperty("baseline", out var bProp))
+                {
+                    baselineEl = bProp.Clone();
                 }
 
                 _resultFilePath = resultFile;
@@ -164,7 +181,8 @@ namespace LabSOM.Backend.Core.Services
                 return new InCitesUploadResult
                 {
                     Success = true,
-                    UnitNames = _unitNames
+                    UnitNames = _unitNames,
+                    Baseline = baselineEl
                 };
             }
             catch (Exception ex)
@@ -186,53 +204,96 @@ namespace LabSOM.Backend.Core.Services
             }
         }
 
+        public async Task<string?> GetBaselineDataRawAsync()
+        {
+            if (_resultFilePath == null || !File.Exists(_resultFilePath))
+                return null;
+
+            using var stream = File.OpenRead(_resultFilePath);
+            using var doc = await JsonDocument.ParseAsync(stream);
+            if (doc.RootElement.TryGetProperty("baseline", out var bProp))
+            {
+                return bProp.GetRawText();
+            }
+            return null;
+        }
+
         // ─────────────────────────────────────────────────────────────
-        // Step 2: Get a single unit's data on-demand
-        // Returns only the data for ONE unit — a few hundred KB at most.
+        // Step 2: Get a single unit's data on-demand (Lazy Loading)
         // ─────────────────────────────────────────────────────────────
         public async Task<InCitesUnitResult> GetUnitDataAsync(string unitName)
         {
-            if (_resultFilePath == null || !File.Exists(_resultFilePath))
+            if (_unitCacheRaw.TryGetValue(unitName, out var cachedRaw))
+            {
+                return new InCitesUnitResult { Success = true, UnitName = unitName, UnitDataRaw = cachedRaw };
+            }
+
+            // Fallback for pre-parsed full files
+            if (_resultFilePath != null && File.Exists(_resultFilePath))
+            {
+                using var stream = File.OpenRead(_resultFilePath);
+                using var doc = await JsonDocument.ParseAsync(stream);
+                if (doc.RootElement.TryGetProperty("units", out var unitsEl) && unitsEl.TryGetProperty(unitName, out var unitEl))
+                {
+                    var raw = unitEl.GetRawText();
+                    _unitCacheRaw[unitName] = raw;
+                    return new InCitesUnitResult { Success = true, UnitName = unitName, UnitDataRaw = raw };
+                }
+            }
+
+            if (string.IsNullOrEmpty(_sessionDir) || !Directory.Exists(_sessionDir))
             {
                 return new InCitesUnitResult
                 {
                     Success = false,
-                    Error = "No processed InCites data in memory. Please upload files first."
+                    Error = "No active session inventory found. Please upload files first."
                 };
             }
 
+            var scriptPath = Path.GetFullPath(Path.Combine(_enginePath, "main_engine.py"));
+            string payloadFile = Path.Combine(Path.GetTempPath(), $"incites_unit_req_{Guid.NewGuid():N}.json");
+            string unitOutputFile = Path.Combine(_sessionDir, $"parsed_{unitName.Replace(" ", "_")}.json");
+
             try
             {
-                using var stream = File.OpenRead(_resultFilePath);
-                using var doc = await JsonDocument.ParseAsync(stream);
-                var root = doc.RootElement;
+                var payload = new { session_dir = _sessionDir, unit_name = unitName, output_file = unitOutputFile };
+                await File.WriteAllTextAsync(payloadFile, JsonSerializer.Serialize(payload));
 
-                if (!root.TryGetProperty("units", out var unitsEl))
+                var psi = new ProcessStartInfo
                 {
-                    return new InCitesUnitResult
-                    {
-                        Success = false,
-                        Error = "Malformed result: 'units' key not found."
-                    };
-                }
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
+                    Arguments = $"\"{scriptPath}\" incites_parse_unit \"{payloadFile}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
 
-                if (!unitsEl.TryGetProperty(unitName, out var unitEl))
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                var stderrTask = process.StandardError.ReadToEndAsync();
+
+                await Task.WhenAll(stdoutTask, stderrTask);
+                await process.WaitForExitAsync();
+
+                if (File.Exists(unitOutputFile))
                 {
-                    return new InCitesUnitResult
+                    using var stream = File.OpenRead(unitOutputFile);
+                    using var doc = await JsonDocument.ParseAsync(stream);
+                    if (doc.RootElement.TryGetProperty("unit", out var uEl))
                     {
-                        Success = false,
-                        Error = $"Unit '{unitName}' not found in results."
-                    };
+                        string rawText = uEl.GetRawText();
+                        _unitCacheRaw[unitName] = rawText;
+                        return new InCitesUnitResult { Success = true, UnitName = unitName, UnitDataRaw = rawText };
+                    }
                 }
-
-                // Serialize just this unit back to a raw JSON string
-                var unitJson = unitEl.GetRawText();
 
                 return new InCitesUnitResult
                 {
-                    Success = true,
-                    UnitName = unitName,
-                    UnitDataRaw = unitJson
+                    Success = false,
+                    Error = $"Failed to parse unit '{unitName}': {stderrTask.Result}"
                 };
             }
             catch (Exception ex)
@@ -240,8 +301,13 @@ namespace LabSOM.Backend.Core.Services
                 return new InCitesUnitResult
                 {
                     Success = false,
-                    Error = $"Exception reading unit data: {ex.Message}"
+                    Error = $"Exception parsing unit '{unitName}': {ex.Message}"
                 };
+            }
+            finally
+            {
+                if (File.Exists(payloadFile))
+                    try { File.Delete(payloadFile); } catch { }
             }
         }
     }
@@ -258,6 +324,9 @@ namespace LabSOM.Backend.Core.Services
 
         [JsonPropertyName("unit_names")]
         public List<string>? UnitNames { get; set; }
+
+        [JsonPropertyName("baseline")]
+        public JsonElement? Baseline { get; set; }
     }
 
     public class InCitesUnitResult

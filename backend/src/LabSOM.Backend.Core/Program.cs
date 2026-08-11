@@ -192,6 +192,19 @@ app.MapGet("/api/incites/unit/{unitName}", async (string unitName, InCitesServic
         "application/json");
 });
 
+// 2.5c InCites Get Baseline Data — returns baseline summary & trend
+app.MapGet("/api/incites/baseline", async (InCitesService service) =>
+{
+    var rawBaseline = await service.GetBaselineDataRawAsync();
+    if (string.IsNullOrEmpty(rawBaseline))
+    {
+        return Results.Json(new { success = false, error = "No baseline data found" }, statusCode: 404);
+    }
+    return Results.Content(
+        $"{{\"success\":true,\"baseline\":{rawBaseline}}}",
+        "application/json");
+});
+
 
 // 3. SOM and UMAP Training Endpoint
 app.MapPost("/api/som/suggest_size", async (SuggestSizeRequest request, SOMEngineService engine) =>

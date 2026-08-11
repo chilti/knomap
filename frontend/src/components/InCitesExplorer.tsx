@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download } from 'lucide-react';
+import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download, Database, TrendingUp } from 'lucide-react';
 import { useSomStore, getApiUrl } from '../store/somStore';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
@@ -1017,8 +1017,8 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex-1 min-h-0" id="chart-time-series">
-                                        <ResponsiveContainer width="100%" height="100%">
+                                    <div className="flex-1 min-h-[300px]" id="chart-time-series">
+                                        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                                             <LineChart data={tsChartData}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
                                                 <XAxis dataKey="time" stroke="#4b5563" tick={{ fontSize: 10 }} />
@@ -1104,7 +1104,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                     </div>
 
                                     <div className="w-full" style={{ height: 380 }} id="chart-stacked-area">
-                                        <ResponsiveContainer width="100%" height="100%">
+                                        <ResponsiveContainer width="100%" height="100%" minHeight={350}>
                                             <AreaChart data={stackedAreaData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-800, #1e293b)" />
                                                 <XAxis dataKey="time" stroke="var(--gray-400, #64748b)" tick={{ fontSize: 10, fill: 'var(--gray-300, #cbd5e1)' }} />
@@ -1164,7 +1164,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                             </div>
                                         </div>
 
-                                        <ResponsiveContainer width="100%" height="100%">
+                                        <ResponsiveContainer width="100%" height="100%" minHeight={380}>
                                             <ScatterChart margin={{ top: 20, right: 30, bottom: 25, left: 20 }}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-800, #1e293b)" />
                                                 <XAxis
@@ -1384,7 +1384,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                     <div className="flex flex-row items-stretch gap-4" style={{ height: 480 }}>
                                         {/* Scatter Chart Canvas */}
                                         <div className="flex-1 bg-gray-950/60 border border-gray-800/80 rounded-xl p-2 min-w-0" id="chart-4d-bubble">
-                                            <ResponsiveContainer width="100%" height="100%">
+                                            <ResponsiveContainer width="100%" height="100%" minHeight={400}>
                                                 <ScatterChart margin={{ top: 20, right: 30, bottom: 25, left: 20 }}>
                                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-800, #1e293b)" />
                                                     <XAxis
@@ -1529,7 +1529,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                     </div>
 
                                     <div className="w-full flex justify-center items-center" style={{ height: 380 }} id="chart-radar-comparison">
-                                        <ResponsiveContainer width="100%" height="100%">
+                                        <ResponsiveContainer width="100%" height="100%" minHeight={340}>
                                             <RadarChart data={radarChartData} margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
                                                 <PolarGrid stroke="var(--gray-800, #334155)" />
                                                 <PolarAngleAxis dataKey="indicator" stroke="var(--gray-300, #cbd5e1)" tick={{ fontSize: 10, fill: 'var(--gray-300, #cbd5e1)' }} />
@@ -1588,7 +1588,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                     </div>
                                     <div className="w-full overflow-y-auto custom-scrollbar h-[420px]" id="chart-quartile-distribution">
                                         <div style={{ height: dynamicChartHeight }}>
-                                            <ResponsiveContainer width="100%" height={dynamicChartHeight} key={`qchart_${sidebarTab}_${dynamicChartHeight}`}>
+                                            <ResponsiveContainer width="100%" height={dynamicChartHeight} minHeight={300} key={`qchart_${sidebarTab}_${dynamicChartHeight}`}>
                                                 <BarChart data={quartileChartData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-700, #334155)" horizontal={false} />
                                                 <XAxis type="number" domain={[0, 100]} stroke="var(--gray-400, #64748b)" tick={{ fontSize: 10, fill: 'var(--gray-300, #64748b)' }} unit="%" />
@@ -1654,7 +1654,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                         </div>
                                         <div className="w-full overflow-y-auto custom-scrollbar h-[520px]" id="chart-bar-1">
                                             <div style={{ height: dynamicChartHeight }}>
-                                                <ResponsiveContainer width="100%" height={dynamicChartHeight} key={`barchart1_${barInd1}_${dynamicChartHeight}`}>
+                                                <ResponsiveContainer width="100%" height={dynamicChartHeight} minHeight={300} key={`barchart1_${barInd1}_${dynamicChartHeight}`}>
                                                     <BarChart data={barData1} layout="vertical" margin={{ top: 5, right: 25, left: 10, bottom: 5 }}>
                                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-700, #334155)" horizontal={false} />
                                                     <XAxis type="number" stroke="var(--gray-400, #64748b)" tick={{ fontSize: 10, fill: 'var(--gray-300, #64748b)' }} />
@@ -1701,7 +1701,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                         </div>
                                         <div className="w-full overflow-y-auto custom-scrollbar h-[520px]" id="chart-bar-2">
                                             <div style={{ height: dynamicChartHeight }}>
-                                                <ResponsiveContainer width="100%" height={dynamicChartHeight} key={`barchart2_${barInd2}_${dynamicChartHeight}`}>
+                                                <ResponsiveContainer width="100%" height={dynamicChartHeight} minHeight={300} key={`barchart2_${barInd2}_${dynamicChartHeight}`}>
                                                     <BarChart data={barData2} layout="vertical" margin={{ top: 5, right: 25, left: 10, bottom: 5 }}>
                                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-700, #334155)" horizontal={false} />
                                                     <XAxis type="number" stroke="var(--gray-400, #64748b)" tick={{ fontSize: 10, fill: 'var(--gray-300, #64748b)' }} />
@@ -1767,6 +1767,299 @@ const sortInCitesUnits = (names: string[]): string[] => {
     });
 };
 
+// ── Data Indicators Panel Component ───────────────────────────────────────
+const DataIndicatorsPanel: React.FC = () => {
+    const { incitesBaseline, incitesSelectedBaselineSource, setIncitesState } = useSomStore();
+    const [selectedIndicator, setSelectedIndicator] = useState<string>('Category Normalized Citation Impact');
+
+    if (!incitesBaseline || !incitesBaseline.sources) {
+        return (
+            <div className="p-8 text-center text-gray-500 bg-gray-900 border border-gray-800 rounded-2xl">
+                No baseline indicators found in uploaded files.
+            </div>
+        );
+    }
+
+    const sourceKeys = Object.keys(incitesBaseline.sources);
+    const activeSourceKey = incitesSelectedBaselineSource && incitesBaseline.sources[incitesSelectedBaselineSource] 
+        ? incitesSelectedBaselineSource 
+        : (incitesBaseline.default_source || sourceKeys[0]);
+
+    const activeSource = incitesBaseline.sources[activeSourceKey];
+
+    if (!activeSource) return null;
+
+    const summaryItems: any[] = activeSource.summary || [];
+    const trendData: any[] = activeSource.trend || [];
+    const indicators: string[] = activeSource.indicators || [];
+
+    const datasetBaselineSummary = summaryItems.find(s => s.name?.toLowerCase().includes('dataset')) || summaryItems[0];
+    const allItemsBaselineSummary = summaryItems.find(s => s.name?.toLowerCase().includes('all items')) || summaryItems[1];
+
+    // Format trend data for WoS Documents & Times Cited growth chart
+    // Format trend data for WoS Documents & Times Cited growth chart (prioritizing Baseline for All Items)
+    const growthChartData = trendData.map(item => {
+        const datasetDocs = item['Dataset Baseline']?.['Web of Science Documents'] ?? 0;
+        const datasetCites = item['Dataset Baseline']?.['Times Cited'] ?? 0;
+        const allItemsDocs = item['Baseline for All Items']?.['Web of Science Documents'] ?? 0;
+        const allItemsCites = item['Baseline for All Items']?.['Times Cited'] ?? 0;
+
+        const finalAllItemsDocs = allItemsDocs > 0 ? allItemsDocs : datasetDocs;
+        const finalAllItemsCites = allItemsCites > 0 ? allItemsCites : datasetCites;
+
+        const isDistinct = (datasetDocs > 0 || datasetCites > 0) &&
+            (datasetDocs !== finalAllItemsDocs || datasetCites !== finalAllItemsCites);
+
+        return {
+            year: item.year,
+            'All Items WoS Docs': finalAllItemsDocs,
+            'All Items Times Cited': finalAllItemsCites,
+            'Dataset WoS Docs': datasetDocs,
+            'Dataset Times Cited': datasetCites,
+            isDistinct
+        };
+    });
+
+    // Format trend data for selected indicator
+    const currentInd = indicators.includes(selectedIndicator) ? selectedIndicator : (indicators[0] || 'Category Normalized Citation Impact');
+    
+    const indicatorChartData = trendData.map(item => {
+        const datasetVal = item['Dataset Baseline']?.[currentInd] ?? 0;
+        const allItemsVal = item['Baseline for All Items']?.[currentInd] ?? 0;
+        const finalAllItemsVal = allItemsVal !== 0 ? allItemsVal : datasetVal;
+        const isDistinct = datasetVal !== 0 && datasetVal !== finalAllItemsVal;
+
+        return {
+            year: item.year,
+            'Baseline for All Items': finalAllItemsVal,
+            'Dataset Baseline': datasetVal,
+            isDistinct
+        };
+    });
+
+    return (
+        <div className="flex flex-col space-y-6 overflow-y-auto custom-scrollbar h-full pr-2">
+            {/* Header & Source Selector */}
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-lg">
+                <div>
+                    <div className="flex items-center space-x-3">
+                        <h3 className="text-xl font-bold text-white tracking-tight flex items-center space-x-2">
+                            <span>Data Indicators</span>
+                            <span className="text-xs bg-indigo-950 text-indigo-300 border border-indigo-700/60 px-2.5 py-0.5 rounded-full font-semibold">
+                                Global Baseline
+                            </span>
+                        </h3>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                        Global metrics for the loaded dataset filter vs. Web of Science All Items baseline.
+                    </p>
+                </div>
+
+                <div className="flex items-center space-x-3 bg-gray-950 p-2 rounded-xl border border-gray-800">
+                    <span className="text-xs font-semibold text-gray-400 pl-1">Baseline Source:</span>
+                    <span className="text-xs text-indigo-400 font-bold bg-gray-900 px-2.5 py-1 rounded-lg border border-gray-800">
+                        {activeSource.whole_filename || activeSource.trend_filename || activeSourceKey}
+                    </span>
+                    {sourceKeys.length > 1 && (
+                        <select
+                            value={activeSourceKey}
+                            onChange={e => setIncitesState({ incitesSelectedBaselineSource: e.target.value })}
+                            className="bg-gray-900 border border-gray-700 text-xs text-gray-200 rounded-lg px-2.5 py-1 font-medium focus:outline-none focus:border-indigo-500"
+                        >
+                            {sourceKeys.map(k => (
+                                <option key={k} value={k}>{k} ({incitesBaseline.sources[k].whole_filename || k})</option>
+                            ))}
+                        </select>
+                    )}
+                </div>
+            </div>
+
+            {/* SECTION 1: Baseline Summary Cards & Table */}
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-5 shadow-lg">
+                <h4 className="text-sm font-bold text-gray-200 uppercase tracking-wider border-b border-gray-800 pb-2 flex items-center space-x-2">
+                    <Database className="w-4 h-4 text-indigo-400" />
+                    <span>Sección 1: Indicadores Baseline Comparativos</span>
+                </h4>
+
+                {/* KPI Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
+                        <span className="text-xs font-semibold text-gray-400">Web of Science Documents</span>
+                        <div className="mt-2 flex items-baseline justify-between">
+                            <div>
+                                <p className="text-2xl font-black text-white">{datasetBaselineSummary?.['Web of Science Documents']?.toLocaleString() ?? '-'}</p>
+                                <p className="text-[10px] text-indigo-400 font-medium">Dataset Baseline</p>
+                            </div>
+                            {allItemsBaselineSummary && (
+                                <div className="text-right">
+                                    <p className="text-sm font-bold text-gray-400">{allItemsBaselineSummary['Web of Science Documents']?.toLocaleString() ?? '-'}</p>
+                                    <p className="text-[10px] text-gray-500">All Items</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
+                        <span className="text-xs font-semibold text-gray-400">Times Cited</span>
+                        <div className="mt-2 flex items-baseline justify-between">
+                            <div>
+                                <p className="text-2xl font-black text-amber-400">{datasetBaselineSummary?.['Times Cited']?.toLocaleString() ?? '-'}</p>
+                                <p className="text-[10px] text-indigo-400 font-medium">Dataset Baseline</p>
+                            </div>
+                            {allItemsBaselineSummary && (
+                                <div className="text-right">
+                                    <p className="text-sm font-bold text-gray-400">{allItemsBaselineSummary['Times Cited']?.toLocaleString() ?? '-'}</p>
+                                    <p className="text-[10px] text-gray-500">All Items</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
+                        <span className="text-xs font-semibold text-gray-400">Category Norm. Citation Impact (CNCI)</span>
+                        <div className="mt-2 flex items-baseline justify-between">
+                            <div>
+                                <p className="text-2xl font-black text-emerald-400">{typeof datasetBaselineSummary?.['Category Normalized Citation Impact'] === 'number' ? datasetBaselineSummary['Category Normalized Citation Impact'].toFixed(2) : '-'}</p>
+                                <p className="text-[10px] text-indigo-400 font-medium">Dataset Baseline</p>
+                            </div>
+                            {allItemsBaselineSummary && (
+                                <div className="text-right">
+                                    <p className="text-sm font-bold text-gray-400">{typeof allItemsBaselineSummary['Category Normalized Citation Impact'] === 'number' ? allItemsBaselineSummary['Category Normalized Citation Impact'].toFixed(2) : '-'}</p>
+                                    <p className="text-[10px] text-gray-500">All Items</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
+                        <span className="text-xs font-semibold text-gray-400">% Documents Cited</span>
+                        <div className="mt-2 flex items-baseline justify-between">
+                            <div>
+                                <p className="text-2xl font-black text-sky-400">{datasetBaselineSummary?.['% Docs Cited'] != null ? `${datasetBaselineSummary['% Docs Cited']}%` : '-'}</p>
+                                <p className="text-[10px] text-indigo-400 font-medium">Dataset Baseline</p>
+                            </div>
+                            {allItemsBaselineSummary && (
+                                <div className="text-right">
+                                    <p className="text-sm font-bold text-gray-400">{allItemsBaselineSummary['% Docs Cited'] != null ? `${allItemsBaselineSummary['% Docs Cited']}%` : '-'}</p>
+                                    <p className="text-[10px] text-gray-500">All Items</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Side by Side Comparison Table */}
+                <div className="overflow-x-auto custom-scrollbar rounded-xl border border-gray-800 max-h-80">
+                    <table className="w-full text-xs text-left">
+                        <thead className="bg-gray-950 text-gray-400 font-semibold border-b border-gray-800 sticky top-0">
+                            <tr>
+                                <th className="py-3 px-4 bg-gray-950">Indicador Bibliométrico</th>
+                                <th className="py-3 px-4 text-right text-indigo-400 bg-gray-950">Dataset Baseline</th>
+                                <th className="py-3 px-4 text-right text-gray-400 bg-gray-950">Baseline for All Items</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800/60 bg-gray-900/40">
+                            {indicators.map(indKey => {
+                                const val1 = datasetBaselineSummary?.[indKey];
+                                const val2 = allItemsBaselineSummary?.[indKey];
+                                return (
+                                    <tr key={indKey} className="hover:bg-gray-800/40 transition-colors">
+                                        <td className="py-2.5 px-4 font-medium text-gray-200">{indKey}</td>
+                                        <td className="py-2.5 px-4 text-right font-bold text-indigo-300">
+                                            {typeof val1 === 'number' ? (val1 % 1 !== 0 ? val1.toFixed(2) : val1.toLocaleString()) : (val1 ?? '-')}
+                                        </td>
+                                        <td className="py-2.5 px-4 text-right font-semibold text-gray-400">
+                                            {typeof val2 === 'number' ? (val2 % 1 !== 0 ? val2.toFixed(2) : val2.toLocaleString()) : (val2 ?? '-')}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* SECTION 2: Baseline Time Series Charts */}
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-6 shadow-lg">
+                <h4 className="text-sm font-bold text-gray-200 uppercase tracking-wider border-b border-gray-800 pb-2 flex items-center space-x-2">
+                    <TrendingUp className="w-4 h-4 text-indigo-400" />
+                    <span>Sección 2: Series Temporales de Baseline</span>
+                </h4>
+
+                {/* Chart 1: Web of Science Documents & Times Cited Growth */}
+                <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col space-y-3">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                        <div>
+                            <h5 className="text-sm font-bold text-white">Document & Citation Growth</h5>
+                            <p className="text-[11px] text-gray-400">Evolución temporal de Web of Science Documents y Times Cited por año de publicación.</p>
+                        </div>
+                        <ExportButtons containerId="chart-baseline-growth" filename="baseline_document_citation_growth" />
+                    </div>
+
+                    <div className="w-full min-h-[350px]" id="chart-baseline-growth">
+                        <ResponsiveContainer width="100%" height={350} minHeight={350}>
+                            <LineChart data={growthChartData} margin={{ top: 10, right: 35, left: 15, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                <XAxis dataKey="year" stroke="#64748b" tick={{ fontSize: 10, fill: '#cbd5e1' }} />
+                                <YAxis yAxisId="left" stroke="#6366f1" tick={{ fontSize: 10, fill: '#818cf8' }} />
+                                <YAxis yAxisId="right" orientation="right" stroke="#f59e0b" tick={{ fontSize: 10, fill: '#fbbf24' }} />
+                                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem', fontSize: '12px' }} />
+                                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                                <Line yAxisId="left" type="monotone" dataKey="All Items WoS Docs" stroke="#6366f1" strokeWidth={2.5} dot={false} name="All Items WoS Docs (Eje Izq.)" />
+                                <Line yAxisId="right" type="monotone" dataKey="All Items Times Cited" stroke="#f59e0b" strokeWidth={2.5} dot={false} name="All Items Times Cited (Eje Der.)" />
+                                {growthChartData.some(d => d.isDistinct) && (
+                                    <>
+                                        <Line yAxisId="left" type="monotone" dataKey="Dataset WoS Docs" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Dataset WoS Docs (Eje Izq.)" />
+                                        <Line yAxisId="right" type="monotone" dataKey="Dataset Times Cited" stroke="#d97706" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Dataset Times Cited (Eje Der.)" />
+                                    </>
+                                )}
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* Chart 2: Dropdown Indicator Selector Chart */}
+                <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col space-y-3">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                        <div>
+                            <h5 className="text-sm font-bold text-white">Indicador Seleccionable en el Tiempo</h5>
+                            <p className="text-[11px] text-gray-400">Selecciona cualquier indicador para inspeccionar su tendencia temporal.</p>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                            <ExportButtons containerId="chart-baseline-indicator" filename={`baseline_${currentInd.replace(/\s+/g, '_')}`} />
+                            <select
+                                value={currentInd}
+                                onChange={e => setSelectedIndicator(e.target.value)}
+                                className="bg-gray-900 border border-gray-700 text-xs text-gray-200 rounded-lg px-3 py-1.5 font-bold focus:outline-none focus:border-indigo-500 max-w-[280px] truncate"
+                            >
+                                {indicators.map(ind => (
+                                    <option key={ind} value={ind}>{ind}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="w-full min-h-[350px]" id="chart-baseline-indicator">
+                        <ResponsiveContainer width="100%" height={350} minHeight={350}>
+                            <LineChart data={indicatorChartData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                <XAxis dataKey="year" stroke="#64748b" tick={{ fontSize: 10, fill: '#cbd5e1' }} />
+                                <YAxis stroke="#64748b" tick={{ fontSize: 10, fill: '#cbd5e1' }} />
+                                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem', fontSize: '12px' }} />
+                                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                                <Line type="monotone" dataKey="Baseline for All Items" stroke="#10b981" strokeWidth={2.5} dot={false} name={`All Items Baseline (${currentInd})`} />
+                                {indicatorChartData.some(d => d.isDistinct) && (
+                                    <Line type="monotone" dataKey="Dataset Baseline" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name={`Dataset Baseline (${currentInd})`} />
+                                )}
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ── Main Explorer Shell ────────────────────────────────────────────────────
 export const InCitesExplorer: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1778,6 +2071,7 @@ export const InCitesExplorer: React.FC = () => {
         incitesUnitCache: unitCache, 
         incitesActiveUnit: activeUnit, 
         incitesIsUploading: isUploading,
+        incitesBaseline: baselineData,
         uploadInCitesFiles,
         setIncitesState 
     } = useSomStore();
@@ -1790,13 +2084,21 @@ export const InCitesExplorer: React.FC = () => {
         return sortInCitesUnits(unitNames);
     }, [unitNames]);
 
-    // Ensure default active tab is Locations
+    const allUnitNames = useMemo(() => {
+        if (!sortedUnitNames) return [];
+        if (baselineData && baselineData.sources && Object.keys(baselineData.sources).length > 0) {
+            return ['Data Indicators', ...sortedUnitNames];
+        }
+        return sortedUnitNames;
+    }, [sortedUnitNames, baselineData]);
+
+    // Ensure default active tab is Data Indicators if available, or Locations
     useEffect(() => {
-        if (sortedUnitNames.length > 0 && (!activeUnit || !sortedUnitNames.includes(activeUnit))) {
-            const defaultUnit = sortedUnitNames.includes('Locations') ? 'Locations' : sortedUnitNames[0];
+        if (allUnitNames.length > 0 && (!activeUnit || !allUnitNames.includes(activeUnit))) {
+            const defaultUnit = allUnitNames.includes('Data Indicators') ? 'Data Indicators' : (sortedUnitNames.includes('Locations') ? 'Locations' : sortedUnitNames[0]);
             setActiveUnit(defaultUnit);
         }
-    }, [sortedUnitNames, activeUnit]);
+    }, [allUnitNames, sortedUnitNames, activeUnit]);
 
     // ── Step 1: Upload → get names only ───────────────────────────────
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1814,7 +2116,7 @@ export const InCitesExplorer: React.FC = () => {
 
     // ── Step 2: Tab click → fetch that unit on demand ─────────────────
     useEffect(() => {
-        if (!activeUnit) return;
+        if (!activeUnit || activeUnit === 'Data Indicators') return;
         if (unitCache[activeUnit]) return; // already fetched
 
         const fetchUnit = async () => {
@@ -1839,7 +2141,7 @@ export const InCitesExplorer: React.FC = () => {
         fetchUnit();
     }, [activeUnit, unitCache]);
 
-    const currentUnit = activeUnit ? unitCache[activeUnit] : null;
+    const currentUnit = (activeUnit && activeUnit !== 'Data Indicators') ? unitCache[activeUnit] : null;
 
     return (
         <div className="flex flex-col h-full bg-gray-950 p-6 space-y-6">
@@ -1869,11 +2171,20 @@ export const InCitesExplorer: React.FC = () => {
                 </div>
             </div>
 
-            {/* Empty state */}
-            {!unitNames && !isUploading && (
-                <div className="flex-1 flex flex-col items-center justify-center text-gray-500 border-2 border-dashed border-gray-800 rounded-3xl">
+            {/* Empty state or no units state */}
+            {(!unitNames || unitNames.length === 0) && !isUploading && (
+                <div className="flex-1 flex flex-col items-center justify-center text-gray-500 border-2 border-dashed border-gray-800 rounded-3xl p-8 text-center">
                     <BarChart2 className="w-16 h-16 mb-4 text-gray-700" />
-                    <p>Upload InCites CSV/Excel files or a ZIP file to get started.</p>
+                    {unitNames && unitNames.length === 0 ? (
+                        <>
+                            <p className="text-gray-300 font-semibold text-base mb-1">No recognized InCites units found</p>
+                            <p className="text-xs text-gray-500 max-w-md">
+                                Please ensure uploaded files follow standard InCites naming (e.g. <span className="text-indigo-400">Incites Locations.csv</span>, <span className="text-indigo-400">Incites Research Areas.xlsx</span>) or upload a ZIP archive containing InCites exports.
+                            </p>
+                        </>
+                    ) : (
+                        <p>Upload InCites CSV/Excel files or a ZIP file to get started.</p>
+                    )}
                 </div>
             )}
 
@@ -1887,11 +2198,11 @@ export const InCitesExplorer: React.FC = () => {
             )}
 
             {/* Tabs + content */}
-            {sortedUnitNames && sortedUnitNames.length > 0 && (
+            {allUnitNames && allUnitNames.length > 0 && (
                 <div className="flex-1 flex flex-col space-y-4 min-h-0">
                     {/* Unit Tabs */}
                     <div className="flex space-x-2 border-b border-gray-800 pb-2 overflow-x-auto shrink-0">
-                        {sortedUnitNames.map(name => (
+                        {allUnitNames.map(name => (
                             <button
                                 key={name}
                                 onClick={() => setActiveUnit(name)}
@@ -1901,27 +2212,36 @@ export const InCitesExplorer: React.FC = () => {
                                     }`}
                             >
                                 {name}
-                                {/* Show dot if already cached */}
-                                {unitCache[name] && <span className="ml-1.5 inline-block w-1.5 h-1.5 bg-emerald-400 rounded-full align-middle" />}
+                                {name === 'Data Indicators' ? (
+                                    <span className="ml-1.5 inline-block w-2 h-2 bg-indigo-400 rounded-full align-middle animate-pulse" />
+                                ) : (
+                                    unitCache[name] && <span className="ml-1.5 inline-block w-1.5 h-1.5 bg-emerald-400 rounded-full align-middle" />
+                                )}
                             </button>
                         ))}
                     </div>
 
                     {/* Tab Content */}
                     <div className="flex-1 min-h-0">
-                        {isLoadingUnit && (
-                            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                                <Loader2 className="w-8 h-8 animate-spin mb-3 text-indigo-400" />
-                                <p className="text-sm">Cargando {activeUnit}…</p>
-                            </div>
-                        )}
-                        {!isLoadingUnit && currentUnit && (
-                            <UnitPanel unitName={activeUnit!} unit={currentUnit} />
-                        )}
-                        {!isLoadingUnit && !currentUnit && activeUnit && (
-                            <div className="flex items-center justify-center h-full text-gray-600">
-                                <p>Selecciona una pestaña para ver sus datos.</p>
-                            </div>
+                        {activeUnit === 'Data Indicators' ? (
+                            <DataIndicatorsPanel />
+                        ) : (
+                            <>
+                                {isLoadingUnit && (
+                                    <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                                        <Loader2 className="w-8 h-8 animate-spin mb-3 text-indigo-400" />
+                                        <p className="text-sm">Cargando {activeUnit}…</p>
+                                    </div>
+                                )}
+                                {!isLoadingUnit && currentUnit && (
+                                    <UnitPanel unitName={activeUnit!} unit={currentUnit} />
+                                )}
+                                {!isLoadingUnit && !currentUnit && activeUnit && (
+                                    <div className="flex items-center justify-center h-full text-gray-600">
+                                        <p>Selecciona una pestaña para ver sus datos.</p>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>

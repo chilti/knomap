@@ -30,9 +30,9 @@ export const ProjectsDrawer: React.FC<ProjectsDrawerProps> = ({ isOpen, onClose 
 
   if (!isOpen) return null;
 
-  const handleOpenProject = async (projectId: string) => {
+  const handleOpenProject = async (projectId: string, projectTitle: string) => {
     setLoadingProjectId(projectId);
-    const success = await loadCloudProject(projectId);
+    const success = await loadCloudProject(projectId, projectTitle);
     setLoadingProjectId(null);
     if (success) {
       onClose();
@@ -154,7 +154,7 @@ export const ProjectsDrawer: React.FC<ProjectsDrawerProps> = ({ isOpen, onClose 
                       </>
                     )}
                     <button
-                      onClick={() => handleOpenProject(p.id)}
+                      onClick={() => handleOpenProject(p.id, p.title)}
                       disabled={loadingProjectId === p.id}
                       className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
                     >

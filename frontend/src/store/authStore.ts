@@ -38,7 +38,7 @@ interface AuthState {
   logout: () => void;
   fetchUserProjects: () => Promise<void>;
   saveCloudProject: (title: string, description?: string, projectId?: string) => Promise<boolean>;
-  loadCloudProject: (projectId: string) => Promise<boolean>;
+  loadCloudProject: (projectId: string, projectTitle?: string) => Promise<boolean>;
   shareProject: (projectId: string, target: string, permission: string) => Promise<boolean>;
   deleteCloudProject: (projectId: string) => Promise<boolean>;
   createUser: (username: string, email: string, password: string, role: string) => Promise<boolean>;
@@ -160,16 +160,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const token = get().token;
     if (!token) return false;
 
-    // Get current trained result & state from somStore
-    const somStoreState = useSomStore.getState();
-    const payload = {
-      result: somStoreState.result,
-      config: somStoreState.config,
-      fileName: somStoreState.fileName,
-      labels: somStoreState.labels,
-      compNames: somStoreState.compNames,
-      originalDataMatrix: somStoreState.originalDataMatrix
-    };
+    // Use passed projectId or active cloudProjectId from somStore
+    const targetProjectId = projectId || useSomStore.getState().cloudProjectId || undefined;
+
+    // Ensure all InCites unit tabs are pre-cached before saving to cloud
+    await useSomStore.getState().ensureAllIncitesUnitsCached();
+
+    // Get current complete state payload from somStore
+    const payload = useSomStore.getState().getProjectPayload();
 
     try {
       const response = await fetch(getApiUrl('/api/projects'), {
@@ -179,7 +177,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          id: projectId,
+          id: targetProjectId,
           title,
           description,
           payload
@@ -187,7 +185,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       const data = await response.json();
-      if (data.success) {
+      if (data.success && data.project) {
+        useSomStore.setState({
+          cloudProjectId: data.project.id,
+          cloudProjectTitle: data.project.title
+        });
         await get().fetchUserProjects();
         return true;
       }
@@ -198,7 +200,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  loadCloudProject: async (projectId) => {
+  loadCloudProject: async (projectId: string, projectTitle?: string) => {
     const token = get().token;
     if (!token) return false;
 
@@ -208,14 +210,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       const projectData = await response.json();
-      if (projectData && projectData.result) {
+      if (projectData && (projectData.version || projectData.config || projectData.incitesUnitNames || projectData.result || projectData.dataMatrix)) {
+        useSomStore.getState().importProject(JSON.stringify(projectData));
         useSomStore.setState({
-          result: projectData.result,
-          config: projectData.config || useSomStore.getState().config,
-          fileName: projectData.fileName || 'Cloud Project',
-          labels: projectData.labels || [],
-          compNames: projectData.compNames || [],
-          originalDataMatrix: projectData.originalDataMatrix || null
+          cloudProjectId: projectId,
+          cloudProjectTitle: projectTitle || projectData.cloudProjectTitle || null
         });
         return true;
       }

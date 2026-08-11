@@ -10,7 +10,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { LoginModal } from './components/LoginModal';
 import { UserManagementModal } from './components/UserManagementModal';
 import { ProjectsDrawer } from './components/ProjectsDrawer';
-import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield } from 'lucide-react';
+import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield } from 'lucide-react';
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
 
@@ -24,10 +24,9 @@ export default function App() {
     hardware,
     pendingNetworkCsv,
     uploadProgress,
-    result,
-    fileName,
     exportProject,
-    importProject
+    importProject,
+    clearProject
   } = useSomStore();
 
   const { isWebMode, isAuthenticated, user, checkAuth, saveCloudProject, logout, isLoading: isAuthLoading } = useAuthStore();
@@ -38,12 +37,21 @@ export default function App() {
   const [isSavingCloud, setIsSavingCloud] = useState(false);
 
   const handleSaveToCloud = async () => {
-    if (!result) return;
-    const title = prompt("Enter project title to save on server:", fileName ? fileName.replace('.csv', '') : 'My SOM Project');
+    const state = useSomStore.getState();
+    const activeFileName = state.fileName || state.semanticFileName || state.dimFileName || (state.incitesUnitNames && state.incitesUnitNames.length > 0 ? 'InCites Project' : 'My Project');
+    const fallbackTitle = activeFileName.replace(/\.[^/.]+$/, '');
+    const currentTitle = state.cloudProjectTitle || fallbackTitle;
+
+    const promptMessage = state.cloudProjectId 
+      ? `Save changes to server project '${state.cloudProjectTitle}'? (Change name to save as new):` 
+      : "Enter project title to save on server:";
+
+    const title = prompt(promptMessage, currentTitle);
     if (!title) return;
 
     setIsSavingCloud(true);
-    const success = await saveCloudProject(title);
+    const targetId = (state.cloudProjectId && title === state.cloudProjectTitle) ? state.cloudProjectId : undefined;
+    const success = await saveCloudProject(title, undefined, targetId);
     setIsSavingCloud(false);
 
     if (success) {
@@ -450,11 +458,24 @@ export default function App() {
 
               <div className="flex items-center space-x-3 flex-wrap gap-y-2">
                 <button
+                  onClick={() => {
+                    if (window.confirm("Are you sure you want to close the current project and reset the workspace?")) {
+                      clearProject();
+                    }
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-900/30 flex items-center space-x-2 cursor-pointer"
+                  title="Close current project and reset workspace"
+                >
+                  <FolderX className="w-4 h-4 text-white" />
+                  <span>Close Project</span>
+                </button>
+
+                <button
                   onClick={() => projectInputRef.current?.click()}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-xs font-bold rounded-xl transition flex items-center space-x-2 cursor-pointer"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-900/30 flex items-center space-x-2 cursor-pointer"
                   title="Load Local Project File"
                 >
-                  <FolderOpen className="w-4 h-4 text-amber-400" />
+                  <FolderOpen className="w-4 h-4 text-white" />
                   <span>Load Local File</span>
                 </button>
                 <input
@@ -477,10 +498,10 @@ export default function App() {
 
                 <button
                   onClick={() => exportProject()}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-900 shadow-opacity-20 flex items-center space-x-2 cursor-pointer"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-900/30 flex items-center space-x-2 cursor-pointer"
                   title="Save Local Project File"
                 >
-                  <Save className="w-4 h-4" />
+                  <Save className="w-4 h-4 text-white" />
                   <span>Save Local File</span>
                 </button>
 
@@ -489,59 +510,57 @@ export default function App() {
                   <>
                     <div className="h-5 w-px bg-gray-800 mx-1" />
 
-                    {result && (
-                      <button
-                        onClick={handleSaveToCloud}
-                        disabled={isSavingCloud}
-                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-md shadow-emerald-950 cursor-pointer disabled:opacity-50"
-                        title="Save project to server"
-                      >
-                        <Cloud className="w-3.5 h-3.5" />
-                        <span>{isSavingCloud ? 'Saving...' : 'Save to Cloud'}</span>
-                      </button>
-                    )}
+                    <button
+                      onClick={handleSaveToCloud}
+                      disabled={isSavingCloud}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-900/30 flex items-center space-x-2 cursor-pointer disabled:opacity-50"
+                      title="Save project to server"
+                    >
+                      <Cloud className="w-4 h-4 text-white" />
+                      <span>{isSavingCloud ? 'Saving...' : 'Save to Server'}</span>
+                    </button>
 
                     <button
                       onClick={() => setIsProjectsDrawerOpen(true)}
-                      className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-indigo-300 text-xs font-bold rounded-xl transition flex items-center space-x-1.5 border border-indigo-500/30 cursor-pointer"
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-900/30 flex items-center space-x-2 cursor-pointer"
                       title="Open Server Projects Drawer"
                     >
-                      <FolderOpen className="w-3.5 h-3.5 text-indigo-400" />
+                      <FolderOpen className="w-4 h-4 text-white" />
                       <span>Server Projects</span>
                     </button>
 
                     {isAuthenticated && user ? (
-                      <div className="flex items-center space-x-2 bg-gray-900 border border-gray-800 px-3 py-1.5 rounded-xl">
-                        <span className="text-xs text-gray-200 font-bold flex items-center space-x-1">
-                          <UserIcon className="w-3.5 h-3.5 text-indigo-400" />
+                      <div className="flex items-center space-x-3">
+                        <div className="px-4 py-2 bg-indigo-600/30 border border-indigo-500/40 text-indigo-200 text-xs font-bold rounded-xl flex items-center space-x-2">
+                          <UserIcon className="w-4 h-4 text-indigo-300" />
                           <span>@{user.username}</span>
-                        </span>
+                        </div>
 
                         {user.role === 'Admin' && (
                           <button
                             onClick={() => setIsUserMgmtModalOpen(true)}
-                            className="px-2 py-1 bg-purple-900/50 border border-purple-500/30 hover:bg-purple-900 text-purple-200 text-[10px] font-bold rounded-lg transition cursor-pointer"
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-900/30 flex items-center space-x-2 cursor-pointer"
                             title="User Management (Admin)"
                           >
-                            <Shield className="w-3 h-3 inline mr-1" />
-                            Users
+                            <Shield className="w-4 h-4 text-white" />
+                            <span>Users</span>
                           </button>
                         )}
 
                         <button
                           onClick={logout}
-                          className="text-gray-400 hover:text-red-400 transition cursor-pointer"
+                          className="p-2 bg-indigo-600/20 hover:bg-rose-600 text-gray-300 hover:text-white rounded-xl transition cursor-pointer"
                           title="Log Out"
                         >
-                          <LogOut className="w-3.5 h-3.5" />
+                          <LogOut className="w-4 h-4" />
                         </button>
                       </div>
                     ) : (
                       <button
                         onClick={() => setIsLoginModalOpen(true)}
-                        className="px-3.5 py-2 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 text-xs font-bold rounded-xl transition flex items-center space-x-1.5 cursor-pointer"
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-900/30 flex items-center space-x-2 cursor-pointer"
                       >
-                        <LogIn className="w-3.5 h-3.5" />
+                        <LogIn className="w-4 h-4 text-white" />
                         <span>Log In</span>
                       </button>
                     )}

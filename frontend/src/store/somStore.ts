@@ -4,18 +4,18 @@ import { applyCmaSmoothing } from '../utils/timeSeries';
 
 // Helper to resolve API URLs dynamically based on deployment environment
 export const getApiUrl = (path: string): string => {
-  // 1. Desktop context (Photino loads local index.html using file:// or app://)
-  const isDesktop = window.location.protocol === 'file:' || window.location.protocol === 'about:' || !window.location.host;
-  if (isDesktop) {
-    return `http://localhost:5123${path}`;
+  // 1. Desktop protocol fallback (Photino loading via file:// or about:)
+  const isFileProtocol = typeof window !== 'undefined' && window.location && (window.location.protocol === 'file:' || window.location.protocol === 'about:' || !window.location.host);
+  if (isFileProtocol) {
+    return `http://127.0.0.1:19080${path}`;
   }
   
   // 2. Production browser context served under a subdirectory path (e.g., /knoMap/)
-  if (window.location.pathname.startsWith('/knoMap')) {
+  if (typeof window !== 'undefined' && window.location && window.location.pathname.startsWith('/knoMap')) {
     return `/knoMap${path}`;
   }
   
-  // 3. Standard relative API calls (Development or domain-root deployment)
+  // 3. Standard relative API calls (Works for desktop webview2 on port 19080 and web server)
   return path;
 };
 
@@ -240,7 +240,11 @@ interface SOMState {
   incitesActiveUnit: string | null;
   incitesSidebarTab: 'profiles' | 'temporal';
   incitesIsUploading: boolean;
-  setIncitesState: (state: Partial<{ incitesUnitNames: string[] | null, incitesUnitCache: Record<string, any>, incitesActiveUnit: string | null, incitesSidebarTab: 'profiles' | 'temporal', incitesIsUploading: boolean }>) => void;
+  incitesBaseline: any | null;
+  incitesSelectedBaselineSource: string | null;
+  cloudProjectId: string | null;
+  cloudProjectTitle: string | null;
+  setIncitesState: (state: Partial<{ incitesUnitNames: string[] | null, incitesUnitCache: Record<string, any>, incitesActiveUnit: string | null, incitesSidebarTab: 'profiles' | 'temporal', incitesIsUploading: boolean, incitesBaseline: any | null, incitesSelectedBaselineSource: string | null }>) => void;
   uploadInCitesFiles: (formData: FormData) => Promise<void>;
   
   // Setters & Actions
@@ -256,8 +260,11 @@ interface SOMState {
   moveLabel: (label: string, fromBmu: number, toBmu: number) => void;
   recalculatePipeline: () => void;
   reclusterLocally: (clustering: number[]) => void;
-  exportProject: () => void;
+  getProjectPayload: () => any;
+  ensureAllIncitesUnitsCached: () => Promise<void>;
+  exportProject: () => Promise<void>;
   importProject: (fileContent: string) => void;
+  clearProject: () => void;
   estimateDimension: (data: number[][], mode: 'ceiling' | 'manual', algorithmName?: string) => Promise<any>;
   reduceDimension: (data: number[][], targetD: number) => Promise<any>;
   
@@ -348,6 +355,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
   isPreprocessing: false,
   uploadProgress: null,
   activeTab: 'multidimensional',
+  cloudProjectId: null,
+  cloudProjectTitle: null,
   
   // Size Suggestions
   somSizeMode: 'small',
@@ -458,13 +467,17 @@ export const useSomStore = create<SOMState>((set, get) => ({
   incitesActiveUnit: null,
   incitesSidebarTab: 'profiles',
   incitesIsUploading: false,
+  incitesBaseline: null,
+  incitesSelectedBaselineSource: null,
   setIncitesState: (newState) => set((state) => ({ ...state, ...newState })),
   uploadInCitesFiles: async (formData: FormData) => {
     set({
       incitesIsUploading: true,
       incitesUnitNames: null,
       incitesUnitCache: {},
-      incitesActiveUnit: null
+      incitesActiveUnit: null,
+      incitesBaseline: null,
+      incitesSelectedBaselineSource: null
     });
 
     try {
@@ -503,17 +516,60 @@ export const useSomStore = create<SOMState>((set, get) => ({
         return a.localeCompare(b);
       });
 
-      const defaultUnit = names.includes('Locations') ? 'Locations' : (names[0] || null);
+      const baselineData = data.baseline || null;
+      const defaultSource = baselineData?.default_source || null;
+
+      // If baseline data exists, default to 'Data Indicators' tab
+      const defaultUnit = baselineData && defaultSource ? 'Data Indicators' : (names.includes('Locations') ? 'Locations' : (names[0] || null));
 
       set({
         incitesUnitNames: names,
         incitesActiveUnit: defaultUnit,
+        incitesBaseline: baselineData,
+        incitesSelectedBaselineSource: defaultSource,
         incitesIsUploading: false
+      });
+
+      // Background pre-fetch all unit tabs so saved projects are 100% self-contained
+      names.forEach(async (unitName) => {
+        try {
+          const res = await fetch(getApiUrl(`/api/incites/unit/${encodeURIComponent(unitName)}`));
+          const unitRes = await res.json();
+          if (unitRes.success && unitRes.unit) {
+            set((state) => ({
+              incitesUnitCache: { ...state.incitesUnitCache, [unitName]: unitRes.unit }
+            }));
+          }
+        } catch (e) {
+          console.warn(`Background pre-fetch warning for unit ${unitName}:`, e);
+        }
       });
     } catch (err) {
       alert('Upload failed: ' + err);
       set({ incitesIsUploading: false });
     }
+  },
+
+  ensureAllIncitesUnitsCached: async () => {
+    const { incitesUnitNames, incitesUnitCache } = get();
+    if (!incitesUnitNames || incitesUnitNames.length === 0) return;
+
+    const missingUnits = incitesUnitNames.filter(name => !incitesUnitCache[name]);
+    if (missingUnits.length === 0) return;
+
+    await Promise.all(missingUnits.map(async (unitName) => {
+      try {
+        const res = await fetch(getApiUrl(`/api/incites/unit/${encodeURIComponent(unitName)}`));
+        const data = await res.json();
+        if (data.success && data.unit) {
+          set((state) => ({
+            incitesUnitCache: { ...state.incitesUnitCache, [unitName]: data.unit }
+          }));
+        }
+      } catch (err) {
+        console.warn(`Could not pre-cache unit ${unitName} before saving:`, err);
+      }
+    }));
   },
 
   // Experiment History (Multi-Training Runs)
@@ -1065,12 +1121,14 @@ export const useSomStore = create<SOMState>((set, get) => ({
     set({ result: newResult, savedRuns: newSavedRuns });
   },
 
-  exportProject: () => {
+  getProjectPayload: () => {
     const state = get();
-    const projectData = {
+    return {
       version: '2.1',
       activeTab: state.activeTab,
       fileName: state.fileName,
+      cloudProjectId: state.cloudProjectId,
+      cloudProjectTitle: state.cloudProjectTitle,
       config: state.config,
       dataMatrix: state.dataMatrix,
       originalDataMatrix: state.originalDataMatrix,
@@ -1117,6 +1175,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
       incitesUnitCache: state.incitesUnitCache,
       incitesActiveUnit: state.incitesActiveUnit,
       incitesSidebarTab: state.incitesSidebarTab,
+      incitesBaseline: state.incitesBaseline,
+      incitesSelectedBaselineSource: state.incitesSelectedBaselineSource,
 
       // Dimensionality Reduction State
       dimData: state.dimData,
@@ -1146,7 +1206,11 @@ export const useSomStore = create<SOMState>((set, get) => ({
       maxLabelsPerNeuron: state.maxLabelsPerNeuron,
       showLabelsOnComponents: state.showLabelsOnComponents
     };
+  },
 
+  exportProject: async () => {
+    await get().ensureAllIncitesUnitsCached();
+    const projectData = get().getProjectPayload();
     const jsonString = JSON.stringify(projectData);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1163,10 +1227,12 @@ export const useSomStore = create<SOMState>((set, get) => ({
   importProject: (fileContent: string) => {
     try {
       const projectData = JSON.parse(fileContent);
-      if (projectData.version || projectData.config) {
+      if (projectData.version || projectData.config || projectData.incitesUnitNames || projectData.result || projectData.dataMatrix) {
         set({
           activeTab: projectData.activeTab || get().activeTab,
           fileName: projectData.fileName ?? null,
+          cloudProjectId: projectData.cloudProjectId || null,
+          cloudProjectTitle: projectData.cloudProjectTitle || null,
           config: projectData.config || get().config,
           dataMatrix: projectData.dataMatrix || [],
           originalDataMatrix: projectData.originalDataMatrix || null,
@@ -1213,6 +1279,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
           incitesUnitCache: projectData.incitesUnitCache || {},
           incitesActiveUnit: projectData.incitesActiveUnit || null,
           incitesSidebarTab: projectData.incitesSidebarTab || 'profiles',
+          incitesBaseline: projectData.incitesBaseline || null,
+          incitesSelectedBaselineSource: projectData.incitesSelectedBaselineSource || null,
 
           // Dimensionality Reduction State
           dimData: projectData.dimData || null,
@@ -1249,6 +1317,79 @@ export const useSomStore = create<SOMState>((set, get) => ({
       console.error('Error importing project:', e);
       alert('Failed to parse .knoMap file.');
     }
+  },
+
+  clearProject: () => {
+    set({
+      fileName: null,
+      dataMatrix: [],
+      originalDataMatrix: null,
+      normalizationInfo: null,
+      matrixOrigin: 'csv',
+      labels: [],
+      compNames: [],
+
+      // Experiment History
+      savedRuns: [],
+      activeRunId: null,
+      pendingProvenance: null,
+
+      // Bibliometrics
+      documentCount: 0,
+      termCounts: {},
+      network: null,
+      networksByYear: null,
+      cooccurrenceCsv: null,
+      pendingNetworkCsv: null,
+      pendingNetworkOrigin: null,
+      result: null,
+      isCmaSmoothingActive: false,
+      cmaWindowSize: 3,
+
+      // Semantic Bibliometrics
+      semanticRecords: null,
+      semanticEmbeddings: null,
+      semanticIntrinsicData: null,
+      semantic2DCoords: null,
+      semanticClusters: null,
+      semanticClusterAssignment: null,
+      semanticTargetD: 2,
+      semanticNumLevels: 2,
+      semanticMinSize: 5,
+      semanticCeilingResult: null,
+      semanticManualAlgo: 'pca',
+      semanticManualResult: null,
+      semanticFileName: '',
+      semanticEmbedModel: 'nomic',
+
+      // InCites Explorer State
+      incitesUnitNames: null,
+      incitesUnitCache: {},
+      incitesActiveUnit: null,
+      incitesSidebarTab: 'profiles',
+      incitesBaseline: null,
+      incitesSelectedBaselineSource: null,
+      incitesIsUploading: false,
+
+      // Dimensionality Reduction State
+      dimData: null,
+      dimFileName: '',
+      dimCeilingResult: null,
+      dimManualAlgo: 'TwoNN',
+      dimManualResult: null,
+      dimTargetD: 2,
+      dimReducedData: null,
+
+      // PathSOM & Trajectories
+      activeTrajectories: new Set(),
+      trajectoryLineWidth: 2,
+      isTrajectoriesExpanded: false,
+      entityColorOverrides: {},
+
+      // UI Preferences
+      labelSearchQuery: '',
+      excludedLabels: new Set()
+    });
   },
 
   estimateDimension: async (data: number[][], mode: 'ceiling' | 'manual', algorithmName?: string) => {

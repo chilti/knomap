@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from hardware_detector import detect_hardware
 from bibliometrics_parser import read_and_generate_bibliometrics
 from som_solver import SOMSolver, run_umap
-from incites_parser import extract_and_parse_incites
+from incites_parser import extract_and_parse_incites, build_incites_inventory, parse_single_unit_from_session
 
 def handle_detect():
     hw = detect_hardware()
@@ -382,21 +382,34 @@ def main():
         res = handle_preprocess(params)
         print(json.dumps(res))
     elif action == "incites_preprocess":
-        # Run the full parse
-        result = extract_and_parse_incites(payload_raw)
+        # Fast inventory build (takes ~1-2 seconds)
+        result = build_incites_inventory(payload_raw)
         output_file = params.get("output_file", "")
         
         if output_file:
-            # Write the big result to disk — do NOT print it to stdout
             import warnings; warnings.filterwarnings("ignore")
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False)
-            # Print only a tiny status to stdout so C# knows it worked
-            unit_names = list(result.get("units", {}).keys())
-            print(json.dumps({"success": result.get("success", True), "unit_names": unit_names}))
+            print(json.dumps({
+                "success": result.get("success", True),
+                "unit_names": result.get("unit_names", []),
+                "session_dir": result.get("session_dir"),
+                "baseline": result.get("baseline")
+            }))
         else:
-            # Fallback: old behavior (print everything)
             print(json.dumps(result))
+    elif action == "incites_parse_unit":
+        session_dir = params.get("session_dir", "")
+        unit_name = params.get("unit_name", "")
+        res = parse_single_unit_from_session(session_dir, unit_name)
+        output_file = params.get("output_file", "")
+        if output_file:
+            import warnings; warnings.filterwarnings("ignore")
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(res, f, ensure_ascii=False)
+            print(json.dumps({"success": res.get("success", True), "unit_name": unit_name}))
+        else:
+            print(json.dumps(res))
     elif action == "train":
         res = handle_train(params)
         print(json.dumps(res))
