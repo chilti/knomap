@@ -8,7 +8,8 @@ RUN npm run build
 
 # Stage 2: Serve the app with Nginx
 FROM nginx:alpine
-COPY --from=build /backend/src/LabSOM.Backend.Core/wwwroot /usr/share/nginx/html
+# Copy the built React app from Stage 1
+COPY --from=build /app/dist /usr/share/nginx/html
 # Remove default nginx config and replace with our custom one
 RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
