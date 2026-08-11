@@ -11,6 +11,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 
 // Ensure the working directory is the executable's directory (crucial for Start Menu shortcuts)
