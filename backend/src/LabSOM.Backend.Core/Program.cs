@@ -17,17 +17,23 @@ using System.Threading;
 // Ensure the working directory is the executable's directory (crucial for Start Menu shortcuts)
 Directory.SetCurrentDirectory(System.AppContext.BaseDirectory);
 
-// Load .env file manually for local development (dotnet run)
-string envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
-if (!File.Exists(envPath)) envPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "..", ".env"); // Fallback for bin/Release/net8.0
-if (File.Exists(envPath))
+// Search for .env file up the directory tree starting from executable location
+var searchDir = new DirectoryInfo(System.AppContext.BaseDirectory);
+while (searchDir != null)
 {
-    foreach (var line in File.ReadAllLines(envPath))
+    var candidate = Path.Combine(searchDir.FullName, ".env");
+    if (File.Exists(candidate))
     {
-        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
-        var parts = line.Split('=', 2);
-        if (parts.Length == 2) Environment.SetEnvironmentVariable(parts[0].Trim(), parts[1].Trim());
+        Console.WriteLine($"[Config] Loaded .env file from: {candidate}");
+        foreach (var line in File.ReadAllLines(candidate))
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+            var parts = line.Split('=', 2);
+            if (parts.Length == 2) Environment.SetEnvironmentVariable(parts[0].Trim(), parts[1].Trim());
+        }
+        break;
     }
+    searchDir = searchDir.Parent;
 }
 
 bool isHeadless = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" || args.Contains("--headless");

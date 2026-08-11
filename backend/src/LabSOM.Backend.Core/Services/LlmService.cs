@@ -33,6 +33,11 @@ namespace LabSOM.Backend.Core.Services
                 var credentials = $"{user}:{password}";
                 var encodedCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(credentials));
                 _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", encodedCredentials);
+                Console.WriteLine($"[LlmService] Configured with URL: {_baseUrl}, User: {user}");
+            }
+            else
+            {
+                Console.WriteLine($"[LlmService] WARNING: LLM_USER or LLM_PASSWORD not found in environment. Endpoint is {_baseUrl}");
             }
         }
 
