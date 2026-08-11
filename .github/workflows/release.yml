@@ -40,8 +40,8 @@ jobs:
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SinapsisMap_Windows
-          path: Output/SinapsisMap_Installer_Lite.exe
+          name: knoMap_Windows
+          path: Output/knoMap_Installer_Lite.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -68,35 +68,16 @@ jobs:
         working-directory: ./backend/src/LabSOM.Backend.Core
         run: dotnet publish -c Release -r linux-x64 --self-contained true -o ../../../publish_linux
 
-      - name: Package .deb
+      - name: Package Linux ZIP
         run: |
-          mkdir -p package/opt/SinapsisMap
-          mkdir -p package/DEBIAN
-          mkdir -p package/usr/share/applications
-
-          # Copiar binarios y Python engine
-          cp -r publish_linux/* package/opt/SinapsisMap/
-          cp -r engine package/opt/SinapsisMap/
-          
-          # Archivo de control de Debian
-          cat <<EOF > package/DEBIAN/control
-          Package: sinapsismap
-          Version: 1.0.0
-          Section: custom
-          Priority: optional
-          Architecture: amd64
-          Maintainer: LabSOM Team
-          Description: Sinapsis Map - Bibliometrics and SOM analysis tool.
-          EOF
-          
-          # Construir .deb
-          dpkg-deb --build package SinapsisMap_Linux.deb
+          mkdir -p Output
+          cd publish_linux && zip -r ../Output/knoMap_Linux.zip .
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SinapsisMap_Linux
-          path: SinapsisMap_Linux.deb
+          name: knoMap_Linux
+          path: Output/knoMap_Linux.zip
 
   build-mac:
     runs-on: macos-latest
@@ -123,27 +104,16 @@ jobs:
         working-directory: ./backend/src/LabSOM.Backend.Core
         run: dotnet publish -c Release -r osx-x64 --self-contained true -o ../../../publish_mac
 
-      - name: Create macOS App Bundle and DMG
+      - name: Create macOS Bundle & Zip
         run: |
-          mkdir -p "SinapsisMap.app/Contents/MacOS"
-          mkdir -p "SinapsisMap.app/Contents/Resources"
-          
-          # Copiar ejecutable principal
-          cp -r publish_mac/* "SinapsisMap.app/Contents/MacOS/"
-          # Copiar scripts de python
-          cp -r engine "SinapsisMap.app/Contents/MacOS/"
-          
-          # Copiar Info.plist
-          cp backend/src/LabSOM.Backend.Core/Info.plist "SinapsisMap.app/Contents/"
-          
-          # Crear DMG usando hdiutil
-          hdiutil create -volname "Sinapsis Map" -srcfolder "SinapsisMap.app" -ov -format UDZO SinapsisMap_Mac.dmg
+          mkdir -p Output
+          cd publish_mac && zip -r ../Output/knoMap_Mac_Silicon.zip .
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SinapsisMap_Mac
-          path: SinapsisMap_Mac.dmg
+          name: knoMap_Mac
+          path: Output/knoMap_Mac_Silicon.zip
 
   release:
     needs: [build-windows, build-linux, build-mac]
@@ -159,8 +129,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/SinapsisMap_Windows/SinapsisMap_Installer_Lite.exe
-            artifacts/SinapsisMap_Linux/SinapsisMap_Linux.deb
-            artifacts/SinapsisMap_Mac/SinapsisMap_Mac.dmg
+            artifacts/knoMap_Windows/knoMap_Installer_Lite.exe
+            artifacts/knoMap_Linux/knoMap_Linux.zip
+            artifacts/knoMap_Mac/knoMap_Mac_Silicon.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
