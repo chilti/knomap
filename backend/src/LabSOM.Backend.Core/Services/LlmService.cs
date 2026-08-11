@@ -28,16 +28,12 @@ namespace LabSOM.Backend.Core.Services
             var password = Environment.GetEnvironmentVariable("LLM_PASSWORD");
 
             // Authorization: Nginx basic auth
-            if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(password))
+            if (!string.IsNullOrEmpty(user) && !string.IsNullOrEmpty(password))
             {
-                // Fallback to the known working credentials from test.py for local development
-                user = "rag_user";
-                password = "plm+cuan-ruf*85735e4a.";
+                var credentials = $"{user}:{password}";
+                var encodedCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(credentials));
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", encodedCredentials);
             }
-
-            var credentials = $"{user}:{password}";
-            var encodedCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(credentials));
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", encodedCredentials);
         }
 
         public async Task<string> AnalyzeAsync(string systemPrompt, string userPrompt)

@@ -17,6 +17,19 @@ using System.Threading;
 // Ensure the working directory is the executable's directory (crucial for Start Menu shortcuts)
 Directory.SetCurrentDirectory(System.AppContext.BaseDirectory);
 
+// Load .env file manually for local development (dotnet run)
+string envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+if (!File.Exists(envPath)) envPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "..", ".env"); // Fallback for bin/Release/net8.0
+if (File.Exists(envPath))
+{
+    foreach (var line in File.ReadAllLines(envPath))
+    {
+        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+        var parts = line.Split('=', 2);
+        if (parts.Length == 2) Environment.SetEnvironmentVariable(parts[0].Trim(), parts[1].Trim());
+    }
+}
+
 bool isHeadless = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" || args.Contains("--headless");
 
 // Prevent multiple instances of the desktop GUI application
