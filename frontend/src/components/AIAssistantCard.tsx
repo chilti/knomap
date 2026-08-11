@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { useSomStore, getApiUrl } from '../store/somStore';
 
 interface AIAssistantCardProps {
