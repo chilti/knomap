@@ -73,9 +73,25 @@ def identify_file_type(filename):
 
 def clean_and_read_file(filepath):
     try:
-        if filepath.endswith('.csv'):
+        lower_path = filepath.lower()
+        if lower_path.endswith('.csv'):
+            # InCites CSVs often have 1 or 2 rows of metadata at the top (e.g., dataset update date).
+            # If pandas reads line 1 and it has 1 column, it will drop all actual data rows as 'bad lines'.
+            # We try reading normally, and if we end up with 1 column, we try skipping rows until we find the real header.
             df = pd.read_csv(filepath, on_bad_lines='skip')
-        elif filepath.endswith('.xlsx'):
+            
+            if len(df.columns) <= 2:
+                # Likely hit a metadata row. Try to find the real header row.
+                with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                    lines = [f.readline() for _ in range(5)]
+                
+                # Find the line with the most commas
+                comma_counts = [l.count(',') for l in lines]
+                header_idx = comma_counts.index(max(comma_counts))
+                
+                if header_idx > 0:
+                    df = pd.read_csv(filepath, skiprows=header_idx, on_bad_lines='skip')
+        elif lower_path.endswith('.xlsx') or lower_path.endswith('.xls') or lower_path.endswith('.xlsb'):
             df = pd.read_excel(filepath)
         else:
             return None
