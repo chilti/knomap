@@ -75,65 +75,98 @@ def clean_and_read_file(filepath):
     try:
         lower_path = filepath.lower()
         if lower_path.endswith('.csv'):
-            # Try different encodings. InCites often exports in utf-8, but sometimes windows-1252 or utf-16
-            encodings_to_try = ['utf-8-sig', 'utf-8', 'cp1252', 'utf-16']
-            df = None
-            for enc in encodings_to_try:
+            # Step 1: Find the real header row by reading raw text lines
+            # InCites CSVs often start with a metadata row like:
+            #   "InCites dataset updated Feb 2026."
+            # When pandas reads this, the whole file collapses into 1 column.
+            # The fix: scan the first 15 lines as text, find the line with
+            # the most field separators, and use skiprows to skip past it.
+            encoding_used = 'utf-8-sig'
+            header_idx = 0
+
+            for enc in ['utf-8-sig', 'utf-8', 'cp1252', 'latin-1']:
                 try:
-                    df = pd.read_csv(filepath, encoding=enc, on_bad_lines='skip')
+                    with open(filepath, 'r', encoding=enc, errors='replace') as f:
+                        sample_lines = [f.readline() for _ in range(15)]
+                    encoding_used = enc
                     break
-                except UnicodeDecodeError:
+                except Exception:
                     continue
-            if df is None:
-                # Fallback to ignoring errors
-                df = pd.read_csv(filepath, encoding='utf-8', encoding_errors='replace', on_bad_lines='skip')
+
+            # Count commas (CSV) or tabs per line
+            sep_counts = [max(line.count(','), line.count('\t')) for line in sample_lines]
+            max_seps = max(sep_counts) if sep_counts else 0
+            if max_seps > 1:
+                # Use the FIRST line that has the maximum separator count as header
+                header_idx = next(i for i, c in enumerate(sep_counts) if c == max_seps)
+
+            sep = '\t' if sample_lines[header_idx].count('\t') > sample_lines[header_idx].count(',') else ','
+
+            try:
+                df = pd.read_csv(filepath, skiprows=header_idx, encoding=encoding_used,
+                                 sep=sep, on_bad_lines='skip')
+            except Exception:
+                # Fallback: try all encodings without skiprows
+                df = None
+                for enc in ['utf-8-sig', 'utf-8', 'cp1252', 'latin-1']:
+                    try:
+                        df = pd.read_csv(filepath, encoding=enc, on_bad_lines='skip')
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                if df is None:
+                    df = pd.read_csv(filepath, encoding='utf-8', encoding_errors='replace',
+                                     on_bad_lines='skip')
+
         elif lower_path.endswith('.xlsx') or lower_path.endswith('.xls') or lower_path.endswith('.xlsb'):
-            df = pd.read_excel(filepath)
+            # Read Excel without header first to scan for the real header row
+            df_raw = pd.read_excel(filepath, header=None)
+            if df_raw is None or df_raw.empty:
+                return None
+
+            # Find the row with the most non-null values (that's the real header)
+            header_idx = 0
+            max_valid = 0
+            for i in range(min(10, len(df_raw))):
+                valid_count = df_raw.iloc[i].dropna().count()
+                if valid_count > max_valid:
+                    max_valid = valid_count
+                    header_idx = i
+
+            df = pd.read_excel(filepath, skiprows=header_idx)
         else:
             return None
 
         if df is None or df.empty:
             return df
-            
-        # Check if the current columns are actually metadata (e.g., 'InCites dataset updated...')
-        # or if they are 'Unnamed' which happens when reading Excel with a metadata title.
-        first_col_name = str(df.columns[0]).lower()
-        
-        if "incites dataset" in first_col_name or "unnamed" in first_col_name or len(df.columns) <= 2:
-            # The real header is likely in the first few rows.
-            # Search for the row that has the most non-null values.
-            best_row_idx = 0
-            max_valid = 0
-            for i in range(min(10, len(df))):
-                valid_count = df.iloc[i].dropna().astype(str).str.strip().replace('', pd.NA).dropna().count()
-                if valid_count > max_valid:
-                    max_valid = valid_count
-                    best_row_idx = i
-                    
-            if max_valid > 2: # Found a row that looks like a header
-                new_header = df.iloc[best_row_idx]
-                df = df.iloc[best_row_idx + 1:].copy()
-                df.columns = new_header
-                df.reset_index(drop=True, inplace=True)
 
         df = df.dropna(how='all', axis=1)
         df = df.dropna(how='all', axis=0)
-        
-        # After setting the correct header, numeric columns might still be 'object' type.
-        # We must convert them to numeric so that select_dtypes([np.number]) works.
+
+        # Rename any remaining "Unnamed" column to remove confusion
+        df.columns = [
+            c if not str(c).startswith('Unnamed') else df.columns[idx]
+            for idx, c in enumerate(df.columns)
+        ]
+
+        # Convert numeric-looking string columns to actual numeric types
         for col in df.columns:
-            if df[col].dtype == 'object':
-                try:
-                    # pd.to_numeric handles conversion; if it fails (e.g., entity name), it throws an error.
-                    # We catch it and leave the column as string.
-                    df[col] = pd.to_numeric(df[col])
-                except:
-                    pass
+            if df[col].dtype == object:
+                converted = pd.to_numeric(
+                    df[col].astype(str).str.replace(',', '').str.replace('%', '').str.strip(),
+                    errors='coerce'
+                )
+                # Only replace if the conversion didn't make everything NaN
+                non_null_original = df[col].dropna().shape[0]
+                non_null_converted = converted.dropna().shape[0]
+                if non_null_converted > 0 and non_null_converted >= non_null_original * 0.5:
+                    df[col] = converted
 
         return df
     except Exception as e:
-        print(f"Error loading {filepath}: {e}")
+        print(f"Error loading {filepath}: {e}", flush=True)
     return None
+
 
 
 def calculate_ecma(series, window=3):
