@@ -1,5 +1,6 @@
 numpy>=1.22.0
 pandas>=1.4.0
+openpyxl>=3.0.0
 scipy>=1.8.0
 scikit-learn>=1.0.0
 scikit-dimension>=0.3.3
