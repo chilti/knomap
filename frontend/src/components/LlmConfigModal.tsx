@@ -20,12 +20,12 @@ const PRESETS: Preset[] = [
   {
     id: 'unam',
     name: 'UNAM LDNL Server (Default)',
-    desc: 'Preconfigured local academic server (no API key required)',
+    desc: 'UNAM LDNL academic server (API key required)',
     icon: <Server className="w-4 h-4 text-indigo-400" />,
     baseUrl: 'https://dinamica1.fciencias.unam.mx/v1/',
     model: 'openai/gpt-oss-20b',
-    requiresKey: false,
-    keyPlaceholder: 'No API key needed for default server'
+    requiresKey: true,
+    keyPlaceholder: 'Enter your API key'
   },
   {
     id: 'openai-mini',

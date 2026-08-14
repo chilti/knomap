@@ -220,7 +220,7 @@ def handle_embed(params):
             # Call OpenAI compatible API (e.g. dinamica1 / LM Studio)
             # Get credentials from env
             base_url = os.getenv("LLM_BASE_URL", "https://dinamica1.fciencias.unam.mx/v1/")
-            api_key = os.getenv("LLM_API_KEY", "lm-studio")
+            api_key = os.getenv("LLM_API_KEY", "")
             emb_model = os.getenv("EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v1.5")
             
             # Map legacy or shortcut model name to active server model name if needed
