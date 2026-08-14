@@ -69,10 +69,20 @@ namespace LabSOM.Backend.Core.Services
             return (baseUrl, model, apiKey);
         }
 
-        public async Task<string> AnalyzeAsync(string systemPrompt, string userPrompt, List<LlmChatMessage>? history = null)
+        public async Task<string> AnalyzeAsync(
+            string systemPrompt, 
+            string userPrompt, 
+            List<LlmChatMessage>? history = null,
+            string? customApiKey = null,
+            string? customBaseUrl = null,
+            string? customModel = null)
         {
             var config = GetConfig();
-            var url = config.baseUrl.TrimEnd('/') + "/chat/completions";
+            var baseUrl = !string.IsNullOrWhiteSpace(customBaseUrl) ? customBaseUrl.Trim() : config.baseUrl;
+            var model = !string.IsNullOrWhiteSpace(customModel) ? customModel.Trim() : config.model;
+            var apiKey = !string.IsNullOrWhiteSpace(customApiKey) ? customApiKey.Trim() : config.apiKey;
+
+            var url = baseUrl.TrimEnd('/') + "/chat/completions";
 
             var messages = new List<object>();
 
@@ -99,7 +109,7 @@ namespace LabSOM.Backend.Core.Services
 
             var payload = new
             {
-                model = config.model,
+                model = model,
                 messages,
                 temperature = 0.2
             };
@@ -108,9 +118,9 @@ namespace LabSOM.Backend.Core.Services
             using var request = new HttpRequestMessage(HttpMethod.Post, url);
             request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-            if (!string.IsNullOrEmpty(config.apiKey))
+            if (!string.IsNullOrEmpty(apiKey))
             {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.apiKey);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             }
 
             var response = await _httpClient.SendAsync(request);
@@ -118,7 +128,7 @@ namespace LabSOM.Backend.Core.Services
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                throw new Exception($"LLM Request Failed ({response.StatusCode}) [Model: {config.model}]: {error}");
+                throw new Exception($"LLM Request Failed ({response.StatusCode}) [Model: {model}]: {error}");
             }
 
             var responseJson = await response.Content.ReadAsStringAsync();
@@ -134,6 +144,67 @@ namespace LabSOM.Backend.Core.Services
             }
 
             return "Error: Could not parse response from LLM.";
+        }
+
+        public async Task<(bool success, string message, string model)> TestConnectionAsync(
+            string? customApiKey = null,
+            string? customBaseUrl = null,
+            string? customModel = null)
+        {
+            var config = GetConfig();
+            var baseUrl = !string.IsNullOrWhiteSpace(customBaseUrl) ? customBaseUrl.Trim() : config.baseUrl;
+            var model = !string.IsNullOrWhiteSpace(customModel) ? customModel.Trim() : config.model;
+            var apiKey = !string.IsNullOrWhiteSpace(customApiKey) ? customApiKey.Trim() : config.apiKey;
+
+            var url = baseUrl.TrimEnd('/') + "/chat/completions";
+
+            var messages = new List<object>
+            {
+                new { role = "user", content = "Respond with 'OK' only." }
+            };
+
+            var payload = new
+            {
+                model = model,
+                messages,
+                max_tokens = 10,
+                temperature = 0.0
+            };
+
+            var jsonPayload = JsonSerializer.Serialize(payload);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+            if (!string.IsNullOrEmpty(apiKey))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            }
+
+            try
+            {
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(12));
+                var response = await _httpClient.SendAsync(request, cts.Token);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    return (false, $"HTTP {(int)response.StatusCode}: {error}", model);
+                }
+
+                var responseJson = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(responseJson);
+                
+                if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+                {
+                    return (true, "Connection successful! Model responded correctly.", model);
+                }
+
+                return (false, "Response received but format was unexpected.", model);
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Connection error: {ex.Message}", model);
+            }
         }
     }
 }

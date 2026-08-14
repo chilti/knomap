@@ -2,15 +2,18 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAiStore, type ReportEntry } from '../store/aiStore';
 import { InteractiveChartViewer } from './InteractiveChartViewer';
 import { StudyContextModal } from './StudyContextModal';
+import { LlmConfigModal } from './LlmConfigModal';
 import {
   Sparkles, Bot, Send, Trash2, RefreshCw, FileText, Download,
   PlusCircle, BookOpen, HelpCircle, Check, AlertCircle, Loader2,
-  ArrowUp, ArrowDown, ChevronDown, ChevronUp, Code2, Copy
+  ArrowUp, ArrowDown, ChevronDown, ChevronUp, Code2, Copy, Key
 } from 'lucide-react';
 
 export const AiAssistantTab: React.FC = () => {
   const {
     studyContext,
+    llmConfig,
+    openLlmConfigModal,
     entries,
     activeEntryId,
     setActiveEntryId,
@@ -123,8 +126,24 @@ export const AiAssistantTab: React.FC = () => {
           </div>
         </div>
 
-        {/* Study Context Badge & Export Controls */}
+        {/* Study Context Badge, LLM Config & Export Controls */}
         <div className="flex items-center flex-wrap gap-2">
+          {/* LLM Model & API Key Settings */}
+          <button
+            onClick={openLlmConfigModal}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+              llmConfig.isCustom
+                ? 'bg-amber-950/50 border-amber-500/60 text-amber-300 hover:bg-amber-900/60 shadow-sm shadow-amber-950/50'
+                : 'bg-gray-800 hover:bg-gray-700 border-gray-700 text-gray-300 hover:text-white'
+            }`}
+            title="Configure OpenAI API Key, Model or Local Server"
+          >
+            <Key className={`w-3.5 h-3.5 ${llmConfig.isCustom ? 'text-amber-400' : 'text-gray-400'}`} />
+            <span className="max-w-[130px] truncate">
+              {llmConfig.isCustom ? (llmConfig.model || 'Custom Model') : 'API & Model'}
+            </span>
+          </button>
+
           {studyContext && studyContext.description.trim() ? (
             <button
               onClick={openContextModal}
@@ -565,6 +584,9 @@ export const AiAssistantTab: React.FC = () => {
 
       {/* Study Context Modal */}
       <StudyContextModal />
+
+      {/* LLM Configuration Modal */}
+      <LlmConfigModal />
     </div>
   );
 };

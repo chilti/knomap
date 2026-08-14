@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useSomStore, getApiUrl } from '../store/somStore';
+import { useAiStore } from '../store/aiStore';
 
 interface AIAssistantCardProps {
     systemPrompt: string;
@@ -22,11 +23,20 @@ export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, 
         try {
             // Compress context data to avoid huge payloads
             const dataString = typeof contextData === 'string' ? contextData : JSON.stringify(contextData, null, 2);
-            
-            const reqBody = {
+            const llmConfig = useAiStore.getState().llmConfig;
+
+            const reqBody: any = {
                 systemPrompt: systemPrompt,
                 userPrompt: `Data context:\n\`\`\`json\n${dataString}\n\`\`\`\n\nWrite a rigorous two to three paragraph scientific analysis in peer-reviewed journal style (Results and Discussion section) examining the figure and structured data above.`
             };
+
+            if (llmConfig) {
+                if (llmConfig.apiKey) reqBody.apiKey = llmConfig.apiKey;
+                if (llmConfig.isCustom) {
+                    if (llmConfig.baseUrl) reqBody.baseUrl = llmConfig.baseUrl;
+                    if (llmConfig.model) reqBody.model = llmConfig.model;
+                }
+            }
 
             const res = await fetch(getApiUrl('/api/llm/analyze'), {
                 method: 'POST',

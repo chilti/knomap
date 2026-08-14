@@ -12,7 +12,8 @@ import { LoginScreen } from './components/LoginScreen';
 import { LoginModal } from './components/LoginModal';
 import { UserManagementModal } from './components/UserManagementModal';
 import { ProjectsDrawer } from './components/ProjectsDrawer';
-import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield, Bot } from 'lucide-react';
+import { LlmConfigModal } from './components/LlmConfigModal';
+import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield, Bot, Key } from 'lucide-react';
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
 
@@ -31,6 +32,7 @@ export default function App() {
     clearProject
   } = useSomStore();
 
+  const { llmConfig, openLlmConfigModal } = useAiStore();
   const { isWebMode, isAuthenticated, user, checkAuth, saveCloudProject, logout, isLoading: isAuthLoading } = useAuthStore();
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -463,6 +465,21 @@ export default function App() {
                       </span>
                     </div>
                   )}
+
+                  {/* AI API & Model Configuration */}
+                  <button
+                    onClick={openLlmConfigModal}
+                    className="mt-2 pt-2 border-t border-gray-800/60 flex items-center justify-between text-[10px] text-gray-400 hover:text-amber-300 transition w-full text-left cursor-pointer group"
+                    title="Configure OpenAI API Key & Model"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Key className="w-3 h-3 text-amber-400 group-hover:rotate-12 transition-transform" />
+                      <span>AI Model:</span>
+                    </span>
+                    <span className="font-mono text-[9px] truncate max-w-[110px] text-gray-300 group-hover:text-amber-200">
+                      {llmConfig?.isCustom ? (llmConfig.model || 'Custom') : 'Default (UNAM)'}
+                    </span>
+                  </button>
                 </>
               )}
             </div>
@@ -897,6 +914,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Global LLM API & Model Configuration Modal */}
+      <LlmConfigModal />
     </>
   );
 }

@@ -604,6 +604,14 @@ app.MapPost("/api/llm/analyze", async (HttpContext ctx, LlmService llmSvc) =>
         
         string systemPrompt = doc.RootElement.TryGetProperty("systemPrompt", out var spProp) ? spProp.GetString() ?? "" : "";
         string userPrompt = doc.RootElement.TryGetProperty("userPrompt", out var upProp) ? upProp.GetString() ?? "" : "";
+        string? apiKey = doc.RootElement.TryGetProperty("apiKey", out var keyProp) ? keyProp.GetString() : null;
+        string? baseUrl = doc.RootElement.TryGetProperty("baseUrl", out var urlProp) ? urlProp.GetString() : null;
+        string? model = doc.RootElement.TryGetProperty("model", out var mProp) ? mProp.GetString() : null;
+
+        // Also check custom headers if passed
+        if (string.IsNullOrEmpty(apiKey) && ctx.Request.Headers.TryGetValue("X-LLM-API-KEY", out var hKey)) apiKey = hKey.ToString();
+        if (string.IsNullOrEmpty(baseUrl) && ctx.Request.Headers.TryGetValue("X-LLM-BASE-URL", out var hUrl)) baseUrl = hUrl.ToString();
+        if (string.IsNullOrEmpty(model) && ctx.Request.Headers.TryGetValue("X-LLM-MODEL", out var hModel)) model = hModel.ToString();
 
         List<LlmChatMessage>? history = null;
         if (doc.RootElement.TryGetProperty("history", out var histProp) && histProp.ValueKind == JsonValueKind.Array)
@@ -620,12 +628,37 @@ app.MapPost("/api/llm/analyze", async (HttpContext ctx, LlmService llmSvc) =>
             }
         }
 
-        var response = await llmSvc.AnalyzeAsync(systemPrompt, userPrompt, history);
+        var response = await llmSvc.AnalyzeAsync(systemPrompt, userPrompt, history, apiKey, baseUrl, model);
         return Results.Ok(new { success = true, response });
     }
     catch (Exception ex)
     {
         return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+});
+
+// LLM Test Connection Endpoint
+app.MapPost("/api/llm/test", async (HttpContext ctx, LlmService llmSvc) =>
+{
+    try
+    {
+        using var reader = new StreamReader(ctx.Request.Body);
+        var body = await reader.ReadToEndAsync();
+        string? apiKey = null, baseUrl = null, model = null;
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            using var doc = JsonDocument.Parse(body);
+            apiKey = doc.RootElement.TryGetProperty("apiKey", out var k) ? k.GetString() : null;
+            baseUrl = doc.RootElement.TryGetProperty("baseUrl", out var u) ? u.GetString() : null;
+            model = doc.RootElement.TryGetProperty("model", out var m) ? m.GetString() : null;
+        }
+
+        var result = await llmSvc.TestConnectionAsync(apiKey, baseUrl, model);
+        return Results.Ok(new { success = result.success, message = result.message, model = result.model });
+    }
+    catch (Exception ex)
+    {
+        return Results.Ok(new { success = false, message = ex.Message });
     }
 });
 

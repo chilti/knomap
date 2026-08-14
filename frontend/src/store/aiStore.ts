@@ -2,6 +2,40 @@ import { create } from 'zustand';
 import { getApiUrl } from './somStore';
 import { jsPDF } from 'jspdf';
 
+export interface LlmConfig {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  isCustom: boolean;
+}
+
+export const DEFAULT_LLM_CONFIG: LlmConfig = {
+  apiKey: '',
+  baseUrl: 'https://dinamica1.fciencias.unam.mx/v1/',
+  model: 'openai/gpt-oss-20b',
+  isCustom: false
+};
+
+const LLM_CONFIG_STORAGE_KEY = 'knomap_llm_config';
+
+const loadSavedLlmConfig = (): LlmConfig => {
+  try {
+    const raw = localStorage.getItem(LLM_CONFIG_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        apiKey: parsed.apiKey || '',
+        baseUrl: parsed.baseUrl || DEFAULT_LLM_CONFIG.baseUrl,
+        model: parsed.model || DEFAULT_LLM_CONFIG.model,
+        isCustom: !!parsed.isCustom
+      };
+    }
+  } catch (e) {
+    console.error('Failed to load LLM config from localStorage', e);
+  }
+  return { ...DEFAULT_LLM_CONFIG };
+};
+
 export interface StudyContext {
   title: string;
   description: string;
@@ -52,6 +86,8 @@ export interface ReportEntry {
 interface AiState {
   studyContext: StudyContext | null;
   isContextModalOpen: boolean;
+  llmConfig: LlmConfig;
+  isLlmConfigModalOpen: boolean;
   entries: ReportEntry[];
   activeEntryId: string | null;
   currentProjectId: string;
@@ -60,6 +96,11 @@ interface AiState {
   setStudyContext: (description: string, title?: string) => void;
   openContextModal: () => void;
   closeContextModal: () => void;
+  setLlmConfig: (config: Partial<LlmConfig>) => void;
+  resetLlmConfig: () => void;
+  openLlmConfigModal: () => void;
+  closeLlmConfigModal: () => void;
+  testLlmConnection: (customConfig?: Partial<LlmConfig>) => Promise<{ success: boolean; message: string; model?: string }>;
   addReportEntry: (params: {
     title: string;
     badge?: string;
@@ -112,9 +153,71 @@ EDITORIAL AND STYLISTIC DIRECTIVES (MANDATORY):
 export const useAiStore = create<AiState>((set, get) => ({
   studyContext: null,
   isContextModalOpen: false,
+  llmConfig: loadSavedLlmConfig(),
+  isLlmConfigModalOpen: false,
   entries: [],
   activeEntryId: null,
   currentProjectId: 'default',
+
+  setLlmConfig: (partial) => {
+    const updated: LlmConfig = {
+      ...get().llmConfig,
+      ...partial,
+      isCustom: partial.isCustom !== undefined ? partial.isCustom : (
+        !!partial.apiKey || 
+        (partial.baseUrl !== undefined && partial.baseUrl !== DEFAULT_LLM_CONFIG.baseUrl) ||
+        (partial.model !== undefined && partial.model !== DEFAULT_LLM_CONFIG.model)
+      )
+    };
+    set({ llmConfig: updated });
+    try {
+      localStorage.setItem(LLM_CONFIG_STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to persist llmConfig to localStorage', e);
+    }
+  },
+
+  resetLlmConfig: () => {
+    const def = { ...DEFAULT_LLM_CONFIG };
+    set({ llmConfig: def });
+    try {
+      localStorage.setItem(LLM_CONFIG_STORAGE_KEY, JSON.stringify(def));
+    } catch (e) {
+      console.error('Failed to reset llmConfig in localStorage', e);
+    }
+  },
+
+  openLlmConfigModal: () => set({ isLlmConfigModalOpen: true }),
+  closeLlmConfigModal: () => set({ isLlmConfigModalOpen: false }),
+
+  testLlmConnection: async (customConfig) => {
+    const configToTest = {
+      ...get().llmConfig,
+      ...customConfig
+    };
+    try {
+      const res = await fetch(getApiUrl('/api/llm/test'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: configToTest.apiKey,
+          baseUrl: configToTest.baseUrl,
+          model: configToTest.model
+        })
+      });
+      const data = await res.json();
+      return {
+        success: !!data.success,
+        message: data.message || (data.success ? 'Connection successful!' : 'Connection failed'),
+        model: data.model || configToTest.model
+      };
+    } catch (e: any) {
+      return {
+        success: false,
+        message: e.message || 'Network error connecting to backend API.'
+      };
+    }
+  },
 
   setStudyContext: (description: string, title: string = 'Research Study') => {
     const updated: StudyContext = {
@@ -292,19 +395,29 @@ export const useAiStore = create<AiState>((set, get) => ({
         fullUserPrompt = text;
       }
 
+      const reqPayload: any = {
+        systemPrompt: fullSystemPrompt,
+        userPrompt: fullUserPrompt,
+        history: existingHistory
+      };
+
+      if (state.llmConfig) {
+        if (state.llmConfig.apiKey) reqPayload.apiKey = state.llmConfig.apiKey;
+        if (state.llmConfig.isCustom) {
+          if (state.llmConfig.baseUrl) reqPayload.baseUrl = state.llmConfig.baseUrl;
+          if (state.llmConfig.model) reqPayload.model = state.llmConfig.model;
+        }
+      }
+
       const res = await fetch(getApiUrl('/api/llm/analyze'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemPrompt: fullSystemPrompt,
-          userPrompt: fullUserPrompt,
-          history: existingHistory
-        })
+        body: JSON.stringify(reqPayload)
       });
 
       const data = await res.json();
       if (!data.success) {
-        throw new Error(data.error || 'Error calling local model.');
+        throw new Error(data.error || 'Error calling AI model.');
       }
 
       const assistantMessage: AiMessage = {
