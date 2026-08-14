@@ -512,17 +512,36 @@ app.MapGet("/api/projects", async (HttpContext ctx, ProjectService projSvc) =>
 app.MapPost("/api/projects", async (HttpContext ctx, ProjectService projSvc) =>
 {
     int userId = GetUserId(ctx);
+
+    // 1. Client-side compressed GZIP multipart upload (Ultra-fast)
+    if (ctx.Request.HasFormContentType)
+    {
+        var form = await ctx.Request.ReadFormAsync();
+        string? projectId = form["id"].FirstOrDefault();
+        string title = form["title"].FirstOrDefault() ?? "Untitled Project";
+        string? description = form["description"].FirstOrDefault();
+        var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+
+        if (file != null)
+        {
+            using var fileStream = file.OpenReadStream();
+            var project = await projSvc.SaveProjectCompressedStreamAsync(userId, projectId, title, description, fileStream);
+            return Results.Ok(new { success = true, project = new { id = project.Id, title = project.Title } });
+        }
+    }
+
+    // 2. Fallback for uncompressed JSON payload (Backwards compatibility)
     using var reader = new StreamReader(ctx.Request.Body);
     var body = await reader.ReadToEndAsync();
     var doc = System.Text.Json.JsonDocument.Parse(body);
     
-    string? projectId = doc.RootElement.TryGetProperty("id", out var idP) ? idP.GetString() : null;
-    string title = doc.RootElement.GetProperty("title").GetString() ?? "Untitled Project";
-    string? description = doc.RootElement.TryGetProperty("description", out var dP) ? dP.GetString() : null;
+    string? projId = doc.RootElement.TryGetProperty("id", out var idP) ? idP.GetString() : null;
+    string projTitle = doc.RootElement.GetProperty("title").GetString() ?? "Untitled Project";
+    string? projDesc = doc.RootElement.TryGetProperty("description", out var dP) ? dP.GetString() : null;
     string payloadJson = doc.RootElement.GetProperty("payload").GetRawText();
 
-    var project = await projSvc.SaveProjectAsync(userId, projectId, title, description, payloadJson);
-    return Results.Ok(new { success = true, project = new { id = project.Id, title = project.Title } });
+    var savedProject = await projSvc.SaveProjectAsync(userId, projId, projTitle, projDesc, payloadJson);
+    return Results.Ok(new { success = true, project = new { id = savedProject.Id, title = savedProject.Title } });
 }).RequireAuthorization();
 
 app.MapGet("/api/projects/{id}", async (string id, HttpContext ctx, ProjectService projSvc) =>
@@ -574,7 +593,7 @@ app.MapPost("/api/projects/{id}/share", async (string id, HttpContext ctx, Proje
     }
 }).RequireAuthorization();
 
-// Health check// LLM Analysis Endpoint
+// LLM Analysis Endpoint
 app.MapPost("/api/llm/analyze", async (HttpContext ctx, LlmService llmSvc) =>
 {
     try
@@ -583,10 +602,25 @@ app.MapPost("/api/llm/analyze", async (HttpContext ctx, LlmService llmSvc) =>
         var body = await reader.ReadToEndAsync();
         using var doc = JsonDocument.Parse(body);
         
-        string systemPrompt = doc.RootElement.GetProperty("systemPrompt").GetString() ?? "";
-        string userPrompt = doc.RootElement.GetProperty("userPrompt").GetString() ?? "";
+        string systemPrompt = doc.RootElement.TryGetProperty("systemPrompt", out var spProp) ? spProp.GetString() ?? "" : "";
+        string userPrompt = doc.RootElement.TryGetProperty("userPrompt", out var upProp) ? upProp.GetString() ?? "" : "";
 
-        var response = await llmSvc.AnalyzeAsync(systemPrompt, userPrompt);
+        List<LlmChatMessage>? history = null;
+        if (doc.RootElement.TryGetProperty("history", out var histProp) && histProp.ValueKind == JsonValueKind.Array)
+        {
+            history = new List<LlmChatMessage>();
+            foreach (var item in histProp.EnumerateArray())
+            {
+                var role = item.TryGetProperty("role", out var rProp) ? rProp.GetString() ?? "user" : "user";
+                var content = item.TryGetProperty("content", out var cProp) ? cProp.GetString() ?? "" : "";
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    history.Add(new LlmChatMessage { Role = role, Content = content });
+                }
+            }
+        }
+
+        var response = await llmSvc.AnalyzeAsync(systemPrompt, userPrompt, history);
         return Results.Ok(new { success = true, response });
     }
     catch (Exception ex)

@@ -217,30 +217,22 @@ def handle_embed(params):
     
     try:
         if model_name == "nomic":
-            # Call LM Studio / OpenAI compatible API
+            # Call OpenAI compatible API (e.g. dinamica1 / LM Studio)
             # Get credentials from env
-            base_url = os.getenv("LLM_BASE_URL", "http://localhost:1234/v1/")
-            user = os.getenv("LLM_USER")
-            password = os.getenv("LLM_PASSWORD")
+            base_url = os.getenv("LLM_BASE_URL", "https://dinamica1.fciencias.unam.mx/v1/")
             api_key = os.getenv("LLM_API_KEY", "lm-studio")
-            emb_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+            emb_model = os.getenv("EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v1.5")
             
-            # Format base_url with basic auth if credentials exist
-            if user and password:
-                if "://" in base_url:
-                    proto, rest = base_url.split("://", 1)
-                    auth_url = f"{proto}://{user}:{password}@{rest}"
-                else:
-                    auth_url = f"http://{user}:{password}@{base_url}"
-            else:
-                auth_url = base_url
-                
+            # Map legacy or shortcut model name to active server model name if needed
+            if emb_model in ["nomic", "nomic-embed-text"]:
+                emb_model = "text-embedding-nomic-embed-text-v1.5"
+
             from openai import OpenAI
             import httpx
             
-            # Custom client that bypasses SSL verification
+            # Standard OpenAI client with Bearer token authorization and SSL verify bypass for internal domain
             client = OpenAI(
-                base_url=auth_url,
+                base_url=base_url,
                 api_key=api_key,
                 http_client=httpx.Client(verify=False, timeout=120.0)
             )
@@ -521,27 +513,27 @@ def handle_cluster(params):
                         kw_str = ", ".join(keywords)
                         bullets = "\n".join(f"- {t}" for t in closest_titles)
                         
-                        prompt = f"""Analiza los siguientes títulos de artículos científicos que pertenecen a un SUB-GRUPO dentro del tema general: "{parent_label}".
-Genera una etiqueta específica y descriptiva para este sub-grupo que lo diferencie claramente del tema general.
+                        prompt = f"""Analyze the following scientific paper titles that belong to a SUB-GROUP within the general topic: "{parent_label}".
+Generate a specific, descriptive, and concise label for this sub-group in English that distinguishes it clearly from the parent topic.
 
-Reglas obligatorias:
-1. La etiqueta debe describir el ángulo ESPECÍFICO de este sub-grupo.
-2. Debe ser muy corta: entre 2 y 4 palabras.
-3. Debe estar en ESPAÑOL.
-4. Responde ÚNICAMENTE con la etiqueta, sin explicaciones, sin comillas, sin introducciones.
+Mandatory rules:
+1. The label must describe the SPECIFIC focus or domain of this sub-group.
+2. It must be very short: 2 to 4 words maximum.
+3. Must be in ENGLISH.
+4. Respond ONLY with the label, without explanations, quotes, or conversational filler.
 
-Palabras clave del sub-grupo (TF-IDF):
+Sub-group Keywords (TF-IDF):
 {kw_str}
 
-Títulos representativos del sub-grupo:
+Representative Titles:
 {bullets}
 
-Etiqueta específica del sub-grupo:"""
+Specific Sub-group Label:"""
                         
                         response = client.chat.completions.create(
                             model=model_name,
                             messages=[
-                                {"role": "system", "content": "Eres un experto en clasificar literatura científica. Generas etiquetas temáticas muy cortas en español."},
+                                {"role": "system", "content": "You are an expert scientific taxonomist and scientometrician. You generate concise 2-4 word academic topic labels in English."},
                                 {"role": "user", "content": prompt}
                             ],
                             temperature=0.1,
@@ -554,7 +546,7 @@ Etiqueta específica del sub-grupo:"""
                         
                 if not label:
                     # Fallback to top keywords
-                    label = " / ".join(keywords[:2]) if keywords else f"Sub-tema {c_idx+1}"
+                    label = " / ".join(keywords[:2]) if keywords else f"Subtopic {c_idx+1}"
                     
                 # Calculate sub-cluster median coordinates
                 cx = float(np.median(X_2d[sub_indices, 0]))
@@ -576,7 +568,7 @@ Etiqueta específica del sub-grupo:"""
             
         # Compile Level 1 clusters
         clusters_res = []
-        cluster_assignment = ["Ruido"] * len(records)
+        cluster_assignment = ["Noise"] * len(records)
         
         for c in unique_labels:
             indices = [i for i, lbl in enumerate(level1_labels) if lbl == c]
@@ -604,33 +596,33 @@ Etiqueta específica del sub-grupo:"""
             
             label = None
             if c == -1:
-                label = "Ruido"
+                label = "Noise"
             elif client is not None and len(closest_titles) > 0:
                 try:
                     kw_str = ", ".join(keywords)
                     bullets = "\n".join(f"- {t}" for t in closest_titles)
                     
-                    prompt = f"""Analiza los siguientes títulos de artículos de investigación y palabras clave que pertenecen al mismo grupo temático (clúster).
-Genera un título o etiqueta sumamente descriptivo, corto y conciso para este grupo.
+                    prompt = f"""Analyze the following research paper titles and keywords belonging to the same thematic cluster.
+Generate an academic, concise, and descriptive topic label for this cluster in English.
 
-Reglas obligatorias:
-1. La etiqueta debe resumir el área temática común de forma clara.
-2. Debe ser muy corta (máximo de 2 a 4 palabras).
-3. Debe estar en ESPAÑOL.
-4. Responde ÚNICAMENTE con la etiqueta generada, sin explicaciones, sin comillas, sin introducciones.
+Mandatory rules:
+1. The label must clearly summarize the common thematic area.
+2. It must be very short: 2 to 4 words maximum.
+3. Must be in ENGLISH.
+4. Respond ONLY with the generated label, without explanations, quotes, or conversational filler.
 
-Palabras clave (TF-IDF):
+Keywords (TF-IDF):
 {kw_str}
 
-Títulos representativos:
+Representative Titles:
 {bullets}
 
-Etiqueta del grupo:"""
+Cluster Label:"""
                     
                     response = client.chat.completions.create(
                         model=model_name,
                         messages=[
-                            {"role": "system", "content": "Eres un experto en clasificar literatura científica. Generas etiquetas temáticas muy cortas en español."},
+                            {"role": "system", "content": "You are an expert scientific taxonomist and scientometrician. You generate concise 2-4 word academic topic labels in English."},
                             {"role": "user", "content": prompt}
                         ],
                         temperature=0.1,
@@ -642,7 +634,7 @@ Etiqueta del grupo:"""
                     print(f"LLM L1 Cluster failed: {ex}")
                     
             if not label:
-                label = " / ".join(keywords[:2]) if keywords else f"Tema {c}"
+                label = " / ".join(keywords[:2]) if keywords else f"Topic {c}"
                 
             # Record cluster assignment
             for idx in indices:

@@ -10,6 +10,7 @@ import {
 import chroma from 'chroma-js';
 import SunburstChart from './SunburstChart';
 import { AIAssistantCard } from './AIAssistantCard';
+import { SendToAssistantButton } from './SendToAssistantButton';
 
 // ── Export Chart Helpers (SVG & PNG) ──────────────────────────────────────
 const exportChartAsSVG = (containerId: string, filename: string) => {
@@ -89,9 +90,29 @@ const exportChartAsPNG = (containerId: string, filename: string) => {
     img.src = url;
 };
 
-const ExportButtons: React.FC<{ containerId: string; filename: string }> = ({ containerId, filename }) => {
+const ExportButtons: React.FC<{ 
+    containerId: string; 
+    filename: string;
+    chartTitle?: string;
+    chartType?: 'bubble' | 'trend' | 'bar' | 'radar' | 'scatter' | 'network' | 'table' | 'custom';
+    chartData?: any;
+    dataPrompt?: string;
+}> = ({ containerId, filename, chartTitle, chartType = 'trend', chartData, dataPrompt }) => {
+    const formattedTitle = chartTitle || filename.replace(/_/g, ' ').toUpperCase();
+    const promptText = dataPrompt || (chartData ? `Datos de la visualización ${formattedTitle}:\n\`\`\`json\n${typeof chartData === 'string' ? chartData : JSON.stringify(chartData, null, 2).slice(0, 3500)}\n\`\`\`` : `Gráfica generada en InCites Explorer: ${formattedTitle}`);
+
     return (
-        <div className="flex items-center space-x-1 shrink-0">
+        <div className="flex items-center space-x-1.5 shrink-0">
+            <SendToAssistantButton
+                title={formattedTitle}
+                badge="INCITES"
+                viewSource="incites"
+                chartType={chartType}
+                targetElementId={containerId}
+                data={chartData || []}
+                dataContextPrompt={promptText}
+                buttonText="AI Assistant"
+            />
             <button
                 onClick={() => exportChartAsSVG(containerId, filename)}
                 className="px-2 py-1 text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 flex items-center space-x-1 transition-all shadow-sm"
@@ -1293,7 +1314,21 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                         </div>
                                         
                                         <div className="flex items-center space-x-3">
-                                            <ExportButtons containerId="chart-4d-bubble" filename="4d_bubble_chart" />
+                                            <ExportButtons
+                                                containerId="chart-4d-bubble"
+                                                filename="4d_bubble_chart"
+                                                chartTitle={`4D Bubble Chart: ${unitName} (${bubbleIndX} vs ${bubbleIndY})`}
+                                                chartType="bubble"
+                                                chartData={bubbleChartData.points}
+                                                dataPrompt={`4D Bubble Chart for "${unitName}" unit.\n` +
+                                                    `Total compared entities: ${bubbleChartData.points.length}.\n` +
+                                                    `X-Axis: ${bubbleIndX} | Y-Axis: ${bubbleIndY} | Size: ${bubbleIndSize} | Color: ${bubbleIndColor}.\n` +
+                                                    `Sample of analyzed entities across all 4 dimensions:\n` +
+                                                    bubbleChartData.points.slice(0, 25).map((p: any) =>
+                                                        `- ${p.entity}: ${bubbleIndX}=${typeof p.x === 'number' ? p.x.toFixed(2) : p.x}, ${bubbleIndY}=${typeof p.y === 'number' ? p.y.toFixed(2) : p.y}, ${bubbleIndSize}=${typeof p.size === 'number' ? p.size.toFixed(2) : p.size}, ${bubbleIndColor}=${typeof p.colorVal === 'number' ? p.colorVal.toFixed(2) : p.colorVal}`
+                                                    ).join('\n')
+                                                }
+                                            />
                                             <label className="flex items-center space-x-1.5 cursor-pointer text-xs text-gray-300">
                                                 <input
                                                     type="checkbox"
@@ -1499,7 +1534,22 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                             <h3 className="text-sm font-bold text-gray-200">Radar Profile Comparison</h3>
                                             <p className="text-[11px] text-gray-400 font-medium">Normalized by column Maximum [0% to 100% of column max].</p>
                                         </div>
-                                        <ExportButtons containerId="chart-radar-comparison" filename="radar_profile_comparison" />
+                                        <ExportButtons
+                                            containerId="chart-radar-comparison"
+                                            filename="radar_profile_comparison"
+                                            chartTitle={`Radar Profile Comparison: ${unitName}`}
+                                            chartType="radar"
+                                            chartData={radarChartData}
+                                            dataPrompt={`Radar Profile Comparison Chart for "${unitName}" unit.\n` +
+                                                `Compared entities (${radarEntities.length}): ${radarEntities.join(', ')}.\n` +
+                                                `Analyzed indicators (${selectedProfileIndicators.length}): ${selectedProfileIndicators.join(', ')}.\n` +
+                                                `Values per indicator (% of column maximum and raw value in parentheses):\n` +
+                                                radarChartData.map((row: any) => {
+                                                    const entVals = radarEntities.map(ent => `${ent}: ${row[ent]}% (raw: ${row[`${ent}_raw`]})`).join(' | ');
+                                                    return `- Indicator "${row.indicator}": ${entVals}`;
+                                                }).join('\n')
+                                            }
+                                        />
                                     </div>
 
                                     {/* Entity Selection — dedicated scrollable row */}
@@ -1577,7 +1627,20 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                             <span className="text-gray-500 ml-2 font-normal text-xs">({quartileChartData.length} entities)</span>
                                         </h3>
                                         <div className="flex items-center space-x-2">
-                                            <ExportButtons containerId="chart-quartile-distribution" filename="quartile_distribution" />
+                                            <ExportButtons
+                                                containerId="chart-quartile-distribution"
+                                                filename="quartile_distribution"
+                                                chartTitle={`Quartile Distribution (Q1-Q4): ${unitName}`}
+                                                chartType="bar"
+                                                chartData={quartileChartData}
+                                                dataPrompt={`Impact Quartile Distribution (Q1-Q4) for "${unitName}" unit.\n` +
+                                                    `Total entities: ${quartileChartData.length}.\n` +
+                                                    `Percentage breakdown across quartiles (Q1: Top 25%, Q2: 25-50%, Q3: 50-75%, Q4: 75-100%):\n` +
+                                                    quartileChartData.slice(0, 30).map((q: any) =>
+                                                        `- ${q.entity}: Q1=${q.Q1?.toFixed(1) || 0}%, Q2=${q.Q2?.toFixed(1) || 0}%, Q3=${q.Q3?.toFixed(1) || 0}%, Q4=${q.Q4?.toFixed(1) || 0}%`
+                                                    ).join('\n')
+                                                }
+                                            />
                                             <button
                                                 onClick={handleTrainSOMQuartiles}
                                                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-900/30 transition-all flex items-center space-x-1.5"
@@ -1641,7 +1704,17 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                                 {unitName}_{barInd1}
                                             </h3>
                                             <div className="flex items-center space-x-2">
-                                                <ExportButtons containerId="chart-bar-1" filename={`bar_${barInd1 || '1'}`} />
+                                                <ExportButtons
+                                                    containerId="chart-bar-1"
+                                                    filename={`bar_${barInd1 || '1'}`}
+                                                    chartTitle={`${unitName} Ranking by ${barInd1}`}
+                                                    chartType="bar"
+                                                    chartData={barData1}
+                                                    dataPrompt={`Ranking of ${unitName} by "${barInd1}" indicator.\n` +
+                                                        `Top classified entities:\n` +
+                                                        barData1.slice(0, 25).map((d: any, i: number) => `${i + 1}. ${d.entity}: ${typeof d.value === 'number' ? d.value.toFixed(2) : d.value}`).join('\n')
+                                                    }
+                                                />
                                                 <select
                                                     value={barInd1}
                                                     onChange={e => setBarInd1(e.target.value)}
@@ -1688,7 +1761,17 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                                 {unitName}_{barInd2}
                                             </h3>
                                             <div className="flex items-center space-x-2">
-                                                <ExportButtons containerId="chart-bar-2" filename={`bar_${barInd2 || '2'}`} />
+                                                <ExportButtons
+                                                    containerId="chart-bar-2"
+                                                    filename={`bar_${barInd2 || '2'}`}
+                                                    chartTitle={`${unitName} Ranking by ${barInd2}`}
+                                                    chartType="bar"
+                                                    chartData={barData2}
+                                                    dataPrompt={`Ranking of ${unitName} by "${barInd2}" indicator.\n` +
+                                                        `Top classified entities:\n` +
+                                                        barData2.slice(0, 25).map((d: any, i: number) => `${i + 1}. ${d.entity}: ${typeof d.value === 'number' ? d.value.toFixed(2) : d.value}`).join('\n')
+                                                    }
+                                                />
                                                 <select
                                                     value={barInd2}
                                                     onChange={e => setBarInd2(e.target.value)}
@@ -1741,7 +1824,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
             {/* AI Assistant for Unit Profile */}
             <AIAssistantCard 
                 cacheKey={`incites_${unitName}`}
-                systemPrompt={`Eres un experto cienciómetra y científico de datos. Analiza los siguientes datos bibliométricos de InCites correspondientes a la unidad: ${unitName}. Destaca tendencias, anomalías y ofrece conclusiones estratégicas.`}
+                systemPrompt={`Eres un investigador cienciómetra sénior. Redacta exactamente de dos a tres párrafos con estilo de artículo científico (sección de Resultados y Discusión) analizando el perfil bibliométrico de InCites de la unidad "${unitName}". Describe la estructura general de producción, profundiza en las entidades con mayor impacto normalizado (CNCI/citas) y sintetiza las implicaciones metodológicas e institucionales.`}
                 contextData={{
                     unidad: unitName,
                     indicadores_disponibles: unit.indicators,
@@ -1964,7 +2047,7 @@ const DataIndicatorsPanel: React.FC = () => {
                     <table className="w-full text-xs text-left">
                         <thead className="bg-gray-950 text-gray-400 font-semibold border-b border-gray-800 sticky top-0">
                             <tr>
-                                <th className="py-3 px-4 bg-gray-950">Indicador Bibliométrico</th>
+                                <th className="py-3 px-4 bg-gray-950">Bibliometric Indicator</th>
                                 <th className="py-3 px-4 text-right text-indigo-400 bg-gray-950">Dataset Baseline</th>
                                 <th className="py-3 px-4 text-right text-gray-400 bg-gray-950">Baseline for All Items</th>
                             </tr>
@@ -1994,7 +2077,7 @@ const DataIndicatorsPanel: React.FC = () => {
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-6 shadow-lg">
                 <h4 className="text-sm font-bold text-gray-200 uppercase tracking-wider border-b border-gray-800 pb-2 flex items-center space-x-2">
                     <TrendingUp className="w-4 h-4 text-indigo-400" />
-                    <span>Sección 2: Series Temporales de Baseline</span>
+                    <span>Section 2: Baseline Time Series Charts</span>
                 </h4>
 
                 {/* Chart 1: Web of Science Documents & Times Cited Growth */}
@@ -2002,9 +2085,20 @@ const DataIndicatorsPanel: React.FC = () => {
                     <div className="flex justify-between items-center flex-wrap gap-2">
                         <div>
                             <h5 className="text-sm font-bold text-white">Document & Citation Growth</h5>
-                            <p className="text-[11px] text-gray-400">Evolución temporal de Web of Science Documents y Times Cited por año de publicación.</p>
+                            <p className="text-[11px] text-gray-400">Time series evolution of Web of Science Documents and Times Cited by publication year.</p>
                         </div>
-                        <ExportButtons containerId="chart-baseline-growth" filename="baseline_document_citation_growth" />
+                        <ExportButtons
+                            containerId="chart-baseline-growth"
+                            filename="baseline_document_citation_growth"
+                            chartTitle="Baseline Document & Citation Growth"
+                            chartType="trend"
+                            chartData={growthChartData}
+                            dataPrompt={`Time series of Web of Science production and citations (Reference Baseline).\n` +
+                                `Years included: ${growthChartData.map((d: any) => d.year).join(', ')}.\n` +
+                                `Annual breakdown:\n` +
+                                growthChartData.map((d: any) => `- Year ${d.year}: WoS Documents = ${d['All Items WoS Docs']}, Times Cited = ${d['All Items Times Cited']}`).join('\n')
+                            }
+                        />
                     </div>
 
                     <div className="w-full min-h-[350px]" id="chart-baseline-growth">
@@ -2033,11 +2127,21 @@ const DataIndicatorsPanel: React.FC = () => {
                 <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col space-y-3">
                     <div className="flex justify-between items-center flex-wrap gap-2">
                         <div>
-                            <h5 className="text-sm font-bold text-white">Indicador Seleccionable en el Tiempo</h5>
-                            <p className="text-[11px] text-gray-400">Selecciona cualquier indicador para inspeccionar su tendencia temporal.</p>
+                            <h5 className="text-sm font-bold text-white">Selectable Indicator Over Time</h5>
+                            <p className="text-[11px] text-gray-400">Select any indicator to inspect its annual trend.</p>
                         </div>
                         <div className="flex items-center space-x-3">
-                            <ExportButtons containerId="chart-baseline-indicator" filename={`baseline_${currentInd.replace(/\s+/g, '_')}`} />
+                            <ExportButtons
+                                containerId="chart-baseline-indicator"
+                                filename={`baseline_${currentInd.replace(/\s+/g, '_')}`}
+                                chartTitle={`Baseline Indicator Trend: ${currentInd}`}
+                                chartType="trend"
+                                chartData={indicatorChartData}
+                                dataPrompt={`Time series trend for indicator "${currentInd}" across the reference baseline (InCites Baseline).\n` +
+                                    `Values by publication year:\n` +
+                                    indicatorChartData.map((d: any) => `- Year ${d.year}: Baseline = ${d['Baseline for All Items']}`).join('\n')
+                                }
+                            />
                             <select
                                 value={currentInd}
                                 onChange={e => setSelectedIndicator(e.target.value)}

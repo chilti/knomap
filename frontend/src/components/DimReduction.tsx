@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useSomStore } from '../store/somStore';
 import { Upload, Activity, Calculator, ArrowRight, Layers, Database, RefreshCw } from 'lucide-react';
 import Papa from 'papaparse';
+import { SendToAssistantButton } from './SendToAssistantButton';
 
 const ALGORITHMS = [
   'CorrInt', 'DANCo', 'ESS', 'FisherS', 'KNN', 'lPCA', 'MADA', 'MiND_ML', 'MLE', 'MOM', 'TLE', 'TwoNN'
@@ -152,7 +153,18 @@ export const DimReduction: React.FC = () => {
           </button>
 
           {dimCeilingResult && (
-            <div className="mt-6 bg-gray-950 rounded-xl p-4 border border-gray-800">
+            <div className="mt-6 bg-gray-950 rounded-xl p-4 border border-gray-800 relative">
+              <div className="flex justify-end mb-2">
+                <SendToAssistantButton
+                  title="Intrinsic Dimension Ceiling (skdim)"
+                  badge="DIM REDUCTION"
+                  viewSource="dimreduction"
+                  chartType="custom"
+                  data={dimCeilingResult}
+                  dataContextPrompt={`Intrinsic Dimension Ceiling Estimation (${dimFileName || 'Dataset'}).\nRecommended K (95th Percentile MLE): ${dimCeilingResult.estimated_dimension.toFixed(1)}.\nMedian: ${dimCeilingResult.metrics.median.toFixed(2)}, Mean: ${dimCeilingResult.metrics.mean.toFixed(2)}, P90: ${dimCeilingResult.metrics.p90.toFixed(2)}, Max: ${dimCeilingResult.metrics.max.toFixed(2)}.\nTotal records: ${dimData?.length || 0}, Original features: ${dimData?.[0]?.length || 0}.`}
+                  buttonText="AI Assistant"
+                />
+              </div>
               <p className="text-emerald-400 font-black text-3xl text-center mb-1">{dimCeilingResult.estimated_dimension.toFixed(1)}</p>
               <p className="text-xs text-center text-gray-500 mb-4">Recommended Target Dimension (95th Percentile)</p>
               
@@ -218,9 +230,20 @@ export const DimReduction: React.FC = () => {
                 <p className="text-xs text-gray-500">Algorithm</p>
                 <p className="font-bold text-indigo-400">{dimManualResult.algorithm}</p>
               </div>
-              <div className="text-right">
-                <p className="text-xs text-gray-500">Estimated Dimension</p>
-                <p className="font-black text-2xl text-white">{dimManualResult.estimated_dimension.toFixed(2)}</p>
+              <div className="flex items-center space-x-3">
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">Estimated Dimension</p>
+                  <p className="font-black text-2xl text-white">{dimManualResult.estimated_dimension.toFixed(2)}</p>
+                </div>
+                <SendToAssistantButton
+                  title={`Intrinsic Dimension Estimation (${dimManualResult.algorithm})`}
+                  badge="DIM REDUCTION"
+                  viewSource="dimreduction"
+                  chartType="custom"
+                  data={dimManualResult}
+                  dataContextPrompt={`Intrinsic Dimension Estimation (${dimFileName || 'Dataset'}) via ${dimManualResult.algorithm}.\nCalculated dimension: ${dimManualResult.estimated_dimension.toFixed(2)}.\nTotal records: ${dimData?.length || 0}.`}
+                  buttonText="AI Assistant"
+                />
               </div>
             </div>
           )}

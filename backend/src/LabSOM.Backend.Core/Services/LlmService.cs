@@ -6,8 +6,16 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
+using System.Collections.Generic;
+
 namespace LabSOM.Backend.Core.Services
 {
+    public class LlmChatMessage
+    {
+        public string Role { get; set; } = "user";
+        public string Content { get; set; } = "";
+    }
+
     public class LlmService
     {
         private readonly HttpClient _httpClient;
@@ -22,15 +30,14 @@ namespace LabSOM.Backend.Core.Services
             _httpClient = new HttpClient(handler);
         }
 
-        private (string baseUrl, string model, string user, string password) GetConfig()
+        private (string baseUrl, string model, string apiKey) GetConfig()
         {
             var baseUrl = Environment.GetEnvironmentVariable("LLM_BASE_URL");
             var model = Environment.GetEnvironmentVariable("LLM_MODEL");
-            var user = Environment.GetEnvironmentVariable("LLM_USER");
-            var password = Environment.GetEnvironmentVariable("LLM_PASSWORD");
+            var apiKey = Environment.GetEnvironmentVariable("LLM_API_KEY");
 
             // If any critical var is missing, search for .env file directly on disk
-            if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(user) || string.IsNullOrEmpty(password))
+            if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(apiKey))
             {
                 var searchDir = new DirectoryInfo(AppContext.BaseDirectory);
                 while (searchDir != null)
@@ -47,8 +54,7 @@ namespace LabSOM.Backend.Core.Services
                             var val = parts[1].Trim();
                             if (key == "LLM_BASE_URL" && string.IsNullOrEmpty(baseUrl)) baseUrl = val;
                             if (key == "LLM_MODEL" && string.IsNullOrEmpty(model)) model = val;
-                            if (key == "LLM_USER" && string.IsNullOrEmpty(user)) user = val;
-                            if (key == "LLM_PASSWORD" && string.IsNullOrEmpty(password)) password = val;
+                            if (key == "LLM_API_KEY" && string.IsNullOrEmpty(apiKey)) apiKey = val;
                         }
                         break;
                     }
@@ -56,25 +62,45 @@ namespace LabSOM.Backend.Core.Services
                 }
             }
 
-            baseUrl = string.IsNullOrEmpty(baseUrl) ? "https://dinamica1.fciencias.unam.mx/lmstudio/v1/" : baseUrl;
+            baseUrl = string.IsNullOrEmpty(baseUrl) ? "https://dinamica1.fciencias.unam.mx/v1/" : baseUrl;
             model = string.IsNullOrEmpty(model) ? "openai/gpt-oss-20b" : model;
+            apiKey = string.IsNullOrEmpty(apiKey) ? "lm-studio" : apiKey;
 
-            return (baseUrl, model, user ?? "", password ?? "");
+            return (baseUrl, model, apiKey);
         }
 
-        public async Task<string> AnalyzeAsync(string systemPrompt, string userPrompt)
+        public async Task<string> AnalyzeAsync(string systemPrompt, string userPrompt, List<LlmChatMessage>? history = null)
         {
             var config = GetConfig();
             var url = config.baseUrl.TrimEnd('/') + "/chat/completions";
 
+            var messages = new List<object>();
+
+            if (!string.IsNullOrEmpty(systemPrompt))
+            {
+                messages.Add(new { role = "system", content = systemPrompt });
+            }
+
+            if (history != null && history.Count > 0)
+            {
+                foreach (var msg in history)
+                {
+                    if (!string.IsNullOrEmpty(msg.Content))
+                    {
+                        messages.Add(new { role = string.IsNullOrEmpty(msg.Role) ? "user" : msg.Role, content = msg.Content });
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(userPrompt))
+            {
+                messages.Add(new { role = "user", content = userPrompt });
+            }
+
             var payload = new
             {
                 model = config.model,
-                messages = new[]
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userPrompt }
-                },
+                messages,
                 temperature = 0.2
             };
 
@@ -82,11 +108,9 @@ namespace LabSOM.Backend.Core.Services
             using var request = new HttpRequestMessage(HttpMethod.Post, url);
             request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-            if (!string.IsNullOrEmpty(config.user) && !string.IsNullOrEmpty(config.password))
+            if (!string.IsNullOrEmpty(config.apiKey))
             {
-                var credentials = $"{config.user}:{config.password}";
-                var encodedCredentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(credentials));
-                request.Headers.Authorization = new AuthenticationHeaderValue("Basic", encodedCredentials);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.apiKey);
             }
 
             var response = await _httpClient.SendAsync(request);
@@ -94,7 +118,7 @@ namespace LabSOM.Backend.Core.Services
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                throw new Exception($"LLM Request Failed ({response.StatusCode}) [User: {config.user}]: {error}");
+                throw new Exception($"LLM Request Failed ({response.StatusCode}) [Model: {config.model}]: {error}");
             }
 
             var responseJson = await response.Content.ReadAsStringAsync();

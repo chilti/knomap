@@ -121,12 +121,12 @@
 <body>
     <div id="loader" style="display: none;">
         <div class="spinner"></div>
-        <div style="font-size: 15px; color: #9ca3af; font-weight: 500;">Cargando mapa interactivo...</div>
+        <div style="font-size: 15px; color: #9ca3af; font-weight: 500;">Loading interactive map...</div>
     </div>
 
     <div id="no-data-notice">
         <div style="font-size: 24px; margin-bottom: 8px;">🌌</div>
-        <div>Esperando que se procesen y carguen los datos semánticos...</div>
+        <div>Waiting for semantic data to be processed and loaded...</div>
     </div>
 
     <div id="canvas-container" style="display: none;">
@@ -141,8 +141,8 @@
         <div class="abstract"></div>
     </div>
     
-    <div id="status">⏳ Listo</div>
-    <div id="controls">🖱️ Rueda: Zoom · Click-Arrastrar: Mover · Click-Derecho: Abrir Documento</div>
+    <div id="status">⏳ Ready</div>
+    <div id="controls">🖱️ Wheel: Zoom · Click-Drag: Pan · Right-Click: Open Document</div>
     <div id="legend" style="display: none;"></div>
 
     <script type="module">
@@ -165,7 +165,7 @@
         let currentHoveredIdx = -1;
         let currentCamera = null;
 
-        // Vibrantes colores tailwind/pastel para clusters
+        // Vibrant colors for clusters
         const palette = [
             [0.388, 0.447, 0.961, 0.85],  // Indigo-500
             [0.937, 0.267, 0.455, 0.85],  // Pink-500
@@ -182,7 +182,7 @@
         ];
         
         // Background color / Noise color at the end
-        palette.push([0.220, 0.271, 0.349, 0.4]); // Grey / Ruido
+        palette.push([0.220, 0.271, 0.349, 0.4]); // Grey / Noise
         const bgIdx = palette.length - 1;
 
         // Create HTML labels overlay
@@ -215,7 +215,7 @@
             const uniqueLabels = Array.from(new Set(cluster_assignment));
             
             // Filter noise
-            const categories = uniqueLabels.filter(lbl => lbl && lbl !== 'Ruido' && lbl !== -1 && lbl !== '-1').sort();
+            const categories = uniqueLabels.filter(lbl => lbl && lbl !== 'Noise' && lbl !== 'Ruido' && lbl !== -1 && lbl !== '-1').sort();
             categories.forEach((name, idx) => {
                 categoryMap[name] = idx;
             });
@@ -223,7 +223,7 @@
             const tempCat = new Int32Array(drawTotal);
             for (let i = 0; i < drawTotal; i++) {
                 const lbl = cluster_assignment[i];
-                if (lbl && lbl !== 'Ruido' && lbl !== -1 && lbl !== '-1') {
+                if (lbl && lbl !== 'Noise' && lbl !== 'Ruido' && lbl !== -1 && lbl !== '-1') {
                     tempCat[i] = categoryMap[lbl] % (palette.length - 1);
                 } else {
                     tempCat[i] = bgIdx;
@@ -298,7 +298,7 @@
             labelsContainer.innerHTML = '';
 
             const activeClusters = mapData.clusters.filter(c => {
-                if (c.label === 'Ruido') return false;
+                if (c.label === 'Noise' || c.label === 'Ruido') return false;
                 if (c.size >= TIER1_MIN) return true;
                 if (c.size >= TIER2_MIN && zoomScale >= TIER2_ZOOM) return true;
                 if (c.size >= TIER3_MIN && zoomScale >= TIER3_ZOOM) return true;
@@ -381,7 +381,7 @@
                 return;
             }
             
-            legendEl.innerHTML = '<div class="legend-header">Temas Identificados</div>';
+            legendEl.innerHTML = '<div class="legend-header">Identified Topics</div>';
             categories.slice(0, 12).forEach((name) => {
                 const idx = categoryMap[name];
                 const c = palette[idx % (palette.length - 1)];
@@ -402,7 +402,7 @@
 
             try {
                 const total = payload.coords_2d.length;
-                status.textContent = `Procesando ${total.toLocaleString()} puntos...`;
+                status.textContent = `Processing ${total.toLocaleString()} points...`;
 
                 const processed = processPoints(payload.coords_2d, payload.cluster_assignment);
                 
@@ -454,16 +454,16 @@
                             const record = mapData.records[idx];
                             const label = mapData.cluster_assignment[idx];
 
-                            tooltip.querySelector('.title').textContent = record.title || '(Sin Título)';
-                            tooltip.querySelector('.author').textContent = record.extras?.AU || 'Autores no especificados';
+                            tooltip.querySelector('.title').textContent = record.title || '(Untitled)';
+                            tooltip.querySelector('.author').textContent = record.extras?.AU || 'Unspecified authors';
                             
                             let metaStr = '';
                             if (record.extras?.SO) metaStr += record.extras.SO;
                             if (record.extras?.PY) metaStr += ` (${record.extras.PY})`;
-                            if (label && label !== 'Ruido') metaStr += ` • Clúster: ${label}`;
+                            if (label && label !== 'Noise' && label !== 'Ruido') metaStr += ` • Cluster: ${label}`;
                             tooltip.querySelector('.meta-row').textContent = metaStr;
 
-                            const abstract = record.abstract || '(Sin resumen disponible)';
+                            const abstract = record.abstract || '(No abstract available)';
                             tooltip.querySelector('.abstract').textContent = abstract.length > 220 
                                 ? abstract.substring(0, 220) + '...' 
                                 : abstract;
@@ -485,7 +485,7 @@
                 buildLegend(processed.categories, processed.categoryMap);
                 updateLabels();
 
-                status.textContent = `Listos ${total.toLocaleString()} documentos · Rueda para zoom`;
+                status.textContent = `Ready: ${total.toLocaleString()} documents · Wheel to zoom`;
             } catch(e) {
                 console.error("Error drawing WebGL Map:", e);
                 status.textContent = `❌ Error: ${e.message}`;

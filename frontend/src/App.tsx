@@ -5,12 +5,14 @@ import { ExploradorDatos } from './components/ExploradorDatos';
 import { DimReduction } from './components/DimReduction';
 import { SemanticBibliometrics } from './components/SemanticBibliometrics';
 import { InCitesExplorer } from './components/InCitesExplorer';
+import { AiAssistantTab } from './components/AiAssistantTab';
+import { useAiStore } from './store/aiStore';
 import { useAuthStore } from './store/authStore';
 import { LoginScreen } from './components/LoginScreen';
 import { LoginModal } from './components/LoginModal';
 import { UserManagementModal } from './components/UserManagementModal';
 import { ProjectsDrawer } from './components/ProjectsDrawer';
-import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield } from 'lucide-react';
+import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield, Bot } from 'lucide-react';
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
 
@@ -126,11 +128,13 @@ export default function App() {
     };
   }, []);
 
+  const aiEntries = useAiStore(state => state.entries);
+
   if (isWebMode && !isAuthenticated && !isAuthLoading) {
     return <LoginScreen />;
   }
 
-  const handleTabChange = (newTab: 'multidimensional' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites') => {
+  const handleTabChange = (newTab: 'multidimensional' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'asistente') => {
     const state = useSomStore.getState();
     if (newTab === 'multidimensional' && state.activeTab === 'bibliometrics') {
       if (state.pendingNetworkCsv) {
@@ -366,6 +370,32 @@ export default function App() {
                     </div>
                   );
                 })()}
+
+                {/* 4. AI Assistant */}
+                <button
+                  onClick={() => handleTabChange('asistente')}
+                  title={isSidebarCollapsed ? "AI Assistant" : undefined}
+                  className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'justify-between px-4 py-3'
+                    } rounded-xl text-sm font-semibold transition-all ${activeTab === 'asistente'
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-950/60'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                    }`}
+                >
+                  <span className="flex items-center">
+                    <Bot className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'} ${activeTab === 'asistente' ? 'text-white' : 'text-indigo-400'}`} />
+                    {!isSidebarCollapsed && <span>AI Assistant</span>}
+                  </span>
+                  {!isSidebarCollapsed && (
+                    <div className="flex items-center gap-1.5">
+                      {aiEntries.length > 0 && (
+                        <span className="text-[10px] bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 px-1.5 py-0.2 rounded-full font-bold">
+                          {aiEntries.length}
+                        </span>
+                      )}
+                      <ArrowRight className="w-3.5 h-3.5 opacity-50" />
+                    </div>
+                  )}
+                </button>
               </nav>
             </div>
 
@@ -447,12 +477,16 @@ export default function App() {
                   {activeTab === 'bibliometrics' && 'Bibliometric Preprocessing'}
                   {activeTab === 'dimreduction' && 'Dimensionality Estimation & Reduction'}
                   {activeTab === 'semantic_bibliometrics' && 'Semantic Bibliometrics'}
+                  {activeTab === 'incites' && 'InCites Explorer'}
+                  {activeTab === 'asistente' && 'AI Assistant & Reports'}
                 </h2>
                 <p className="text-xs text-gray-500 mt-1">
                   {activeTab === 'multidimensional' && 'Load CSV datasets and train your Self-Organizing Map (SOM).'}
                   {activeTab === 'bibliometrics' && 'Extract and parse scientific metrics from PubMed/WoS to build co-occurrence networks.'}
                   {activeTab === 'dimreduction' && 'Estimate intrinsic dimensionality and reduce feature space using UMAP before training.'}
                   {activeTab === 'semantic_bibliometrics' && 'Process documents semantically using AI embeddings, UMAP, and hierarchical clustering.'}
+                  {activeTab === 'incites' && 'Analyze institutional and country metrics across InCites units.'}
+                  {activeTab === 'asistente' && 'Interpret quantitative visualizations, formulate hypotheses, and compile interactive reports with the local model.'}
                 </p>
               </div>
 
@@ -570,21 +604,29 @@ export default function App() {
             </header>
 
             {/* 3. Render Dashboard Tabs */}
-            <section className="flex-1 overflow-auto p-8">
+            <section className={`flex-1 min-h-0 ${activeTab === 'asistente' ? 'p-0 overflow-hidden h-full' : 'p-8 overflow-auto'}`}>
               {/* Tab 1: Dataset & SOM config */}
               {activeTab === 'multidimensional' && <ExploradorDatos />}
 
-              {/* Tab 2: Bibliometrics (Rendered below inside grid) */}
-
+              {/* Tab 2: Dimensionality Reduction */}
               {activeTab === 'dimreduction' && <DimReduction />}
 
               {/* Tab 4: Semantic Bibliometrics */}
               {activeTab === 'semantic_bibliometrics' && (
                 <SemanticBibliometrics />
               )}
+
+              {/* Tab 5: InCites Explorer */}
               {activeTab === 'incites' && (
                 <InCitesExplorer />
-              )}{/* Tab 3: Bibliometrics Preprocessor */}
+              )}
+
+              {/* Tab 6: Asistente IA */}
+              {activeTab === 'asistente' && (
+                <AiAssistantTab />
+              )}
+
+              {/* Tab 3: Bibliometrics Preprocessor */}
               {activeTab === 'bibliometrics' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
                   {/* Bibliometric input form */}

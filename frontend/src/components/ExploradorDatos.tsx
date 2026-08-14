@@ -35,6 +35,7 @@ import { ClusterMetricsPanel } from './ClusterMetricsPanel';
 import type { MetricResult } from './ClusterMetricsPanel';
 import { TrainingErrorPanel } from './TrainingErrorPanel';
 import { parseTrajectoryEntity } from '../utils/timeSeries';
+import { SendToAssistantButton } from './SendToAssistantButton';
 
 export const ExploradorDatos: React.FC = () => {
   const { 
@@ -81,6 +82,7 @@ export const ExploradorDatos: React.FC = () => {
     setActiveRunId,
     deleteRun,
     renameRun,
+    clusterLabels,
     incitesIsUploading,
     somSizeMode,
     setSomSizeMode,
@@ -339,6 +341,59 @@ export const ExploradorDatos: React.FC = () => {
     setSelectedRadarUnits(top2);
   }, [selectedClusterId, clusterCalculations.unitsOrderedByDist]);
 
+  // Active SOM experiment information and unit of analysis
+  const activeSomRun = useMemo(() => {
+    return savedRuns.find(r => r.id === activeRunId);
+  }, [savedRuns, activeRunId]);
+
+  const somTitleName = activeSomRun?.name || (fileName ? `SOM - ${fileName.replace(/\.[^/.]+$/, '')}` : `SOM ${config.clusteringAlgorithm === 'agglomerative' ? 'Agglomerative' : 'DBSCAN'} Clusters Map`);
+  const unitAnalysisName = activeSomRun?.provenance?.unitName || (activeSomRun?.name?.includes('Locations') ? 'Locations' : (fileName ? fileName.replace(/\.[^/.]+$/, '') : 'Entidades / Documentos'));
+
+  // Detailed cluster breakdown including centroid vectors, sizes, and sample labels
+  const allClustersSummary = useMemo(() => {
+    if (!result || !result.weights || !result.clustering || !dataMatrix || dataMatrix.length === 0 || compNames.length === 0) {
+      return '';
+    }
+
+    const { weights, clustering, bmus } = result;
+    const numFeatures = compNames.length;
+    const clusters = Array.from(new Set(clustering.filter(c => c !== -1))).sort((a, b) => a - b);
+
+    const summaries = clusters.map(cId => {
+      const clusterNeuronIndices = clustering.map((c, i) => c === cId ? i : -1).filter(i => i !== -1);
+      const clusterNeuronSet = new Set(clusterNeuronIndices);
+
+      // Centroid Vector (Average of neuron reference weights in this cluster)
+      const centroidVector = new Array(numFeatures).fill(0);
+      clusterNeuronIndices.forEach(nIdx => {
+        const w = weights[nIdx];
+        if (w) {
+          for (let f = 0; f < numFeatures; f++) centroidVector[f] += (w[f] ?? 0);
+        }
+      });
+      for (let f = 0; f < numFeatures; f++) {
+        centroidVector[f] /= Math.max(1, clusterNeuronIndices.length);
+      }
+
+      // Mapped entities from data
+      const mappedEntities = labels.filter((_, idx) => bmus && clusterNeuronSet.has(bmus[idx]));
+
+      // Custom cluster label if user renamed it
+      const customClusterName = (clusterLabels && clusterLabels[cId]) ? clusterLabels[cId] : `Cluster ${cId}`;
+
+      // Top distinguishing dimensions for this centroid
+      const compWithValues = compNames.map((name, f) => ({ name, val: centroidVector[f] }));
+      compWithValues.sort((a, b) => b.val - a.val);
+      const topDimensions = compWithValues.slice(0, 6).map(cv => `${cv.name}: ${typeof cv.val === 'number' ? cv.val.toFixed(3) : cv.val}`).join(', ');
+
+      return `• ${customClusterName} (${clusterNeuronIndices.length} neurons, ${mappedEntities.length} "${unitAnalysisName}" entities assigned):\n` +
+             `   - Centroid Vector (Top weighted variables): [${topDimensions}]\n` +
+             `   - Sample of assigned entities: ${mappedEntities.slice(0, 10).join(', ') || 'No directly assigned entities'}`;
+    });
+
+    return summaries.join('\n\n');
+  }, [result, dataMatrix, compNames, labels, clusterLabels, unitAnalysisName]);
+
   // Construct Radar Chart Data
   const clusterRadarData = useMemo(() => {
     if (clusterCalculations.centroidVector.length === 0 || compNames.length === 0) {
@@ -469,6 +524,7 @@ export const ExploradorDatos: React.FC = () => {
     const clonedSvg = svgEl.cloneNode(true) as SVGElement;
     
     // Scale up the clone for presentation in the standalone window
+    clonedSvg.removeAttribute('style');
     clonedSvg.setAttribute('width', '100%');
     clonedSvg.setAttribute('height', '100%');
     clonedSvg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -2209,14 +2265,38 @@ export const ExploradorDatos: React.FC = () => {
                     <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {/* 1. Clustering Map (First Map!) */}
                       <div id="comp-viewport-clustering" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[480px]">
-                        <div className="absolute top-4 right-4 z-20 flex space-x-2">
+                        <div className="absolute top-4 right-4 z-20 flex space-x-2 items-center">
+                          <SendToAssistantButton
+                            title={somTitleName}
+                            badge="SOM & UMAP"
+                            viewSource="som"
+                            chartType="hex_map"
+                            targetElementId="comp-viewport-clustering"
+                            data={{
+                              hexGrid: result?.hexGrid,
+                              clustering: result?.clustering,
+                              frequencies: result?.frequencies,
+                              bmus: result?.bmus,
+                              activeRun: activeSomRun
+                            }}
+                            dataContextPrompt={`Self-Organizing Map (SOM) Hexagonal Grid (${config.rows}x${config.cols}).\n` +
+                              `Active Experiment / Model: "${somTitleName}".\n` +
+                              `Mapped Unit of Analysis: "${unitAnalysisName}".\n` +
+                              `Clustering Algorithm: ${config.clusteringAlgorithm} with ${config.nClusters} clusters.\n` +
+                              `Total Mapped Entities: ${labels?.length || dataMatrix?.length || 0}.\n` +
+                              `Analyzed Variables / Indicators (${compNames.length}): ${compNames.slice(0, 15).join(', ')}.\n\n` +
+                              `CLUSTER BREAKDOWN & CENTROID VECTORS:\n` +
+                              allClustersSummary
+                            }
+                            buttonText="AI Assistant"
+                          />
                           <button
                             onClick={exportReferenceVectors}
                             className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl transition cursor-pointer shadow-lg flex items-center space-x-1.5 text-[10px] font-bold uppercase tracking-wider border border-gray-700"
                             title="Export Reference Vectors (Weights)"
                           >
                             <Download className="w-3.5 h-3.5" />
-                            <span>Vectores Ref.</span>
+                            <span>Ref. Vectors</span>
                           </button>
                           <button
                             onClick={exportClusteredData}
@@ -2252,7 +2332,7 @@ export const ExploradorDatos: React.FC = () => {
 
                       {/* 2. Cluster Centroid & Selectable Cluster Units Radar Chart */}
                       <div className="border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[480px]">
-                        <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-2">
+                        <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-2 flex-wrap gap-2">
                           <div>
                             <h4 className="text-xs font-black uppercase text-gray-300 flex items-center space-x-2">
                               <Activity className="w-4 h-4 text-purple-400" />
@@ -2261,20 +2341,36 @@ export const ExploradorDatos: React.FC = () => {
                             <p className="text-[10px] text-gray-500 mt-0.5">Centroid vs. Units (ordered by distance to centroid).</p>
                           </div>
 
-                          {availableClusterIds.length > 0 && (
-                            <div className="flex items-center space-x-2">
-                              <label className="text-[10px] font-bold text-gray-400 uppercase">Cluster:</label>
-                              <select
-                                value={selectedClusterId}
-                                onChange={(e) => setSelectedClusterId(Number(e.target.value))}
-                                className="bg-gray-950 border border-gray-700 rounded-lg px-2.5 py-1 text-xs font-bold text-indigo-400 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                              >
-                                {availableClusterIds.map(cId => (
-                                  <option key={cId} value={cId}>Cluster {cId}</option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
+                          <div className="flex items-center space-x-2">
+                            <SendToAssistantButton
+                              title={`SOM Cluster ${selectedClusterId} Radar Profile (${unitAnalysisName})`}
+                              badge="SOM & UMAP"
+                              viewSource="som"
+                              chartType="radar"
+                              data={clusterRadarData.chartData || []}
+                              dataContextPrompt={`Radar Profile for Cluster ${selectedClusterId} ("${(clusterLabels && clusterLabels[selectedClusterId]) || `Cluster ${selectedClusterId}`}") in the SOM Map.\n` +
+                                `Model / Experiment: "${somTitleName}".\n` +
+                                `Unit of Analysis: "${unitAnalysisName}".\n` +
+                                `Evaluated Variables and Exact Centroid Vector Values:\n` +
+                                (clusterRadarData.chartData || []).map((d: any) => `- ${d.indicator}: Centroid = ${typeof d.Centroid === 'number' ? d.Centroid.toFixed(3) : d.Centroid}`).join('\n')
+                              }
+                              buttonText="AI Assistant"
+                            />
+                            {availableClusterIds.length > 0 && (
+                              <div className="flex items-center space-x-2">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">Cluster:</label>
+                                <select
+                                  value={selectedClusterId}
+                                  onChange={(e) => setSelectedClusterId(Number(e.target.value))}
+                                  className="bg-gray-950 border border-gray-700 rounded-lg px-2.5 py-1 text-xs font-bold text-indigo-400 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                                >
+                                  {availableClusterIds.map(cId => (
+                                    <option key={cId} value={cId}>Cluster {cId}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {/* Cluster Units Scrollable Selector Bar */}
@@ -2460,7 +2556,28 @@ export const ExploradorDatos: React.FC = () => {
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* U-Matrix Port */}
                     <div id="comp-viewport-umatrix" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[420px]">
-                      <div className="absolute top-4 right-4 z-20">
+                      <div className="absolute top-4 right-4 z-20 flex items-center space-x-2">
+                        <SendToAssistantButton
+                          title={`SOM U-Matrix Distances Map (${unitAnalysisName})`}
+                          badge="SOM & UMAP"
+                          viewSource="som"
+                          chartType="hex_map"
+                          targetElementId="comp-viewport-umatrix"
+                          data={{
+                            hexGrid: result?.hexGrid,
+                            umatrix: result?.umatrix,
+                            rows: config.rows,
+                            cols: config.cols
+                          }}
+                          dataContextPrompt={`SOM Topological Distances U-Matrix (${config.rows}x${config.cols}).\n` +
+                            `Model / Experiment: "${somTitleName}".\n` +
+                            `Mapped Unit of Analysis: "${unitAnalysisName}".\n` +
+                            `Identifies topological boundaries and separation barriers between clusters based on Euclidean distances between neighboring neurons.\n` +
+                            `Delimited Clusters: ${availableClusterIds.length} clusters.\n` +
+                            `Analyzed Variables: ${compNames.length} (${compNames.slice(0, 12).join(', ')}).`
+                          }
+                          buttonText="AI Assistant"
+                        />
                         <button
                           onClick={() => openMapPopup('comp-viewport-umatrix', 'U-Matrix (Distances Map)')}
                           className="p-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-400 hover:text-white rounded-xl transition cursor-pointer"
@@ -2469,7 +2586,7 @@ export const ExploradorDatos: React.FC = () => {
                           <ExternalLink className="w-4 h-4" />
                         </button>
                       </div>
-                      <div className="mb-2">
+                      <div className="mb-2 pr-28">
                         <h4 className="text-xs font-black uppercase text-gray-300">U-Matrix (Distances)</h4>
                         <p className="text-[10px] text-gray-500 mt-0.5">Visualize topological distances between adjacent nodes.</p>
                       </div>
@@ -2485,7 +2602,27 @@ export const ExploradorDatos: React.FC = () => {
 
                     {/* Quantization Error Map Port */}
                     <div id="comp-viewport-qe" className="relative border border-gray-800 bg-gray-900 bg-opacity-40 rounded-2xl p-5 shadow-lg flex flex-col h-[420px]">
-                      <div className="absolute top-4 right-4 z-20">
+                      <div className="absolute top-4 right-4 z-20 flex items-center space-x-2">
+                        <SendToAssistantButton
+                          title={`SOM Quantization Error Density Map (${unitAnalysisName})`}
+                          badge="SOM & UMAP"
+                          viewSource="som"
+                          chartType="hex_map"
+                          targetElementId="comp-viewport-qe"
+                          data={{
+                            hexGrid: result?.hexGrid,
+                            quantizationErrors: result?.quantizationErrors,
+                            rows: config.rows,
+                            cols: config.cols
+                          }}
+                          dataContextPrompt={`SOM Quantization Error Density Map per neuron cell (${config.rows}x${config.cols}).\n` +
+                            `Model / Experiment: "${somTitleName}".\n` +
+                            `Mapped Unit of Analysis: "${unitAnalysisName}".\n` +
+                            `Measures the local quantization fit accuracy of weight vectors to the ${labels?.length || dataMatrix?.length || 0} "${unitAnalysisName}" entities.\n` +
+                            `Analyzed Variables: ${compNames.length} (${compNames.slice(0, 12).join(', ')}).`
+                          }
+                          buttonText="AI Assistant"
+                        />
                         <button
                           onClick={() => openMapPopup('comp-viewport-qe', 'Quantization Error Map')}
                           className="p-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-400 hover:text-white rounded-xl transition cursor-pointer"
@@ -2494,7 +2631,7 @@ export const ExploradorDatos: React.FC = () => {
                           <ExternalLink className="w-4 h-4" />
                         </button>
                       </div>
-                      <div className="mb-2">
+                      <div className="mb-2 pr-28">
                         <h4 className="text-xs font-black uppercase text-gray-300">Quantization Error Map</h4>
                         <p className="text-[10px] text-gray-500 mt-0.5">Spatial quantization error density per neuron cell.</p>
                       </div>

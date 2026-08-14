@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import * as d3Force from 'd3-force';
 import { useSomStore } from '../store/somStore';
 import { Share2, Users, FileText, Info, ArrowRight } from 'lucide-react';
+import { SendToAssistantButton } from './SendToAssistantButton';
 
 interface ForceNode extends d3Force.SimulationNodeDatum {
   id: string;
@@ -373,6 +374,24 @@ export const RedBibliometrica: React.FC = () => {
               <span>Download CSV</span>
             </button>
           )}
+
+          <SendToAssistantButton
+            title={`Co-occurrence Bibliometric Network (${selectedYear})`}
+            badge="NETWORKS"
+            viewSource="networks"
+            chartType="network"
+            data={{
+              nodes: nodes.map(n => ({ id: n.id, label: n.label, freq: n.frequency })),
+              links: links.map(l => ({
+                source: typeof l.source === 'object' ? l.source.id : l.source,
+                target: typeof l.target === 'object' ? l.target.id : l.target,
+                weight: l.weight
+              }))
+            }}
+            dataContextPrompt={`Co-occurrence Bibliometric Network (Period/Year: ${selectedYear}).\nTotal analyzed nodes: ${nodes.length}.\nTotal co-occurrence links: ${links.length}.\nTotal corpus documents: ${documentCount}.\nTop entities by frequency: ${nodes.slice(0, 20).map(n => `${n.label} (freq: ${n.frequency})`).join(', ')}.`}
+            buttonText="AI Assistant"
+            variant="header"
+          />
 
           {(cooccurrenceCsv || (networksByYear && selectedYear !== 'Global')) && (
             <button

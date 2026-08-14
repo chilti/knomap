@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { type NormalizationInfo, type NormalizationType, applyNormalizationToMatrix } from '../utils/normalization';
 import { applyCmaSmoothing } from '../utils/timeSeries';
+import { useAiStore } from './aiStore';
 
 // Helper to resolve API URLs dynamically based on deployment environment
 export const getApiUrl = (path: string): string => {
@@ -113,7 +114,7 @@ interface SOMState {
   isGeneratingUmap: boolean;
   isPreprocessing: boolean;
   uploadProgress: number | null;
-  activeTab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites';
+  activeTab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'asistente';
   
   // Experiment History (Multi-Training Runs)
   savedRuns: SomRun[];
@@ -179,19 +180,30 @@ interface SOMState {
   setIsCmaSmoothingActive: (active: boolean) => void;
   setCmaWindowSize: (size: number) => void;
   
-  // Label Filters
+  // Label Filters & Individual Custom Styling
   showLabels: boolean;
   labelSearchQuery: string;
   excludedLabels: Set<string>;
   maxLabelsPerNeuron: number;
+  labelFontSizeScale: number;
+  labelStyleOverrides: Record<string, { color?: string; sizeMultiplier?: number }>;
   showLabelsOnComponents: boolean;
+
+  // Cluster Labels
+  clusterLabels: Record<number, string>;
+  showClusterLabels: boolean;
 
   setShowLabels: (show: boolean) => void;
   setLabelSearchQuery: (query: string) => void;
   toggleLabelVisibility: (label: string) => void;
   setExcludedLabels: (labels: Set<string>) => void;
   setMaxLabelsPerNeuron: (max: number) => void;
+  setLabelFontSizeScale: (scale: number) => void;
+  setLabelStyleOverride: (label: string, style: { color?: string; sizeMultiplier?: number }) => void;
+  removeLabelStyleOverride: (label: string) => void;
   setShowLabelsOnComponents: (show: boolean) => void;
+  setClusterLabel: (clusterId: number, name: string) => void;
+  setShowClusterLabels: (show: boolean) => void;
   resetLabelFilters: () => void;
   
   // PathSOM (Trajectory) State
@@ -253,7 +265,7 @@ interface SOMState {
   
   // Setters & Actions
   setConfig: (config: Partial<SOMConfig>) => void;
-  setActiveTab: (tab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites') => void;
+  setActiveTab: (tab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'asistente') => void;
   fetchSystemStatus: () => Promise<void>;
   loadCsvData: (csvText: string, labelColIndex?: number, ignoreCols?: number[], origin?: 'csv' | 'monothematic' | 'bipartite', fileName?: string, provenance?: DataProvenance) => void;
   applyNormalization: (type: NormalizationType) => void;
@@ -666,12 +678,18 @@ export const useSomStore = create<SOMState>((set, get) => ({
     get().recalculatePipeline();
   },
 
-  // Label Filters
+  // Label Filters & Individual Custom Styling
   showLabels: false,
   labelSearchQuery: '',
   excludedLabels: new Set<string>(),
   maxLabelsPerNeuron: 1,
+  labelFontSizeScale: 1.0,
+  labelStyleOverrides: {},
   showLabelsOnComponents: false,
+
+  // Cluster Labels
+  clusterLabels: {},
+  showClusterLabels: true,
 
   setShowLabels: (show) => set({ showLabels: show }),
   setLabelSearchQuery: (query) => set({ labelSearchQuery: query }),
@@ -686,12 +704,32 @@ export const useSomStore = create<SOMState>((set, get) => ({
   }),
   setExcludedLabels: (labels) => set({ excludedLabels: labels }),
   setMaxLabelsPerNeuron: (max) => set({ maxLabelsPerNeuron: max }),
+  setLabelFontSizeScale: (scale) => set({ labelFontSizeScale: scale }),
+  setLabelStyleOverride: (label, style) => set((state) => ({
+    labelStyleOverrides: {
+      ...state.labelStyleOverrides,
+      [label]: { ...state.labelStyleOverrides[label], ...style }
+    }
+  })),
+  removeLabelStyleOverride: (label) => set((state) => {
+    const next = { ...state.labelStyleOverrides };
+    delete next[label];
+    return { labelStyleOverrides: next };
+  }),
   setShowLabelsOnComponents: (show) => set({ showLabelsOnComponents: show }),
+  setClusterLabel: (clusterId, name) => set((state) => ({
+    clusterLabels: { ...state.clusterLabels, [clusterId]: name }
+  })),
+  setShowClusterLabels: (show) => set({ showClusterLabels: show }),
   resetLabelFilters: () => set({
     showLabels: false,
     labelSearchQuery: '',
     excludedLabels: new Set<string>(),
     maxLabelsPerNeuron: 1,
+    labelFontSizeScale: 1.0,
+    labelStyleOverrides: {},
+    clusterLabels: {},
+    showClusterLabels: true,
     showLabelsOnComponents: false
   }),
 
@@ -1210,7 +1248,14 @@ export const useSomStore = create<SOMState>((set, get) => ({
       labelSearchQuery: state.labelSearchQuery,
       excludedLabels: Array.from(state.excludedLabels || []),
       maxLabelsPerNeuron: state.maxLabelsPerNeuron,
-      showLabelsOnComponents: state.showLabelsOnComponents
+      labelFontSizeScale: state.labelFontSizeScale,
+      labelStyleOverrides: state.labelStyleOverrides,
+      clusterLabels: state.clusterLabels,
+      showClusterLabels: state.showClusterLabels,
+      showLabelsOnComponents: state.showLabelsOnComponents,
+
+      // AI Assistant & Scientific Reports State (Visual Snapshots, SVGs, Context & Dialogues)
+      aiReport: useAiStore.getState().getReportPayload()
     };
   },
 
@@ -1314,8 +1359,17 @@ export const useSomStore = create<SOMState>((set, get) => ({
           labelSearchQuery: projectData.labelSearchQuery || '',
           excludedLabels: new Set(projectData.excludedLabels || []),
           maxLabelsPerNeuron: projectData.maxLabelsPerNeuron ?? 3,
+          labelFontSizeScale: projectData.labelFontSizeScale ?? 1.0,
+          labelStyleOverrides: projectData.labelStyleOverrides || {},
+          clusterLabels: projectData.clusterLabels || {},
+          showClusterLabels: projectData.showClusterLabels ?? true,
           showLabelsOnComponents: projectData.showLabelsOnComponents ?? false
         });
+
+        // Restore AI Assistant & Report State
+        if (projectData.aiReport) {
+          useAiStore.getState().loadReportPayload(projectData.aiReport, projectData.cloudProjectId || projectData.fileName);
+        }
       } else {
         alert('Invalid or corrupted .knoMap file format.');
       }
@@ -1326,6 +1380,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   },
 
   clearProject: () => {
+    useAiStore.getState().clearReport();
     set({
       fileName: null,
       dataMatrix: [],

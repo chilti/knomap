@@ -26,6 +26,57 @@ namespace LabSOM.Backend.Core.Services
             }
         }
 
+        public async Task<Project> SaveProjectCompressedStreamAsync(int userId, string? projectId, string title, string? description, Stream compressedStream)
+        {
+            Project? project = null;
+
+            if (!string.IsNullOrEmpty(projectId))
+            {
+                project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == projectId);
+                if (project != null)
+                {
+                    // Check permission (owner or editor)
+                    if (project.OwnerId != userId)
+                    {
+                        var share = await _db.ProjectShares.FirstOrDefaultAsync(ps => ps.ProjectId == projectId && ps.SharedWithUserId == userId);
+                        if (share == null || share.Permission != "Write")
+                        {
+                            throw new UnauthorizedAccessException("You do not have write permissions for this project.");
+                        }
+                    }
+
+                    project.Title = title;
+                    project.Description = description;
+                    project.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            if (project == null)
+            {
+                project = new Project
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Title = title,
+                    Description = description,
+                    OwnerId = userId,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                    PayloadFileName = $"{Guid.NewGuid():N}.json.gz"
+                };
+                _db.Projects.Add(project);
+            }
+
+            // Directly write the client-compressed gzip stream to disk
+            string filePath = Path.Combine(_projectsDir, project.PayloadFileName);
+            using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+            {
+                await compressedStream.CopyToAsync(fileStream);
+            }
+
+            await _db.SaveChangesAsync();
+            return project;
+        }
+
         public async Task<Project> SaveProjectAsync(int userId, string? projectId, string title, string? description, string jsonPayload)
         {
             Project? project = null;

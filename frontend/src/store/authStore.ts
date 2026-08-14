@@ -45,6 +45,18 @@ interface AuthState {
   fetchUsers: () => Promise<User[]>;
 }
 
+async function compressJsonToGzipBlob(data: any): Promise<Blob> {
+  const jsonString = typeof data === 'string' ? data : JSON.stringify(data);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  
+  if (typeof CompressionStream !== 'undefined') {
+    const stream = blob.stream().pipeThrough(new CompressionStream('gzip'));
+    return await new Response(stream).blob();
+  }
+  
+  return blob;
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: localStorage.getItem('knomap_jwt_token'),
   user: null,
@@ -172,18 +184,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const payload = useSomStore.getState().getProjectPayload();
 
     try {
+      // 1. Compress payload with native GZIP in browser (reduces upload size by ~90%)
+      const compressedBlob = await compressJsonToGzipBlob(payload);
+
+      // 2. Prepare multipart form data
+      const formData = new FormData();
+      if (targetProjectId) formData.append('id', targetProjectId);
+      formData.append('title', title);
+      if (description) formData.append('description', description);
+      formData.append('file', compressedBlob, 'project.json.gz');
+
       const response = await fetch(getApiUrl('/api/projects'), {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          id: targetProjectId,
-          title,
-          description,
-          payload
-        })
+        body: formData
       });
 
       const data = await response.json();

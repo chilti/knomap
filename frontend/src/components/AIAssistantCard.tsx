@@ -8,7 +8,7 @@ interface AIAssistantCardProps {
     cacheKey?: string;
 }
 
-export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, contextData, title = "Análisis Asistido por IA", cacheKey }) => {
+export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, contextData, title = "AI-Assisted Analysis", cacheKey }) => {
     const { incitesLlmCache, setIncitesState } = useSomStore();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, 
             
             const reqBody = {
                 systemPrompt: systemPrompt,
-                userPrompt: `Contexto de datos:\n\`\`\`json\n${dataString}\n\`\`\`\n\nPor favor analiza estos datos y proporciona tus conclusiones:`
+                userPrompt: `Data context:\n\`\`\`json\n${dataString}\n\`\`\`\n\nWrite a rigorous two to three paragraph scientific analysis in peer-reviewed journal style (Results and Discussion section) examining the figure and structured data above.`
             };
 
             const res = await fetch(getApiUrl('/api/llm/analyze'), {
@@ -46,10 +46,10 @@ export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, 
                     });
                 }
             } else {
-                setError(result.error || "Ocurrió un error desconocido.");
+                setError(result.error || "An unknown error occurred.");
             }
         } catch (e: any) {
-            setError(e.message || "Fallo de conexión con el backend.");
+            setError(e.message || "Connection failure with backend.");
         } finally {
             setIsLoading(false);
         }
@@ -69,9 +69,9 @@ export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, 
                 {!isLoading && !response && (
                     <button 
                         onClick={handleAnalyze}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-xl transition-all shadow-md shadow-indigo-900/50 text-sm"
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-xl transition-all shadow-md shadow-indigo-900/50 text-sm cursor-pointer"
                     >
-                        Analizar con IA (Modelo Local)
+                        Analyze with AI (Local Model)
                     </button>
                 )}
             </div>
@@ -79,14 +79,14 @@ export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, 
             {isLoading && (
                 <div className="flex flex-col items-center justify-center py-8 space-y-4">
                     <div className="w-8 h-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
-                    <p className="text-indigo-400 text-sm animate-pulse">El modelo local está analizando los datos...</p>
+                    <p className="text-indigo-400 text-sm animate-pulse">Local model is analyzing data...</p>
                 </div>
             )}
 
             {error && (
                 <div className="bg-red-900/30 border border-red-500/50 rounded-xl p-4 mt-2">
                     <p className="text-red-400 text-sm">{error}</p>
-                    <button onClick={handleAnalyze} className="mt-2 text-xs text-red-300 hover:text-white underline">Intentar de nuevo</button>
+                    <button onClick={handleAnalyze} className="mt-2 text-xs text-red-300 hover:text-white underline cursor-pointer">Try again</button>
                 </div>
             )}
 
@@ -111,12 +111,12 @@ export const AIAssistantCard: React.FC<AIAssistantCardProps> = ({ systemPrompt, 
                     <div className="mt-6 flex justify-end">
                         <button 
                             onClick={handleAnalyze}
-                            className="text-xs text-gray-500 hover:text-gray-300 flex items-center"
+                            className="text-xs text-gray-500 hover:text-gray-300 flex items-center cursor-pointer"
                         >
                             <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
-                            Re-analizar
+                            Re-analyze
                         </button>
                     </div>
                 </div>

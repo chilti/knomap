@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSomStore } from '../store/somStore';
 import { Upload, Activity, Layers, Database, RefreshCw, Play, Compass, FileText, Search, ExternalLink } from 'lucide-react';
+import { SendToAssistantButton } from './SendToAssistantButton';
 
 export const SemanticBibliometrics: React.FC = () => {
   const {
@@ -129,7 +130,7 @@ export const SemanticBibliometrics: React.FC = () => {
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4">
           <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2">
             <Upload className="w-4 h-4 text-indigo-400" />
-            <span>1. Cargar y Vectorizar</span>
+            <span>1. Load and Vectorize</span>
           </h3>
 
           {!semanticRecords ? (
@@ -139,8 +140,8 @@ export const SemanticBibliometrics: React.FC = () => {
                 className="border-2 border-dashed border-gray-800 rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer hover:border-indigo-500 hover:bg-gray-800 transition-all text-center"
               >
                 <Upload className="w-8 h-8 text-gray-500 mb-2" />
-                <p className="text-xs text-gray-300 font-medium">Examinar archivo bibliográfico</p>
-                <p className="text-[10px] text-gray-600 mt-1">WoS, Scopus (.txt, .csv) o PubMed (.txt)</p>
+                <p className="text-xs text-gray-300 font-medium">Browse bibliographic file</p>
+                <p className="text-[10px] text-gray-600 mt-1">WoS, Scopus (.txt, .csv) or PubMed (.txt)</p>
               </div>
               <input type="file" ref={fileInputRef} accept=".txt,.csv,.tsv" className="hidden" onChange={handleFileUpload} />
               
@@ -153,15 +154,15 @@ export const SemanticBibliometrics: React.FC = () => {
 
               {/* Extras configuration */}
               <div className="space-y-2 bg-gray-950 p-3 rounded-xl border border-gray-800">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide block">Campos a Extraer</span>
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide block">Fields to Extract</span>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <label className="flex items-center space-x-2 text-gray-300 cursor-pointer">
                     <input type="checkbox" checked={extractTitle} onChange={(e) => setExtractTitle(e.target.checked)} className="rounded bg-gray-900 border-gray-700 text-indigo-600" />
-                    <span>Título</span>
+                    <span>Title</span>
                   </label>
                   <label className="flex items-center space-x-2 text-gray-300 cursor-pointer">
                     <input type="checkbox" checked={extractAbstract} onChange={(e) => setExtractAbstract(e.target.checked)} className="rounded bg-gray-900 border-gray-700 text-indigo-600" />
-                    <span>Resumen</span>
+                    <span>Abstract</span>
                   </label>
                   <label className="flex items-center space-x-2 text-gray-300 cursor-pointer">
                     <input type="checkbox" checked={extractKeywords} onChange={(e) => setExtractKeywords(e.target.checked)} className="rounded bg-gray-900 border-gray-700 text-indigo-600" />
@@ -169,13 +170,13 @@ export const SemanticBibliometrics: React.FC = () => {
                   </label>
                   <label className="flex items-center space-x-2 text-gray-300 cursor-pointer">
                     <input type="checkbox" checked={extractJournal} onChange={(e) => setExtractJournal(e.target.checked)} className="rounded bg-gray-900 border-gray-700 text-indigo-600" />
-                    <span>Revista (SO)</span>
+                    <span>Journal (SO)</span>
                   </label>
                 </div>
                 <div className="pt-2 border-t border-gray-800 mt-2">
                   <label className="flex items-center space-x-2 text-xs text-gray-300 cursor-pointer">
                     <input type="checkbox" checked={useMesh} onChange={(e) => setUseMesh(e.target.checked)} className="rounded bg-gray-900 border-gray-700 text-indigo-600" />
-                    <span>Incluir MeSH (PubMed)</span>
+                    <span>Include MeSH (PubMed)</span>
                   </label>
                 </div>
               </div>
@@ -186,7 +187,7 @@ export const SemanticBibliometrics: React.FC = () => {
                 className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2"
               >
                 {isSemanticPreprocessing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                <span>Procesar Archivo</span>
+                <span>Process File</span>
               </button>
             </div>
           ) : (
@@ -194,23 +195,23 @@ export const SemanticBibliometrics: React.FC = () => {
               <div className="bg-emerald-950 bg-opacity-20 border border-emerald-800/40 rounded-xl p-3 flex justify-between items-center text-xs">
                 <div>
                   <p className="text-emerald-400 font-bold truncate max-w-[180px]" title={semanticFileName}>{semanticFileName}</p>
-                  <p className="text-gray-400 text-[10px] mt-0.5">Extraídos {semanticRecords.length} artículos.</p>
+                  <p className="text-gray-400 text-[10px] mt-0.5">Extracted {semanticRecords.length} articles.</p>
                 </div>
-                <button onClick={clearSemanticState} className="text-[10px] text-gray-500 hover:text-white">Reiniciar</button>
+                <button onClick={clearSemanticState} className="text-[10px] text-gray-500 hover:text-white">Reset</button>
               </div>
 
               {/* Embedding execution */}
               {!semanticEmbeddings ? (
                 <div className="space-y-3 bg-gray-950 p-3 rounded-xl border border-gray-800">
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Modelo de Embedding</label>
+                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Embedding Model</label>
                     <select
                       value={semanticEmbedModel}
                       onChange={(e) => setSemanticEmbedModel(e.target.value as 'nomic' | 'specter')}
                       className="w-full bg-gray-900 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none"
                     >
-                      <option value="nomic">Nomic (API remota LM Studio)</option>
-                      <option value="specter">SPECTER2 (SentenceTransformer local)</option>
+                      <option value="nomic">Nomic (LM Studio Remote API)</option>
+                      <option value="specter">SPECTER2 (Local SentenceTransformer)</option>
                     </select>
                   </div>
 
@@ -220,12 +221,12 @@ export const SemanticBibliometrics: React.FC = () => {
                     className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2"
                   >
                     {isSemanticEmbedding ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
-                    <span>Generar Embeddings</span>
+                    <span>Generate Embeddings</span>
                   </button>
                 </div>
               ) : (
                 <div className="bg-emerald-950 bg-opacity-20 border border-emerald-800/40 rounded-xl p-3 text-xs text-emerald-400 font-bold flex items-center space-x-2">
-                  <span>✓ Embeddings listos ({semanticEmbeddings.length} vectores)</span>
+                  <span>✓ Embeddings ready ({semanticEmbeddings.length} vectors)</span>
                 </div>
               )}
             </div>
@@ -236,13 +237,13 @@ export const SemanticBibliometrics: React.FC = () => {
         <div className={`bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4 ${!semanticEmbeddings ? 'opacity-40 pointer-events-none' : ''}`}>
           <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2">
             <Activity className="w-4 h-4 text-emerald-400" />
-            <span>2. Reducción a Dim Intrínseca</span>
+            <span>2. Intrinsic Dimension Reduction</span>
           </h3>
 
           {/* Phase A: Estimate ceiling */}
           <div className="space-y-2">
             <p className="text-[10px] text-gray-500 leading-relaxed">
-              Estima la dimensión intrínseca óptima usando MLE local (percentil 95). El resultado se usará como K para la reducción UMAP.
+              Estimate optimal intrinsic dimension using local MLE (95th percentile). The result will be used as K for UMAP reduction.
             </p>
             <button
               onClick={() => estimateSemanticIntrinsicDim()}
@@ -250,31 +251,31 @@ export const SemanticBibliometrics: React.FC = () => {
               className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2"
             >
               {isSemanticReducing && !semanticCeilingResult ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
-              <span>Calcular Dimensión Intrínseca</span>
+              <span>Calculate Intrinsic Dimension</span>
             </button>
 
             {semanticCeilingResult && (
               <div className="bg-gray-950 rounded-xl p-3 border border-gray-800 text-[10px] space-y-2">
                 <div className="text-center">
                   <span className="text-emerald-400 font-black text-2xl block">{semanticCeilingResult.estimated_dimension.toFixed(1)}</span>
-                  <span className="text-gray-500 text-[9px] uppercase font-bold">K Recomendado (MLE Percentil 95)</span>
+                  <span className="text-gray-500 text-[9px] uppercase font-bold">Recommended Target Dimension (95th Percentile MLE)</span>
                 </div>
                 {semanticCeilingResult.metrics && (
                   <div className="grid grid-cols-2 gap-1 text-[9px] border-t border-gray-800 pt-2">
                     <div className="bg-gray-900 p-1.5 rounded text-center">
-                      <span className="block text-gray-500">Mediana</span>
+                      <span className="block text-gray-500">Median</span>
                       <span className="font-bold text-gray-200">{semanticCeilingResult.metrics.median?.toFixed(2) || 'N/A'}</span>
                     </div>
                     <div className="bg-gray-900 p-1.5 rounded text-center">
-                      <span className="block text-gray-500">Media</span>
+                      <span className="block text-gray-500">Mean</span>
                       <span className="font-bold text-gray-200">{semanticCeilingResult.metrics.mean?.toFixed(2) || 'N/A'}</span>
                     </div>
                     <div className="bg-gray-900 p-1.5 rounded text-center">
-                      <span className="block text-gray-500">P90</span>
+                      <span className="block text-gray-500">90th Percentile</span>
                       <span className="font-bold text-gray-200">{semanticCeilingResult.metrics.p90?.toFixed(2) || 'N/A'}</span>
                     </div>
                     <div className="bg-gray-900 p-1.5 rounded text-center">
-                      <span className="block text-gray-500">Máximo</span>
+                      <span className="block text-gray-500">Maximum</span>
                       <span className="font-bold text-gray-200">{semanticCeilingResult.metrics.max?.toFixed(2) || 'N/A'}</span>
                     </div>
                   </div>
@@ -286,7 +287,7 @@ export const SemanticBibliometrics: React.FC = () => {
           {/* Phase B: Reduce to K dimensions */}
           <div className={`space-y-2 border-t border-gray-800 pt-3 ${!semanticEmbeddings ? 'opacity-50' : ''}`}>
             <p className="text-[10px] text-gray-500">
-              Ajusta el Target K y aplica UMAP a esa dimensión (para clustering) y a 2D (para visualización).
+              Adjust Target K and apply UMAP to that dimension (for clustering) and to 2D (for visualization).
             </p>
             <div className="flex space-x-3 items-end">
               <div className="flex-1">
@@ -304,32 +305,32 @@ export const SemanticBibliometrics: React.FC = () => {
                 disabled={isSemanticReducing}
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-2 disabled:opacity-50"
               >
-                {isSemanticReducing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <span>Reducir</span>}
+                {isSemanticReducing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <span>Reduce</span>}
               </button>
             </div>
 
             {semantic2DCoords && (
               <div className="bg-emerald-950 bg-opacity-20 border border-emerald-800/40 rounded-xl p-3 text-xs text-emerald-400 font-bold flex items-center space-x-2">
-                <span>✓ Reducción lista — {semanticIntrinsicData?.length || 0} puntos en K={semanticTargetD}D + 2D</span>
+                <span>✓ Reduction ready — {semanticIntrinsicData?.length || 0} points in K={semanticTargetD}D + 2D</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Step 3: Clustering & automatic Spanish labels */}
+        {/* Step 3: Clustering & automatic AI labels */}
         <div className={`bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4 ${!semanticIntrinsicData ? 'opacity-40 pointer-events-none' : ''}`}>
           <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2">
             <Layers className="w-4 h-4 text-amber-400" />
-            <span>3. Agrupamiento y Etiquetado IA</span>
+            <span>3. Clustering & AI Labeling</span>
           </h3>
           <p className="text-[10px] text-gray-500 leading-relaxed">
-            Aplica HDBSCAN en la dimensión intrínseca y KMeans en las coordenadas 2D. Un LLM local etiquetará las áreas en español con fallbacks automáticos por TF-IDF.
+            Apply HDBSCAN in intrinsic dimension and KMeans on 2D coordinates. A local LLM will label the thematic areas in English with automatic TF-IDF fallbacks.
           </p>
 
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Niveles de Zoom</label>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Zoom Levels</label>
                 <input
                   type="number"
                   min="1"
@@ -340,7 +341,7 @@ export const SemanticBibliometrics: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Tamaño Min Clúster</label>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Min Cluster Size</label>
                 <input
                   type="number"
                   min="3"
@@ -357,12 +358,12 @@ export const SemanticBibliometrics: React.FC = () => {
               className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2"
             >
               {isSemanticClustering ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-              <span>Generar Clústeres</span>
+              <span>Generate Clusters</span>
             </button>
 
             {semanticClusters && (
               <div className="bg-emerald-950 bg-opacity-20 border border-emerald-800/40 rounded-xl p-3 text-xs text-emerald-400 font-bold flex items-center space-x-2">
-                <span>✓ {semanticClusters.length} clústeres de Nivel 1 creados</span>
+                <span>✓ {semanticClusters.length} Level 1 clusters created</span>
               </div>
             )}
           </div>
@@ -374,7 +375,7 @@ export const SemanticBibliometrics: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-gray-800 mb-4 gap-2">
           <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2">
             <FileText className="w-4 h-4 text-indigo-400" />
-            <span>Artículos Extraídos ({filteredRecords.length})</span>
+            <span>Extracted Articles ({filteredRecords.length})</span>
           </h3>
           
           {/* Search Input */}
@@ -382,7 +383,7 @@ export const SemanticBibliometrics: React.FC = () => {
             <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-500" />
             <input
               type="text"
-              placeholder="Buscar título, resumen, DOI..."
+              placeholder="Search title, abstract, DOI..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-gray-950 border border-gray-800 rounded-xl pl-9 pr-4 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
@@ -394,16 +395,16 @@ export const SemanticBibliometrics: React.FC = () => {
         <div className="flex-1 overflow-auto">
           {filteredRecords.length === 0 ? (
             <div className="text-center text-xs text-gray-600 py-8">
-              No hay datos para mostrar.
+              No data to display.
             </div>
           ) : (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-gray-800 text-gray-500">
-                  <th className="py-2 font-semibold">Título</th>
-                  <th className="py-2 font-semibold">Palabras clave / MeSH</th>
+                  <th className="py-2 font-semibold">Title</th>
+                  <th className="py-2 font-semibold">Keywords / MeSH</th>
                   <th className="py-2 font-semibold">Vector</th>
-                  <th className="py-2 font-semibold">Tema</th>
+                  <th className="py-2 font-semibold">Topic</th>
                   <th className="py-2 font-semibold text-right">DOI</th>
                 </tr>
               </thead>
@@ -430,11 +431,11 @@ export const SemanticBibliometrics: React.FC = () => {
                             {`[${vector.slice(0, 3).map(v => v.toFixed(3)).join(', ')}, ...] (${vector.length}d)`}
                           </span>
                         ) : (
-                          <span className="text-gray-600 italic">Sin vectorizar</span>
+                          <span className="text-gray-600 italic">Unvectorized</span>
                         )}
                       </td>
                       <td className="py-3 pr-4 text-indigo-400 font-semibold">
-                        {label || 'Ruido'}
+                        {label || 'Noise'}
                       </td>
                       <td className="py-3 text-right">
                         {record.doi ? (
@@ -459,7 +460,7 @@ export const SemanticBibliometrics: React.FC = () => {
           )}
           {filteredRecords.length > 10 && (
             <div className="text-[10px] text-gray-500 text-center py-2 border-t border-gray-800/20">
-              Mostrando primeros 10 de {filteredRecords.length} artículos. Usa el buscador para filtrar.
+              Showing first 10 of {filteredRecords.length} articles. Use the search box to filter.
             </div>
           )}
         </div>
@@ -470,7 +471,25 @@ export const SemanticBibliometrics: React.FC = () => {
     <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl relative w-full" style={{ height: '800px' }}>
       <div className="absolute top-4 left-4 z-20 flex items-center space-x-2 bg-gray-950/80 px-3 py-1.5 rounded-full border border-gray-800 backdrop-blur-md">
         <Compass className="w-4 h-4 text-indigo-400 animate-pulse" />
-        <span className="text-[10px] text-gray-200 font-black tracking-wider uppercase">Mapa de Literatura Semántica</span>
+        <span className="text-[10px] text-gray-200 font-black tracking-wider uppercase">Semantic Literature Map</span>
+      </div>
+
+      <div className="absolute top-4 right-4 z-20 flex items-center space-x-2">
+        <SendToAssistantButton
+          title="Semantic Literature Map (Embeddings & Clusters)"
+          badge="SEMANTICS"
+          viewSource="semantic"
+          chartType="scatter"
+          data={semantic2DCoords ? semantic2DCoords.map((c, i) => ({
+            x: c.x,
+            y: c.y,
+            title: semanticRecords?.[i]?.title || `Doc ${i}`,
+            cluster: semanticClusterAssignment?.[i] || 'Noise'
+          })) : []}
+          dataContextPrompt={`Semantic Literature Map (${semanticFileName || 'Dataset'}).\nEmbedding Model: ${semanticEmbedModel}.\nTotal documents: ${semanticRecords?.length || 0}.\nOptimal Intrinsic Dimension K=${semanticTargetD}.\nIdentified semantic clusters: ${semanticClusters?.length || 0}.\nTopics: ${semanticClusters?.map(c => c.label || c.name || `Cluster ${c.id}`).slice(0, 12).join(', ')}.`}
+          buttonText="AI Assistant"
+          variant="header"
+        />
       </div>
 
       <iframe

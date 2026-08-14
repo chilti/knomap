@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import chroma from 'chroma-js';
 import { line, curveCatmullRom } from 'd3-shape';
 import { useSomStore } from '../store/somStore';
-import { RefreshCw, ZoomIn, ZoomOut, Tags, Download } from 'lucide-react';
+import { RefreshCw, ZoomIn, ZoomOut, Tags, Download, Layers } from 'lucide-react';
 
 export interface Trajectory {
   name: string;
@@ -43,12 +43,21 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
     labelSearchQuery,
     excludedLabels,
     maxLabelsPerNeuron,
+    labelFontSizeScale,
+    labelStyleOverrides,
+    clusterLabels,
+    showClusterLabels,
     showLabelsOnComponents,
     setShowLabels,
     setLabelSearchQuery,
     toggleLabelVisibility,
     setExcludedLabels,
     setMaxLabelsPerNeuron,
+    setLabelFontSizeScale,
+    setLabelStyleOverride,
+    removeLabelStyleOverride,
+    setClusterLabel,
+    setShowClusterLabels,
     resetLabelFilters
   } = useSomStore();
   
@@ -62,8 +71,9 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
   const [hoveredNeuron, setHoveredNeuron] = useState<{ index: number; x: number; y: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   
-  // Local state to control filters modal visibility
+  // Local state to control filters modal visibility and active tab
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [modalTab, setModalTab] = useState<'docs' | 'clusters'>('docs');
 
   // Sync scale if calculatedScale changes (e.g. when grid size changes or new training is loaded)
   useEffect(() => {
@@ -83,6 +93,51 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
   const { hexGrid, umatrix, clustering, frequencies, quantizationErrors, weights, mappedLabels } = result;
   const { rows, cols } = somConfig;
 
+  // Compute centroid / geometric medoid of each cluster
+  const clusterCentroids = useMemo(() => {
+    if (!result || !clustering || clustering.length === 0) return [];
+    
+    const clusterMap = new Map<number, number[]>();
+    clustering.forEach((cId, idx) => {
+      if (cId === -1 || cId === null || cId === undefined) return;
+      if (!clusterMap.has(cId)) clusterMap.set(cId, []);
+      clusterMap.get(cId)!.push(idx);
+    });
+
+    const centroids: { clusterId: number; x: number; y: number; count: number; color: string }[] = [];
+
+    clusterMap.forEach((neuronIndices, cId) => {
+      if (neuronIndices.length === 0) return;
+      const avgX = neuronIndices.reduce((sum, idx) => sum + hexGrid[idx].x, 0) / neuronIndices.length;
+      const avgY = neuronIndices.reduce((sum, idx) => sum + hexGrid[idx].y, 0) / neuronIndices.length;
+
+      let bestIdx = neuronIndices[0];
+      let minDist = Infinity;
+      neuronIndices.forEach(idx => {
+        const dx = hexGrid[idx].x - avgX;
+        const dy = hexGrid[idx].y - avgY;
+        const dist = dx * dx + dy * dy;
+        if (dist < minDist) {
+          minDist = dist;
+          bestIdx = idx;
+        }
+      });
+
+      const hue = (cId * 137.5) % 360;
+      const color = chroma.hsl(hue, 0.75, 0.65).hex();
+
+      centroids.push({
+        clusterId: cId,
+        x: hexGrid[bestIdx].x,
+        y: hexGrid[bestIdx].y,
+        count: neuronIndices.length,
+        color
+      });
+    });
+
+    return centroids.sort((a, b) => a.clusterId - b.clusterId);
+  }, [result, clustering, hexGrid]);
+
   // Hexagon math constants
   const R = 1.0;
   const apotema = Math.sqrt(3) / 2.0;
@@ -93,10 +148,12 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
   const minX = -1.2 * R;
   const minY = -1.2 * apotema * R;
 
-  // Convert bounding box to pixels for viewBox
-  const widthPx = (maxX - minX) * scale;
-  const heightPx = (maxY - minY) * scale;
-  const viewboxStr = `${minX * scale} ${minY * scale} ${widthPx} ${heightPx}`;
+  // Convert bounding box to pixels for CSS rendered size
+  const gridWidth = maxX - minX;
+  const gridHeight = maxY - minY;
+  const widthPx = gridWidth * scale;
+  const heightPx = gridHeight * scale;
+  const viewboxStr = `${minX} ${minY} ${gridWidth} ${gridHeight}`;
 
   // Calculate original data metrics for component map color bar
   let compMin = 0;
@@ -230,7 +287,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
       n6: { r: j % 2 === 0 ? i - 1 : i, c: j + 1, edgeIdxs: [5, 0] }      // top-right
     };
 
-    // Calculate vertex coordinates for a given cell center (xc, yc)
+    // Calculate vertex coordinates for a given cell center (xc, yc) in grid units
     const getHexPoints = (xc: number, yc: number) => {
       return [
         { x: xc + R, y: yc },                               // P1
@@ -239,7 +296,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
         { x: xc - R, y: yc },                               // P4
         { x: xc - 0.5 * R, y: yc - apotema * R },           // P5
         { x: xc + 0.5 * R, y: yc - apotema * R }            // P6
-      ].map(p => ({ x: p.x * scale, y: p.y * scale }));
+      ];
     };
 
     const xc = hexGrid[neuronIdx].x;
@@ -264,7 +321,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
     return borderLines;
   };
 
-  // Generate SVG polygon points string for a hexagon centered at (xc, yc)
+  // Generate SVG polygon points string for a hexagon centered at (xc, yc) in grid units
   const getHexPolygonPoints = (xc: number, yc: number): string => {
     const points = [
       { x: xc + R, y: yc },
@@ -274,7 +331,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
       { x: xc - 0.5 * R, y: yc - apotema * R },
       { x: xc + 0.5 * R, y: yc - apotema * R }
     ];
-    return points.map(p => `${p.x * scale},${p.y * scale}`).join(' ');
+    return points.map(p => `${p.x},${p.y}`).join(' ');
   };
 
   // Helper to determine if we should draw labels for the current map viewport
@@ -322,20 +379,27 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
     <div className="flex flex-col h-full bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl relative">
       {/* Visual Controls Toolbar */}
       <div className="flex items-center justify-between px-6 py-4 bg-gray-950 border-b border-gray-800 flex-wrap gap-4">
-        <div className="flex items-center space-x-4">
-          <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">Zoom</span>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs uppercase tracking-wider text-gray-500 font-bold mr-1">Zoom</span>
           <button
-            onClick={() => setScale(prev => Math.min(120, prev + 10))}
-            className="p-1-5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition"
+            onClick={() => setScale(prev => Math.min(240, prev + 10))}
+            disabled={scale >= 240}
+            className="p-1.5 bg-gray-850 hover:bg-gray-750 disabled:opacity-40 text-gray-200 rounded-lg transition border border-gray-700 shadow-sm"
+            title="Zoom In (Etiquetas y celdas más grandes)"
           >
             <ZoomIn className="w-4 h-4" />
           </button>
           <button
             onClick={() => setScale(prev => Math.max(8, prev - 5))}
-            className="p-1-5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition"
+            disabled={scale <= 8}
+            className="p-1.5 bg-gray-850 hover:bg-gray-750 disabled:opacity-40 text-gray-200 rounded-lg transition border border-gray-700 shadow-sm"
+            title="Zoom Out"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
+          <span className="text-[10px] font-mono text-indigo-400 font-bold bg-indigo-950/60 px-2 py-1 rounded border border-indigo-800/40">
+            {scale}px
+          </span>
         </div>
 
         {visualizationMode === 'component' && (
@@ -366,16 +430,53 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
               <span>Show labels</span>
             </label>
 
-            {/* Subset filters modal open trigger button */}
+            {/* Cluster labels toggle */}
+            <label className="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer" title="Mostrar/ocultar nombres de cluster en el mapa">
+              <input
+                type="checkbox"
+                checked={showClusterLabels}
+                onChange={(e) => setShowClusterLabels(e.target.checked)}
+                className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-indigo-500 focus:ring-indigo-500 focus:ring-offset-gray-900 cursor-pointer"
+              />
+              <span>Cluster Labels</span>
+            </label>
+
+            {/* Subset filters modal open trigger button & font size controls */}
             {showLabels && shouldRenderLabels() && (
-              <button
-                onClick={() => setIsFilterModalOpen(true)}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-lg shadow-indigo-950 cursor-pointer"
-                title="Open Labels Subset Manager"
-              >
-                <Tags className="w-3.5 h-3.5" />
-                <span>Label Filters</span>
-              </button>
+              <>
+                <button
+                  onClick={() => setIsFilterModalOpen(true)}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-lg shadow-indigo-950 cursor-pointer"
+                  title="Open Labels Subset Manager"
+                >
+                  <Tags className="w-3.5 h-3.5" />
+                  <span>Label Filters</span>
+                </button>
+
+                {/* Quick Font Size Controls */}
+                <div className="flex items-center space-x-1 bg-gray-950 px-2.5 py-1 rounded-xl border border-gray-800" title="Ajustar tamaño de fuente de las etiquetas (hasta 1000%)">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mr-1">Fuente:</span>
+                  <button
+                    onClick={() => setLabelFontSizeScale(Math.max(0.4, parseFloat((labelFontSizeScale - 0.2).toFixed(1))))}
+                    disabled={labelFontSizeScale <= 0.4}
+                    className="px-2 py-0.5 bg-gray-850 hover:bg-gray-750 disabled:opacity-30 text-gray-200 rounded text-[10px] font-black border border-gray-700 transition cursor-pointer"
+                    title="Disminuir tamaño de fuente"
+                  >
+                    A-
+                  </button>
+                  <span className="text-[10px] font-mono font-bold text-indigo-400 w-11 text-center">
+                    {Math.round(labelFontSizeScale * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setLabelFontSizeScale(Math.min(10.0, parseFloat((labelFontSizeScale + 0.2).toFixed(1))))}
+                    disabled={labelFontSizeScale >= 10.0}
+                    className="px-2 py-0.5 bg-gray-850 hover:bg-gray-750 disabled:opacity-30 text-gray-200 rounded text-[10px] font-black border border-gray-700 transition cursor-pointer"
+                    title="Aumentar tamaño de fuente"
+                  >
+                    A+
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -406,22 +507,28 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
         <div className="relative flex-1 flex justify-center items-center overflow-auto p-4 min-w-0">
           <svg
             ref={svgRef}
-            width={widthPx}
-            height={heightPx}
             viewBox={viewboxStr}
+            style={{
+              width: `${widthPx}px`,
+              height: `${heightPx}px`,
+              minWidth: `${widthPx}px`,
+              minHeight: `${heightPx}px`,
+              maxWidth: 'none',
+              maxHeight: 'none'
+            }}
             className="map-hexagonal-svg transition-all select-none"
           >
             <defs>
               <marker
                 id="arrowhead"
-                markerWidth="8"
-                markerHeight="8"
-                refX="7"
-                refY="4"
+                markerWidth="6"
+                markerHeight="6"
+                refX="5"
+                refY="3"
                 orient="auto"
                 markerUnits="strokeWidth"
               >
-                <path d="M 0,0 L 8,4 L 0,8 Z" fill="context-stroke" />
+                <path d="M 0,0 L 6,3 L 0,6 Z" fill="context-stroke" />
               </marker>
             </defs>
             {useMemo(() => (
@@ -436,7 +543,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                       points={getHexPolygonPoints(neuron.x, neuron.y)}
                       fill={fillClr}
                       stroke={isSelected ? '#ffffff' : '#4a5568'}
-                      strokeWidth={isSelected ? 2 : 0.4}
+                      strokeWidth={isSelected ? 0.08 : 0.025}
                       opacity={0.9}
                       className="cursor-pointer transition-colors duration-150 hover:opacity-100"
                       onClick={() => {
@@ -465,7 +572,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                         x2={x2}
                         y2={y2}
                         stroke="#000000"
-                        strokeWidth={2}
+                        strokeWidth={0.06}
                         strokeLinecap="round"
                         className="pointer-events-none"
                       />
@@ -477,10 +584,10 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                 {trajectories.map((traj, idx) => {
                   if (traj.points.length < 2) return null;
 
-                  // Create coords for the spline
+                  // Create coords for the spline in grid units
                   const coords = traj.points.map(p => {
                     const node = hexGrid[p.index];
-                    return [node.x * scale, node.y * scale] as [number, number];
+                    return [node.x, node.y] as [number, number];
                   });
 
                   const lineGen = line()
@@ -496,12 +603,12 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                         d={pathData}
                         fill="none"
                         stroke={traj.color}
-                        strokeWidth={traj.width || 2}
+                        strokeWidth={(traj.width || 2) * 0.035}
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         markerEnd="url(#arrowhead)"
                         className="transition-all duration-300"
-                        style={{ filter: 'drop-shadow(0px 2px 4px rgba(0,0,0,0.8))' }}
+                        style={{ filter: 'drop-shadow(0px 0.05px 0.1px rgba(0,0,0,0.8))' }}
                       />
                       
                       {/* Trajectory waypoints (dots) */}
@@ -510,11 +617,10 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                           key={`traj_p_${idx}_${i}`}
                           cx={c[0]}
                           cy={c[1]}
-                          r={(traj.width || 2) * 1.5}
+                          r={(traj.width || 2) * 0.045}
                           fill={traj.color}
                           stroke="#050508"
-                          strokeWidth={1}
-                          style={{ filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.5))' }}
+                          strokeWidth={0.02}
                         />
                       ))}
                       
@@ -523,18 +629,24 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                         const dataIndex = traj.points[i].dataIndex;
                         const labelText = labels[dataIndex];
                         if (!labelText) return null;
+                        const trajFontSize = 0.55 * labelFontSizeScale;
                         return (
                           <text
                             key={`traj_lbl_${idx}_${i}`}
                             x={c[0]}
-                            y={c[1] - (traj.width || 2) * 1.5 - 4}
+                            y={c[1] - (traj.width || 2) * 0.045 - (trajFontSize * 0.45)}
                             textAnchor="middle"
                             dominantBaseline="alphabetic"
                             fill={traj.color}
-                            fontSize="10px"
+                            stroke="#050508"
+                            strokeWidth={`${Math.max(0.04, trajFontSize * 0.22).toFixed(3)}`}
+                            paintOrder="stroke fill"
+                            strokeLinejoin="round"
+                            strokeLinecap="round"
+                            fontSize={`${trajFontSize.toFixed(3)}`}
                             fontWeight="900"
                             className="font-sans select-none pointer-events-none uppercase tracking-tight"
-                            style={{ textShadow: '0px 0px 4px rgba(0,0,0,0.9), 0px 0px 1px rgba(255,255,255,0.5)' }}
+                            style={{ filter: 'drop-shadow(0px 0.08px 0.15px rgba(0,0,0,0.95))' }}
                           >
                             {labelText}
                           </text>
@@ -544,7 +656,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                   );
                 })}
 
-                {/* 4. Flat, Centered SVG Document Labels Overlays */}
+                {/* 4. Flat, Centered SVG Document Labels Overlays (Scales dynamically with Zoom & Manual Font Scale) */}
                 {shouldRenderLabels() &&
                   hexGrid.map((neuron) => {
                     const docList = mappedLabels[neuron.index] || [];
@@ -564,13 +676,25 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
 
                     if (filteredDocs.length === 0) return null;
 
-                    const xc = neuron.x * scale;
-                    const yc = neuron.y * scale;
+                    const xc = neuron.x;
+                    const yc = neuron.y;
+
+                    // Generous base size so labels are prominently readable even in large grids
+                    const baseSize = 0.55 * R;
+                    const dynamicFontSize = (filteredDocs.length > 1 
+                      ? Math.min(baseSize, (2.2 * apotema * R) / (filteredDocs.length * 1.15)) 
+                      : baseSize) * labelFontSizeScale;
+                    const lineSpacing = dynamicFontSize * 1.15;
 
                     return (
                       <g key={`lbl_group_${neuron.index}`} className="pointer-events-none">
                         {filteredDocs.map((label, idx) => {
-                          const yOffset = (idx - (filteredDocs.length - 1) / 2) * 11;
+                          const yOffset = (idx - (filteredDocs.length - 1) / 2) * lineSpacing;
+                          const customStyle = labelStyleOverrides[label];
+                          const customColor = customStyle?.color;
+                          const customSizeMult = customStyle?.sizeMultiplier ?? 1.0;
+                          const effectiveFontSize = dynamicFontSize * customSizeMult;
+
                           return (
                             <text
                               key={`${label}_${idx}`}
@@ -578,11 +702,16 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                               y={yc + yOffset}
                               textAnchor="middle"
                               dominantBaseline="middle"
-                              fill="#0e121a"
-                              fontSize="8px"
-                              fontWeight="bold"
+                              fill={customColor || "#ffffff"}
+                              stroke="#050508"
+                              strokeWidth={`${Math.max(0.04, effectiveFontSize * 0.22).toFixed(3)}`}
+                              paintOrder="stroke fill"
+                              strokeLinejoin="round"
+                              strokeLinecap="round"
+                              fontSize={`${effectiveFontSize.toFixed(3)}`}
+                              fontWeight="900"
                               className="font-sans select-none pointer-events-none uppercase tracking-tight"
-                              style={{ textShadow: '0px 0px 2px rgba(255,255,255,0.7)' }}
+                              style={{ filter: 'drop-shadow(0px 0.06px 0.12px rgba(0,0,0,0.95))' }}
                             >
                               {label}
                             </text>
@@ -591,6 +720,38 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                       </g>
                     );
                   })}
+
+                {/* 5. Prominent Cluster Labels / Badges (Centered at cluster medoid) */}
+                {showClusterLabels && clusterCentroids.map((c) => {
+                  const clusterText = clusterLabels[c.clusterId] !== undefined && clusterLabels[c.clusterId] !== ''
+                    ? clusterLabels[c.clusterId]
+                    : `Cluster ${c.clusterId + 1}`;
+                  
+                  if (!clusterText) return null;
+                  const badgeFontSize = 0.70 * labelFontSizeScale;
+
+                  return (
+                    <g key={`cluster_badge_${c.clusterId}`} className="pointer-events-none select-none">
+                      <text
+                        x={c.x}
+                        y={c.y}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill="#ffffff"
+                        stroke="#000000"
+                        strokeWidth={`${Math.max(0.08, badgeFontSize * 0.32).toFixed(3)}`}
+                        paintOrder="stroke fill"
+                        strokeLinejoin="round"
+                        fontSize={`${badgeFontSize.toFixed(3)}`}
+                        fontWeight="900"
+                        className="font-sans uppercase tracking-wider"
+                        style={{ filter: 'drop-shadow(0px 0.1px 0.25px rgba(0,0,0,0.95))' }}
+                      >
+                        {clusterText}
+                      </text>
+                    </g>
+                  );
+                })}
               </g>
             ), [
               hexGrid, 
@@ -600,11 +761,16 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
               colorScales,
               visualizationMode,
               showLabels,
+              showClusterLabels,
               showLabelsOnComponents,
               mappedLabels,
               excludedLabels,
               labelSearchQuery,
               maxLabelsPerNeuron,
+              labelFontSizeScale,
+              labelStyleOverrides,
+              clusterLabels,
+              clusterCentroids,
               trajectories,
               labels,
               onNeuronClick
@@ -661,12 +827,12 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
       {/* 5. INTERACTIVE POP-UP MODAL: LABEL FILTER MANAGER */}
       {isFilterModalOpen && (
         <div className="absolute inset-0 bg-gray-950 bg-opacity-80 backdrop-blur-xs z-50 flex items-center justify-center p-6 transition-all duration-300">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90%] space-y-4">
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90%] space-y-4">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-gray-800 pb-3">
               <div className="flex items-center space-x-2">
                 <Tags className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-sm font-black uppercase text-gray-200 tracking-wider">Label Filter Manager</h3>
+                <h3 className="text-sm font-black uppercase text-gray-200 tracking-wider">Label Filter & Style Manager</h3>
               </div>
               <button 
                 onClick={() => setIsFilterModalOpen(false)}
@@ -676,91 +842,284 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
               </button>
             </div>
 
-            {/* Density Limiter Counter Component (Positioned directly below the title!) */}
-            <div className="flex items-center justify-between bg-gray-950 p-3 rounded-xl border border-gray-850">
-              <span className="text-xs text-gray-400 font-bold">Max labels per hexagon:</span>
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={() => setMaxLabelsPerNeuron(Math.max(1, maxLabelsPerNeuron - 1))}
-                  className="w-7 h-7 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 rounded-lg flex items-center justify-center font-black text-gray-200 transition disabled:opacity-30 disabled:pointer-events-none"
-                  disabled={maxLabelsPerNeuron <= 1}
-                >
-                  -
-                </button>
-                <span className="text-sm text-white font-black w-6 text-center">{maxLabelsPerNeuron}</span>
-                <button
-                  onClick={() => setMaxLabelsPerNeuron(Math.min(15, maxLabelsPerNeuron + 1))}
-                  className="w-7 h-7 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 rounded-lg flex items-center justify-center font-black text-gray-200 transition disabled:opacity-30 disabled:pointer-events-none"
-                  disabled={maxLabelsPerNeuron >= 15}
-                >
-                  +
-                </button>
-              </div>
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-gray-800 -mx-6 px-6">
+              <button
+                onClick={() => setModalTab('docs')}
+                className={`flex-1 pb-2.5 text-xs font-bold flex items-center justify-center space-x-1.5 transition border-b-2 cursor-pointer ${
+                  modalTab === 'docs'
+                    ? 'border-indigo-500 text-indigo-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                <Tags className="w-3.5 h-3.5" />
+                <span>Document Labels ({uniqueLabels.length})</span>
+              </button>
+              <button
+                onClick={() => setModalTab('clusters')}
+                className={`flex-1 pb-2.5 text-xs font-bold flex items-center justify-center space-x-1.5 transition border-b-2 cursor-pointer ${
+                  modalTab === 'clusters'
+                    ? 'border-indigo-500 text-indigo-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Cluster Labels ({clusterCentroids.length})</span>
+              </button>
             </div>
 
-            {/* Instant Search Bar */}
-            <div className="space-y-1.5">
-              <label className="block text-[9px] text-gray-500 font-bold uppercase tracking-wider">Search Keywords / Years / Authors</label>
-              <input
-                type="text"
-                placeholder="Type to filter labels..."
-                value={labelSearchQuery}
-                onChange={(e) => setLabelSearchQuery(e.target.value)}
-                className="w-full bg-gray-950 border border-gray-850 rounded-xl px-4 py-2.5 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            {/* Subsets checkboxes list header */}
-            <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-gray-500 pt-2 border-t border-gray-850">
-              <span>MAPPED LABELS ({uniqueLabels.length})</span>
-              <div className="flex space-x-3">
-                <button 
-                  onClick={handleSelectAllLabels}
-                  className="text-indigo-400 hover:text-indigo-300 uppercase tracking-widest font-black cursor-pointer text-[9px]"
-                >
-                  Select All
-                </button>
-                <button 
-                  onClick={handleClearAllLabels}
-                  className="text-amber-500 hover:text-amber-400 uppercase tracking-widest font-black cursor-pointer text-[9px]"
-                >
-                  Clear All
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable list container */}
-            <div className="flex-1 overflow-auto bg-gray-950 border border-gray-850 rounded-xl p-3 max-h-[220px] space-y-2">
-              {filteredUniqueLabels.length > 0 ? (
-                filteredUniqueLabels.map((label, idx) => {
-                  const isChecked = !excludedLabels.has(label);
-                  return (
-                    <label 
-                      key={idx} 
-                      className="flex items-center space-x-2.5 text-xs text-gray-300 hover:text-gray-100 cursor-pointer py-1"
+            {modalTab === 'docs' ? (
+              <>
+                {/* Density Limiter Counter Component */}
+                <div className="flex items-center justify-between bg-gray-950 p-3 rounded-xl border border-gray-850">
+                  <span className="text-xs text-gray-400 font-bold">Max labels per hexagon:</span>
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={() => setMaxLabelsPerNeuron(Math.max(1, maxLabelsPerNeuron - 1))}
+                      className="w-7 h-7 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 rounded-lg flex items-center justify-center font-black text-gray-200 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                      disabled={maxLabelsPerNeuron <= 1}
                     >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleLabelVisibility(label)}
-                        className="w-3.5 h-3.5 bg-gray-900 border-gray-850 rounded text-indigo-500 focus:ring-indigo-500"
-                      />
-                      <span className="truncate">{label}</span>
-                    </label>
-                  );
-                })
-              ) : (
-                <span className="text-[10px] text-gray-600 block text-center py-4">No matching labels found.</span>
-              )}
-            </div>
+                      -
+                    </button>
+                    <span className="text-sm text-white font-black w-6 text-center">{maxLabelsPerNeuron}</span>
+                    <button
+                      onClick={() => setMaxLabelsPerNeuron(Math.min(15, maxLabelsPerNeuron + 1))}
+                      className="w-7 h-7 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 rounded-lg flex items-center justify-center font-black text-gray-200 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                      disabled={maxLabelsPerNeuron >= 15}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
 
-            {/* Reset Filters action */}
-            <button
-              onClick={resetLabelFilters}
-              className="w-full py-2.5 bg-gray-850 hover:bg-gray-800 text-gray-300 text-xs font-bold rounded-xl transition uppercase tracking-wider cursor-pointer"
-            >
-              Reset Filters
-            </button>
+                {/* Manual Font Size Scale Slider */}
+                <div className="bg-gray-950 p-3 rounded-xl border border-gray-850 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400 font-bold">Global Font Size Scale:</span>
+                    <span className="text-xs font-mono font-black text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/40">
+                      {Math.round(labelFontSizeScale * 100)}%
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[9px] text-gray-500 font-bold">40%</span>
+                    <input
+                      type="range"
+                      min="0.4"
+                      max="10.0"
+                      step="0.1"
+                      value={labelFontSizeScale}
+                      onChange={(e) => setLabelFontSizeScale(parseFloat(e.target.value))}
+                      className="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
+                    <span className="text-[9px] text-gray-500 font-bold">1000%</span>
+                  </div>
+                </div>
+
+                {/* Instant Search Bar */}
+                <div className="space-y-1.5">
+                  <label className="block text-[9px] text-gray-500 font-bold uppercase tracking-wider">Search Keywords / Years / Authors</label>
+                  <input
+                    type="text"
+                    placeholder="Type to filter labels..."
+                    value={labelSearchQuery}
+                    onChange={(e) => setLabelSearchQuery(e.target.value)}
+                    className="w-full bg-gray-950 border border-gray-850 rounded-xl px-4 py-2.5 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                {/* Subsets checkboxes list header */}
+                <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-gray-500 pt-2 border-t border-gray-850">
+                  <span>MAPPED LABELS ({uniqueLabels.length})</span>
+                  <div className="flex space-x-3">
+                    <button 
+                      onClick={handleSelectAllLabels}
+                      className="text-indigo-400 hover:text-indigo-300 uppercase tracking-widest font-black cursor-pointer text-[9px]"
+                    >
+                      Select All
+                    </button>
+                    <button 
+                      onClick={handleClearAllLabels}
+                      className="text-amber-500 hover:text-amber-400 uppercase tracking-widest font-black cursor-pointer text-[9px]"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+
+                {/* Scrollable list container with individual color & size customization */}
+                <div className="flex-1 overflow-auto bg-gray-950 border border-gray-850 rounded-xl p-2.5 max-h-[220px] space-y-1.5">
+                  {filteredUniqueLabels.length > 0 ? (
+                    filteredUniqueLabels.map((label, idx) => {
+                      const isChecked = !excludedLabels.has(label);
+                      const customStyle = labelStyleOverrides[label];
+                      const customColor = customStyle?.color || '#ffffff';
+                      const customSizeMult = customStyle?.sizeMultiplier ?? 1.0;
+                      const hasCustomStyle = !!customStyle && (customStyle.color !== undefined || (customStyle.sizeMultiplier !== undefined && customStyle.sizeMultiplier !== 1.0));
+
+                      return (
+                        <div 
+                          key={idx} 
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border transition ${
+                            hasCustomStyle 
+                              ? 'bg-indigo-950/30 border-indigo-700/50' 
+                              : 'bg-gray-900/50 border-gray-850/80 hover:border-gray-750'
+                          }`}
+                        >
+                          <label className="flex items-center space-x-2.5 text-xs text-gray-300 hover:text-gray-100 cursor-pointer min-w-0 flex-1 mr-2">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleLabelVisibility(label)}
+                              className="w-3.5 h-3.5 bg-gray-900 border-gray-750 rounded text-indigo-500 focus:ring-indigo-500 shrink-0"
+                            />
+                            <span 
+                              className="truncate font-bold text-xs"
+                              style={{ color: customStyle?.color || undefined }}
+                              title={label}
+                            >
+                              {label}
+                            </span>
+                          </label>
+
+                          {/* Individual color & size controls */}
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            {/* Custom Color input */}
+                            <div className="relative flex items-center" title="Color individual de fuente">
+                              <input
+                                type="color"
+                                value={customColor}
+                                onChange={(e) => setLabelStyleOverride(label, { color: e.target.value })}
+                                className="w-4 h-4 rounded-full border border-gray-600 cursor-pointer bg-transparent appearance-none p-0 overflow-hidden"
+                                style={{ backgroundColor: customColor }}
+                              />
+                            </div>
+
+                            {/* Individual Size Multiplier */}
+                            <select
+                              value={customSizeMult}
+                              onChange={(e) => setLabelStyleOverride(label, { sizeMultiplier: parseFloat(e.target.value) })}
+                              className="bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-200 px-1 py-0.5 font-mono cursor-pointer"
+                              title="Tamaño individual de la etiqueta"
+                            >
+                              <option value="0.6">0.6x</option>
+                              <option value="0.8">0.8x</option>
+                              <option value="1.0">1.0x</option>
+                              <option value="1.5">1.5x</option>
+                              <option value="2.0">2.0x</option>
+                              <option value="2.5">2.5x</option>
+                              <option value="3.0">3.0x</option>
+                              <option value="4.0">4.0x</option>
+                            </select>
+
+                            {/* Reset individual button */}
+                            {hasCustomStyle && (
+                              <button
+                                onClick={() => removeLabelStyleOverride(label)}
+                                className="text-xs text-gray-500 hover:text-red-400 font-bold px-1 cursor-pointer transition"
+                                title="Restablecer estilo predeterminado para esta etiqueta"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <span className="text-[10px] text-gray-600 block text-center py-4">No matching labels found.</span>
+                  )}
+                </div>
+
+                {/* Reset Filters action */}
+                <button
+                  onClick={resetLabelFilters}
+                  className="w-full py-2.5 bg-gray-850 hover:bg-gray-800 text-gray-300 text-xs font-bold rounded-xl transition uppercase tracking-wider cursor-pointer"
+                >
+                  Reset All Filters & Custom Styles
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Cluster Labels Tab Content */}
+                <div className="flex items-center justify-between bg-gray-950 p-3 rounded-xl border border-gray-850">
+                  <div>
+                    <span className="text-xs text-gray-200 font-bold block">Show Cluster Labels on Map</span>
+                    <span className="text-[10px] text-gray-500">Display thematic titles centered at each cluster</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={showClusterLabels}
+                    onChange={(e) => setShowClusterLabels(e.target.checked)}
+                    className="w-4 h-4 bg-gray-900 border-gray-700 rounded text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+                  />
+                </div>
+
+                {/* Cluster Font Size Scale Slider */}
+                <div className="bg-gray-950 p-3 rounded-xl border border-gray-850 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400 font-bold">Cluster Labels Font Scale:</span>
+                    <span className="text-xs font-mono font-black text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/40">
+                      {Math.round(labelFontSizeScale * 100)}%
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[9px] text-gray-500 font-bold">40%</span>
+                    <input
+                      type="range"
+                      min="0.4"
+                      max="10.0"
+                      step="0.1"
+                      value={labelFontSizeScale}
+                      onChange={(e) => setLabelFontSizeScale(parseFloat(e.target.value))}
+                      className="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
+                    <span className="text-[9px] text-gray-500 font-bold">1000%</span>
+                  </div>
+                </div>
+
+                {/* Cluster list title */}
+                <div className="text-[9px] font-bold uppercase tracking-wider text-gray-500 pt-1 border-t border-gray-850">
+                  <span>ACTIVE CLUSTERS & THEMATIC NAMES ({clusterCentroids.length})</span>
+                </div>
+
+                {/* Scrollable list of clusters for direct renaming */}
+                <div className="flex-1 overflow-auto bg-gray-950 border border-gray-850 rounded-xl p-2.5 max-h-[220px] space-y-2">
+                  {clusterCentroids.length > 0 ? (
+                    clusterCentroids.map((c) => {
+                      const currentText = clusterLabels[c.clusterId] ?? '';
+                      return (
+                        <div key={c.clusterId} className="bg-gray-900/60 border border-gray-850 p-2.5 rounded-xl flex flex-col space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3.5 h-3.5 rounded-full border border-gray-700 shadow-sm shrink-0" style={{ backgroundColor: c.color }} />
+                              <span className="text-xs font-black text-gray-200">Cluster {c.clusterId + 1}</span>
+                              <span className="text-[10px] text-gray-500 font-mono">({c.count} neuronas)</span>
+                            </div>
+                            {currentText && (
+                              <button
+                                onClick={() => setClusterLabel(c.clusterId, '')}
+                                className="text-[10px] text-amber-500 hover:text-amber-400 font-bold cursor-pointer uppercase tracking-wider"
+                              >
+                                Revert Default
+                              </button>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            placeholder={`e.g. Economías Emergentes / OECD...`}
+                            value={currentText}
+                            onChange={(e) => setClusterLabel(c.clusterId, e.target.value)}
+                            className="w-full bg-gray-950 border border-gray-800 focus:border-indigo-500 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none transition"
+                          />
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <span className="text-[10px] text-gray-600 block text-center py-4">No active clusters found.</span>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

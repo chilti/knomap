@@ -228,10 +228,13 @@ const UmapHeatmapInner: React.FC<UmapHeatmapProps> = ({
           ctx.strokeStyle = 'rgba(0,0,0,0.6)';
           ctx.stroke();
           if (showLabels && p.label) {
-            ctx.fillStyle = '#fff';
-            ctx.font = '9px sans-serif';
+            const labelFontSize = Math.max(9, Math.min(22, Math.round(9 * (width / 350))));
+            ctx.font = `bold ${labelFontSize}px sans-serif`;
             ctx.textAlign = 'center';
-            ctx.fillText(p.label, cx, cy - 5);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillText(p.label, cx + 1, cy - (labelFontSize * 0.55) + 1);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(p.label, cx, cy - (labelFontSize * 0.55));
           }
         }
       }
