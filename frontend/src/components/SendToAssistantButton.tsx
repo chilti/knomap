@@ -21,6 +21,42 @@ interface SendToAssistantButtonProps {
   onBeforeSend?: () => void;
 }
 
+const convertSvgToPngFast = (svgString: string): Promise<string | null> => {
+  return new Promise((resolve) => {
+    try {
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth || 800;
+          canvas.height = img.naturalHeight || 500;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#030712';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            const pngData = canvas.toDataURL('image/png');
+            URL.revokeObjectURL(url);
+            resolve(pngData);
+            return;
+          }
+        } catch {}
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      img.src = url;
+    } catch {
+      resolve(null);
+    }
+  });
+};
+
 export const SendToAssistantButton: React.FC<SendToAssistantButtonProps> = ({
   title,
   badge,
@@ -58,7 +94,7 @@ export const SendToAssistantButton: React.FC<SendToAssistantButtonProps> = ({
       container = (e.currentTarget.closest('[id^="comp-viewport"], [id^="comp-grid"], .chart-container, .relative, .border') as HTMLElement);
     }
 
-    // 2. Extract the exact configured map/chart SVG (ignoring button icons!)
+    // 2. Extract the exact configured map/chart SVG (instantaneous, < 1ms)
     if (container) {
       const allSvgs = Array.from(container.querySelectorAll('svg'));
       
@@ -106,17 +142,24 @@ export const SendToAssistantButton: React.FC<SendToAssistantButtonProps> = ({
         }
       }
 
-      // 3. Capture PNG snapshot for PDF report export or fallback
-      try {
-        const canvas = await html2canvas(container, {
-          backgroundColor: '#030712',
-          scale: 1.5,
-          logging: false,
-          useCORS: true
-        });
-        thumbnailPng = canvas.toDataURL('image/png');
-      } catch (err) {
-        console.warn('Could not capture DOM snapshot with html2canvas:', err);
+      // 3. Fast PNG generation (instantaneous from SVG without blocking DOM thread)
+      if (svgMarkup) {
+        try {
+          thumbnailPng = await convertSvgToPngFast(svgMarkup);
+        } catch {}
+      } else if (container) {
+        // Fallback only when no SVG is found
+        try {
+          const canvas = await html2canvas(container, {
+            backgroundColor: '#030712',
+            scale: 1.0,
+            logging: false,
+            useCORS: true
+          });
+          thumbnailPng = canvas.toDataURL('image/png');
+        } catch (err) {
+          console.warn('Could not capture DOM snapshot with html2canvas:', err);
+        }
       }
     }
 
@@ -141,11 +184,11 @@ export const SendToAssistantButton: React.FC<SendToAssistantButtonProps> = ({
       });
 
       setIsSuccess(true);
+      // Instantly switch tab to Assistant
+      (setActiveTab as any)('asistente');
       setTimeout(() => {
         setIsSuccess(false);
-        // Switch tab to Assistant
-        (setActiveTab as any)('asistente');
-      }, 400);
+      }, 300);
     } catch (err) {
       console.error('Failed to add to AI report:', err);
     } finally {

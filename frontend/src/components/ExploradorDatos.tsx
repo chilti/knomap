@@ -2273,11 +2273,11 @@ export const ExploradorDatos: React.FC = () => {
                             chartType="hex_map"
                             targetElementId="comp-viewport-clustering"
                             data={{
-                              hexGrid: result?.hexGrid,
+                              hexGrid: result?.hexGrid ? result.hexGrid.map((h: any) => ({ x: h.x, y: h.y, index: h.index, row: h.row, col: h.col })) : [],
                               clustering: result?.clustering,
                               frequencies: result?.frequencies,
-                              bmus: result?.bmus,
-                              activeRun: activeSomRun
+                              rows: config.rows,
+                              cols: config.cols
                             }}
                             dataContextPrompt={`Self-Organizing Map (SOM) Hexagonal Grid (${config.rows}x${config.cols}).\n` +
                               `Active Experiment / Model: "${somTitleName}".\n` +
@@ -2564,7 +2564,7 @@ export const ExploradorDatos: React.FC = () => {
                           chartType="hex_map"
                           targetElementId="comp-viewport-umatrix"
                           data={{
-                            hexGrid: result?.hexGrid,
+                            hexGrid: result?.hexGrid ? result.hexGrid.map((h: any) => ({ x: h.x, y: h.y, index: h.index, row: h.row, col: h.col })) : [],
                             umatrix: result?.umatrix,
                             rows: config.rows,
                             cols: config.cols
@@ -2610,7 +2610,7 @@ export const ExploradorDatos: React.FC = () => {
                           chartType="hex_map"
                           targetElementId="comp-viewport-qe"
                           data={{
-                            hexGrid: result?.hexGrid,
+                            hexGrid: result?.hexGrid ? result.hexGrid.map((h: any) => ({ x: h.x, y: h.y, index: h.index, row: h.row, col: h.col })) : [],
                             quantizationErrors: result?.quantizationErrors,
                             rows: config.rows,
                             cols: config.cols
