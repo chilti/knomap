@@ -43,24 +43,49 @@ export default function App() {
 
   const handleSaveToCloud = async () => {
     const state = useSomStore.getState();
+    const authState = useAuthStore.getState();
     const activeFileName = state.fileName || state.semanticFileName || state.dimFileName || (state.incitesUnitNames && state.incitesUnitNames.length > 0 ? 'InCites Project' : 'My Project');
     const fallbackTitle = activeFileName.replace(/\.[^/.]+$/, '');
     const currentTitle = state.cloudProjectTitle || fallbackTitle;
 
-    const promptMessage = state.cloudProjectId 
-      ? `Save changes to server project '${state.cloudProjectTitle}'? (Change name to save as new):` 
-      : "Enter project title to save on server:";
+    // Check if current project is owned by the logged-in user or shared
+    const isOwnedByMe = authState.ownedProjects.some(p => p.id === state.cloudProjectId);
+    const sharedProjectInfo = authState.sharedProjects.find(p => p.id === state.cloudProjectId);
+    const isSharedWithMe = !!sharedProjectInfo;
+
+    let promptMessage = "Enter project title to save on server:";
+    if (state.cloudProjectId) {
+      if (isSharedWithMe && !isOwnedByMe) {
+        promptMessage = `This project was shared by @${sharedProjectInfo?.ownerUsername || 'another user'}. Save a copy to your projects (change name to customize):`;
+      } else {
+        promptMessage = `Save changes to server project '${state.cloudProjectTitle}'? (Change name to save as new):`;
+      }
+    }
 
     const title = prompt(promptMessage, currentTitle);
-    if (!title) return;
+    if (!title || !title.trim()) return;
+
+    const trimmedTitle = title.trim();
+    const isSameTitle = trimmedTitle === (state.cloudProjectTitle || '').trim();
 
     setIsSavingCloud(true);
-    const targetId = (state.cloudProjectId && title === state.cloudProjectTitle) ? state.cloudProjectId : undefined;
-    const success = await saveCloudProject(title, undefined, targetId);
+
+    // If the name changed OR if this is a shared project where name changed or user is not an editor with same name,
+    // targetId must be null so a brand new project is created for the current user.
+    let targetId: string | null = null;
+    if (state.cloudProjectId && isSameTitle) {
+      if (isOwnedByMe) {
+        targetId = state.cloudProjectId;
+      } else if (isSharedWithMe && sharedProjectInfo?.permission === 'Write') {
+        targetId = state.cloudProjectId;
+      }
+    }
+
+    const success = await saveCloudProject(trimmedTitle, undefined, targetId);
     setIsSavingCloud(false);
 
     if (success) {
-      alert(`Project '${title}' saved successfully to server!`);
+      alert(`Project '${trimmedTitle}' saved successfully to server!`);
     } else {
       alert("Failed to save project to server.");
     }

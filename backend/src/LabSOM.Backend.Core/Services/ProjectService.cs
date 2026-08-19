@@ -35,19 +35,27 @@ namespace LabSOM.Backend.Core.Services
                 project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == projectId);
                 if (project != null)
                 {
-                    // Check permission (owner or editor)
-                    if (project.OwnerId != userId)
+                    // If user is not the owner and the title is different, create a new project for this user instead of modifying the shared one
+                    if (project.OwnerId != userId && !string.Equals(project.Title?.Trim(), title?.Trim(), StringComparison.OrdinalIgnoreCase))
                     {
-                        var share = await _db.ProjectShares.FirstOrDefaultAsync(ps => ps.ProjectId == projectId && ps.SharedWithUserId == userId);
-                        if (share == null || share.Permission != "Write")
-                        {
-                            throw new UnauthorizedAccessException("You do not have write permissions for this project.");
-                        }
+                        project = null;
                     }
+                    else
+                    {
+                        // Check permission (owner or editor)
+                        if (project.OwnerId != userId)
+                        {
+                            var share = await _db.ProjectShares.FirstOrDefaultAsync(ps => ps.ProjectId == projectId && ps.SharedWithUserId == userId);
+                            if (share == null || share.Permission != "Write")
+                            {
+                                throw new UnauthorizedAccessException("You do not have write permissions for this project.");
+                            }
+                        }
 
-                    project.Title = title;
-                    project.Description = description;
-                    project.UpdatedAt = DateTime.UtcNow;
+                        project.Title = title;
+                        project.Description = description;
+                        project.UpdatedAt = DateTime.UtcNow;
+                    }
                 }
             }
 
@@ -86,19 +94,27 @@ namespace LabSOM.Backend.Core.Services
                 project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == projectId);
                 if (project != null)
                 {
-                    // Check permission (owner or editor)
-                    if (project.OwnerId != userId)
+                    // If user is not the owner and the title is different, create a new project for this user instead of modifying the shared one
+                    if (project.OwnerId != userId && !string.Equals(project.Title?.Trim(), title?.Trim(), StringComparison.OrdinalIgnoreCase))
                     {
-                        var share = await _db.ProjectShares.FirstOrDefaultAsync(ps => ps.ProjectId == projectId && ps.SharedWithUserId == userId);
-                        if (share == null || share.Permission != "Write")
-                        {
-                            throw new UnauthorizedAccessException("You do not have write permissions for this project.");
-                        }
+                        project = null;
                     }
+                    else
+                    {
+                        // Check permission (owner or editor)
+                        if (project.OwnerId != userId)
+                        {
+                            var share = await _db.ProjectShares.FirstOrDefaultAsync(ps => ps.ProjectId == projectId && ps.SharedWithUserId == userId);
+                            if (share == null || share.Permission != "Write")
+                            {
+                                throw new UnauthorizedAccessException("You do not have write permissions for this project.");
+                            }
+                        }
 
-                    project.Title = title;
-                    project.Description = description;
-                    project.UpdatedAt = DateTime.UtcNow;
+                        project.Title = title;
+                        project.Description = description;
+                        project.UpdatedAt = DateTime.UtcNow;
+                    }
                 }
             }
 

@@ -37,7 +37,7 @@ interface AuthState {
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   fetchUserProjects: () => Promise<void>;
-  saveCloudProject: (title: string, description?: string, projectId?: string) => Promise<boolean>;
+  saveCloudProject: (title: string, description?: string, projectId?: string | null) => Promise<boolean>;
   loadCloudProject: (projectId: string, projectTitle?: string) => Promise<boolean>;
   shareProject: (projectId: string, target: string, permission: string) => Promise<boolean>;
   deleteCloudProject: (projectId: string) => Promise<boolean>;
@@ -174,8 +174,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const token = get().token;
     if (!token) return false;
 
-    // Use passed projectId or active cloudProjectId from somStore
-    const targetProjectId = projectId || useSomStore.getState().cloudProjectId || undefined;
+    // If projectId is explicitly provided (including null), respect it. Only fallback if omitted (undefined).
+    const targetProjectId = projectId !== undefined ? (projectId || undefined) : (useSomStore.getState().cloudProjectId || undefined);
 
     // Ensure all InCites unit tabs are pre-cached before saving to cloud
     await useSomStore.getState().ensureAllIncitesUnitsCached();
