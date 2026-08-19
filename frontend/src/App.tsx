@@ -13,6 +13,7 @@ import { LoginModal } from './components/LoginModal';
 import { UserManagementModal } from './components/UserManagementModal';
 import { ProjectsDrawer } from './components/ProjectsDrawer';
 import { LlmConfigModal } from './components/LlmConfigModal';
+import { VosApiModal } from './components/vos/VosApiModal';
 import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield, Bot, Key } from 'lucide-react';
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
@@ -89,26 +90,78 @@ export default function App() {
 
   // Preprocessor form states
   const [bibFile, setBibFile] = useState<File | null>(null);
-  const [networkType, setNetworkType] = useState<string>('co-occurrence');
-  const [customTag, setCustomTag] = useState<string>('DE');
-  const [customTag2, setCustomTag2] = useState<string>('AU');
+  const [networkType, setNetworkType] = useState<string>('co-occurrence:all_keywords');
+  const [customTag, setCustomTag] = useState<string>('AU');
+  const [customTag2, setCustomTag2] = useState<string>('DE');
   const [showAdvancedPopup, setShowAdvancedPopup] = useState<boolean>(false);
   const [maxTerms, setMaxTerms] = useState<number>(50);
   const [minCooc, setMinCooc] = useState<number>(2);
   const [temporal, setTemporal] = useState<boolean>(false);
   const [showTagsModal, setShowTagsModal] = useState<boolean>(false);
+  const [showApiModal, setShowApiModal] = useState<boolean>(false);
+
+  // VOSviewer Advanced NLP & Thesaurus states
+  const [extractionSource, setExtractionSource] = useState<'keywords' | 'title_abstract' | 'title' | 'abstract'>('keywords');
+  const [countingMethod, setCountingMethod] = useState<'full' | 'fractional'>('full');
+  const [thesaurusFile, setThesaurusFile] = useState<File | null>(null);
+  const [relevanceRatio, setRelevanceRatio] = useState<number>(0.60);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const thesaurusInputRef = useRef<HTMLInputElement>(null);
   const projectInputRef = useRef<HTMLInputElement>(null);
 
   const getNetworkTypeOptions = () => {
     return [
-      { value: 'co-occurrence', label: 'Co-occurrence (Keywords, etc.)' },
-      { value: 'co-authorship', label: 'Co-Authorship' },
-      { value: 'co-citation', label: 'Co-Citation' },
-      { value: 'citation', label: 'Citation' },
-      { value: 'bib-coupling', label: 'Bibliographic Coupling' },
-      { value: 'bipartite', label: 'Bipartite (Custom)' }
+      {
+        group: 'Co-authorship',
+        options: [
+          { value: 'co-authorship:authors', label: 'Authors (AU)' },
+          { value: 'co-authorship:organizations', label: 'Organizations (Affiliations)' },
+          { value: 'co-authorship:countries', label: 'Countries (CU)' },
+        ]
+      },
+      {
+        group: 'Co-occurrence',
+        options: [
+          { value: 'co-occurrence:all_keywords', label: 'All Keywords (Author + Keywords Plus)' },
+          { value: 'co-occurrence:author_keywords', label: 'Author Keywords (DE)' },
+          { value: 'co-occurrence:keywords_plus', label: 'KeyWords Plus (ID)' },
+        ]
+      },
+      {
+        group: 'Citation',
+        options: [
+          { value: 'citation:documents', label: 'Documents' },
+          { value: 'citation:sources', label: 'Sources / Journals (SO)' },
+          { value: 'citation:authors', label: 'Authors (AU)' },
+          { value: 'citation:organizations', label: 'Organizations (Affiliations)' },
+          { value: 'citation:countries', label: 'Countries (CU)' },
+        ]
+      },
+      {
+        group: 'Bibliographic Coupling',
+        options: [
+          { value: 'bib-coupling:documents', label: 'Documents' },
+          { value: 'bib-coupling:sources', label: 'Sources / Journals (SO)' },
+          { value: 'bib-coupling:authors', label: 'Authors (AU)' },
+          { value: 'bib-coupling:organizations', label: 'Organizations (Affiliations)' },
+          { value: 'bib-coupling:countries', label: 'Countries (CU)' },
+        ]
+      },
+      {
+        group: 'Co-citation',
+        options: [
+          { value: 'co-citation:cited_references', label: 'Cited References (CR)' },
+          { value: 'co-citation:cited_sources', label: 'Cited Sources / Journals' },
+          { value: 'co-citation:cited_authors', label: 'Cited Authors' },
+        ]
+      },
+      {
+        group: 'Custom',
+        options: [
+          { value: 'bipartite', label: 'Bipartite (Two-Mode Custom)' },
+        ]
+      }
     ];
   };
 
@@ -147,24 +200,25 @@ export default function App() {
     setActiveTab(newTab);
   };
 
-  // Deprecated handleSelectFile removed, using standard input type="file"
-
-
   const handlePreprocess = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bibFile) {
       alert("Please select a file first.");
       return;
     }
-    const finalCustomTag = networkType === 'bipartite' ? `${customTag},${customTag2}` : customTag;
+    const finalCustomTag = networkType.startsWith('bipartite') ? `${customTag},${customTag2}` : customTag;
     await preprocessBibliometrics(
       bibFile,
       networkType,
       finalCustomTag,
       maxTerms,
       minCooc,
-      true, // onlyMajor is unused now, passed as true
-      temporal
+      true,
+      temporal,
+      extractionSource,
+      countingMethod,
+      thesaurusFile,
+      relevanceRatio
     );
   };
 
@@ -661,31 +715,47 @@ export default function App() {
                       <div>
                         <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Bibliometric Data Source</label>
                         <div className="flex flex-col space-y-2">
-                          <div className="flex items-center space-x-4">
+                          <div className="flex items-center space-x-2">
                             <button
                               type="button"
                               onClick={() => fileInputRef.current?.click()}
-                              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-2"
+                              className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-md"
                             >
-                              <Upload className="w-4 h-4" />
-                              <span>Import Bibliometric Data</span>
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Import File</span>
                             </button>
+
                             <input
                               type="file"
                               ref={fileInputRef}
-                              accept=".txt,.csv,.tsv"
+                              accept=".txt,.csv,.tsv,.ris,.json,.map,.net"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
                                 if (file) setBibFile(file);
                               }}
                               className="hidden"
                             />
-                            {bibFile && (
-                              <span className="text-xs text-emerald-400 font-bold truncate max-w-[200px]" title={bibFile.name}>
+                          </div>
+
+                          {bibFile && (
+                            <div className="flex items-center space-x-2 bg-emerald-950/40 border border-emerald-800/60 px-3 py-1.5 rounded-lg">
+                              <span className="text-xs text-emerald-400 font-bold truncate max-w-[220px]" title={bibFile.name}>
                                 {bibFile.name}
                               </span>
-                            )}
-                          </div>
+                              <button
+                                type="button"
+                                onClick={() => setBibFile(null)}
+                                className="text-gray-500 hover:text-red-400 text-xs ml-auto"
+                                title="Clear file"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
+
+                          <p className="text-[10px] text-gray-500">
+                            Supports: <strong>WoS, Scopus, PubMed, Dimensions, Lens, RIS, VOS JSON</strong>.
+                          </p>
                         </div>
                       </div>
 
@@ -697,24 +767,78 @@ export default function App() {
                             onChange={(e) => {
                               const val = e.target.value;
                               setNetworkType(val);
-                              if (val === 'co-occurrence' || val === 'bipartite') {
+                              if (val.startsWith('bipartite')) {
                                 setShowAdvancedPopup(true);
+                                setMaxTerms(10);
                               } else {
                                 setShowAdvancedPopup(false);
-                              }
-
-                              if (val === 'bipartite') {
-                                setMaxTerms(10);
                               }
                             }}
                             className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
                           >
-                            {getNetworkTypeOptions().map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            {getNetworkTypeOptions().map(grp => (
+                              <optgroup key={grp.group} label={grp.group} className="bg-gray-900 text-indigo-300 font-bold">
+                                {grp.options.map(opt => (
+                                  <option key={opt.value} value={opt.value} className="bg-gray-950 text-gray-200 font-normal">
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </optgroup>
                             ))}
                           </select>
                         </div>
 
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Counting Method</label>
+                          <select
+                            value={countingMethod}
+                            onChange={(e) => setCountingMethod(e.target.value as 'full' | 'fractional')}
+                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
+                            title="Full Counting counts all co-occurrences equally; Fractional Counting weights by 1/(n-1)"
+                          >
+                            <option value="full">Full Counting</option>
+                            <option value="fractional">Fractional Counting (1/n)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Extraction Source & NLP Mining */}
+                      {networkType.startsWith('co-occurrence') && (
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Term Extraction Source</label>
+                          <select
+                            value={extractionSource}
+                            onChange={(e) => setExtractionSource(e.target.value as any)}
+                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-indigo-400 font-bold focus:outline-none"
+                          >
+                            <option value="keywords">Keywords (DE, ID, MeSH)</option>
+                            <option value="title_abstract">Title & Abstract (NLP Mining & Relevance Score)</option>
+                            <option value="title">Title only (NLP)</option>
+                            <option value="abstract">Abstract only (NLP)</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Relevance Score Slider (when NLP is active) */}
+                      {extractionSource !== 'keywords' && networkType.startsWith('co-occurrence') && (
+                        <div className="p-3 bg-gray-950/70 border border-indigo-500/30 rounded-xl space-y-2">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-gray-300 font-semibold">VOS Relevance Filter</span>
+                            <span className="text-indigo-400 font-bold">Top {Math.round(relevanceRatio * 100)}% terms</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.2"
+                            max="1.0"
+                            step="0.05"
+                            value={relevanceRatio}
+                            onChange={(e) => setRelevanceRatio(parseFloat(e.target.value))}
+                            className="w-full accent-indigo-500 cursor-pointer"
+                          />
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Max Nodes</label>
                           <input
@@ -724,19 +848,57 @@ export default function App() {
                             className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
                           />
                         </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Min Weight</label>
+                          <input
+                            type="number"
+                            value={minCooc}
+                            onChange={(e) => setMinCooc(parseInt(e.target.value) || 2)}
+                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
+                          />
+                        </div>
                       </div>
 
+                      {/* Thesaurus & Disambiguation File Upload */}
                       <div>
-                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Min Co-occurrence Weight</label>
-                        <input
-                          type="number"
-                          value={minCooc}
-                          onChange={(e) => setMinCooc(parseInt(e.target.value) || 2)}
-                          className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
-                        />
+                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">VOS Thesaurus File (Optional)</label>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => thesaurusInputRef.current?.click()}
+                            className="px-3 py-1.5 bg-gray-950 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Select Thesaurus .txt</span>
+                          </button>
+                          <input
+                            type="file"
+                            ref={thesaurusInputRef}
+                            accept=".txt,.csv"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) setThesaurusFile(file);
+                            }}
+                            className="hidden"
+                          />
+                          {thesaurusFile && (
+                            <div className="flex items-center space-x-1.5 text-xs text-indigo-400 font-bold bg-indigo-950/40 border border-indigo-800/60 px-2.5 py-1 rounded-lg">
+                              <span className="truncate max-w-[150px]">{thesaurusFile.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => setThesaurusFile(null)}
+                                className="text-gray-500 hover:text-red-400 ml-1"
+                                title="Remove thesaurus"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      {(networkType === 'co-occurrence' || networkType === 'bipartite') && (
+                      {(networkType.startsWith('co-occurrence') || networkType.startsWith('bipartite')) && (
                         <div className="mt-2">
                           <button
                             type="button"
@@ -749,7 +911,7 @@ export default function App() {
 
                           {showAdvancedPopup && (
                             <div className="mt-3 p-4 bg-gray-900 border border-gray-700 rounded-xl space-y-3">
-                              {networkType === 'bipartite' ? (
+                              {networkType.startsWith('bipartite') ? (
                                 <div className="grid grid-cols-2 gap-4">
                                   <div>
                                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Tag 1 (Columns)</label>
@@ -917,6 +1079,12 @@ export default function App() {
 
       {/* Global LLM API & Model Configuration Modal */}
       <LlmConfigModal />
+
+      {/* Live Bibliographic API Query Modal */}
+      <VosApiModal
+        isOpen={showApiModal}
+        onClose={() => setShowApiModal(false)}
+      />
     </>
   );
 }

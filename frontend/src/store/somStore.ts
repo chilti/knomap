@@ -166,7 +166,9 @@ interface SOMState {
   documentCount: number;
   termCounts: Record<string, number>;
   network: { nodes: any[]; edges: any[] } | null;
-  networksByYear: Record<string, { nodes: any[]; edges: any[]; cooccurrence_csv?: string }> | null;
+  vosviewerJson: any | null;
+  setVosviewerJson: (json: any) => void;
+  networksByYear: Record<string, { nodes: any[]; edges: any[]; cooccurrence_csv?: string; vosviewer_json?: any }> | null;
   cooccurrenceCsv: string | null;
   pendingNetworkCsv: string | null;
   pendingNetworkOrigin: 'monothematic' | 'bipartite' | null;
@@ -244,9 +246,9 @@ interface SOMState {
   setExploSomColorScale: (scale: 'standard' | 'viridis' | 'cividis') => void;
 
   // RedBibliometrica UI preferences
-  biblioActiveView: 'graph' | 'matrix';
+  biblioActiveView: 'vosviewer' | 'force' | 'graph' | 'matrix';
   biblioSelectedYear: string;
-  setBiblioActiveView: (view: 'graph' | 'matrix') => void;
+  setBiblioActiveView: (view: 'vosviewer' | 'force' | 'graph' | 'matrix') => void;
   setBiblioSelectedYear: (year: string) => void;
   
   // InCites Data State
@@ -270,7 +272,36 @@ interface SOMState {
   loadCsvData: (csvText: string, labelColIndex?: number, ignoreCols?: number[], origin?: 'csv' | 'monothematic' | 'bipartite', fileName?: string, provenance?: DataProvenance) => void;
   applyNormalization: (type: NormalizationType) => void;
   revertNormalization: () => void;
-  preprocessBibliometrics: (file: File, networkType: string, customTag?: string, maxTerms?: number, minCooc?: number, onlyMajor?: boolean, temporal?: boolean) => Promise<void>;
+  preprocessBibliometrics: (
+    file: File,
+    networkType: string,
+    customTag?: string,
+    maxTerms?: number,
+    minCooc?: number,
+    onlyMajor?: boolean,
+    temporal?: boolean,
+    extractionSource?: 'keywords' | 'title_abstract' | 'title' | 'abstract',
+    countingMethod?: 'full' | 'fractional',
+    thesaurusFile?: File | null,
+    relevanceRatio?: number
+  ) => Promise<void>;
+  queryBibliometricsApi: (params: {
+    source: 'openalex' | 'crossref';
+    query: string;
+    maxResults?: number;
+    networkType?: string;
+    customTag?: string;
+    maxTerms?: number;
+    minCooc?: number;
+    temporal?: boolean;
+    extractionSource?: 'keywords' | 'title_abstract' | 'title' | 'abstract';
+    countingMethod?: 'full' | 'fractional';
+    relevanceRatio?: number;
+  }) => Promise<boolean>;
+  vosRecluster: (params: {
+    resolution: number;
+    minClusterSize: number;
+  }) => Promise<{ success: boolean; clusters?: Record<number, number>; error?: string }>;
   trainSOM: () => Promise<boolean>;
   generateUmap: () => Promise<boolean>;
   moveLabel: (label: string, fromBmu: number, toBmu: number) => void;
@@ -438,6 +469,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
   documentCount: 0,
   termCounts: {},
   network: null,
+  vosviewerJson: null,
+  setVosviewerJson: (vosviewerJson) => set({ vosviewerJson }),
   networksByYear: null,
   cooccurrenceCsv: null,
   pendingNetworkCsv: null,
@@ -472,7 +505,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   setExploSomColorScale: (scale) => set({ exploSomColorScale: scale }),
 
   // RedBibliometrica UI preferences
-  biblioActiveView: 'graph',
+  biblioActiveView: 'force',
   biblioSelectedYear: 'Global',
   setBiblioActiveView: (view) => set({ biblioActiveView: view }),
   setBiblioSelectedYear: (year) => set({ biblioSelectedYear: year }),
@@ -853,7 +886,19 @@ export const useSomStore = create<SOMState>((set, get) => ({
     get().fetchSizeSuggestions(parsed.matrix);
   },
 
-  preprocessBibliometrics: async (file: File, networkType: string, customTag?: string, maxTerms?: number, minCooc?: number, onlyMajor?: boolean, temporal?: boolean) => {
+  preprocessBibliometrics: async (
+    file: File,
+    networkType: string,
+    customTag?: string,
+    maxTerms?: number,
+    minCooc?: number,
+    onlyMajor?: boolean,
+    temporal?: boolean,
+    extractionSource?: 'keywords' | 'title_abstract' | 'title' | 'abstract',
+    countingMethod?: 'full' | 'fractional',
+    thesaurusFile?: File | null,
+    relevanceRatio?: number
+  ) => {
     set({ isPreprocessing: true, uploadProgress: 0 });
     
     try {
@@ -865,6 +910,10 @@ export const useSomStore = create<SOMState>((set, get) => ({
       if (minCooc !== undefined) formData.append('minCooc', minCooc.toString());
       if (onlyMajor !== undefined) formData.append('onlyMajor', onlyMajor.toString());
       if (temporal !== undefined) formData.append('temporal', temporal.toString());
+      if (extractionSource) formData.append('extractionSource', extractionSource);
+      if (countingMethod) formData.append('countingMethod', countingMethod);
+      if (thesaurusFile) formData.append('thesaurusFile', thesaurusFile);
+      if (relevanceRatio !== undefined) formData.append('relevanceRatio', relevanceRatio.toString());
 
       const responseText = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -921,12 +970,13 @@ export const useSomStore = create<SOMState>((set, get) => ({
           normalizationInfo: null,
           result: null,
           fileName: file.name,
-          activeTab: 'multidimensional',
           documentCount: result.document_count,
           termCounts: result.term_counts,
           network: networkType === 'bipartite' ? null : result.network,
+          vosviewerJson: result.vosviewer_json || null,
           networksByYear: result.networks_by_year || null,
           cooccurrenceCsv: result.cooccurrence_csv || null,
+          biblioActiveView: 'force',
           isPreprocessing: false,
           pendingProvenance: {
             originType: 'bibliometrics',
@@ -946,6 +996,109 @@ export const useSomStore = create<SOMState>((set, get) => ({
       console.error(e);
       alert(e.message || "Local API Connection failed. Make sure the backend is booted.");
       set({ isPreprocessing: false, uploadProgress: null });
+    }
+  },
+
+  queryBibliometricsApi: async (params) => {
+    set({ isPreprocessing: true, uploadProgress: 40 });
+    try {
+      const payload = {
+        source: params.source,
+        query: params.query,
+        max_results: params.maxResults ?? 100,
+        network_type: params.networkType ?? 'co-occurrence',
+        custom_tag: params.customTag ?? 'DE',
+        max_terms: params.maxTerms ?? 50,
+        min_cooccurrence: params.minCooc ?? 2,
+        temporal: params.temporal ?? false,
+        extraction_source: params.extractionSource ?? 'keywords',
+        counting_method: params.countingMethod ?? 'full',
+        relevance_ratio: params.relevanceRatio ?? 0.60
+      };
+
+      const res = await fetch(getApiUrl('/api/preprocess/api_query'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `HTTP error ${res.status}`);
+      }
+
+      const result = await res.json();
+      if (result?.success) {
+        const networkCsv = params.temporal ? result.frequency_csv : result.cooccurrence_csv;
+        const origin = params.networkType === 'bipartite' ? 'bipartite' : 'monothematic';
+
+        if (get().dataMatrix && get().dataMatrix.length > 0) {
+          set({ pendingNetworkCsv: networkCsv, pendingNetworkOrigin: origin });
+        } else if (networkCsv) {
+          get().loadCsvData(networkCsv, 0, [], origin);
+        }
+
+        set({
+          dataMatrix: get().dataMatrix,
+          originalDataMatrix: null,
+          matrixOrigin: origin,
+          labels: get().labels,
+          compNames: get().compNames,
+          normalizationInfo: null,
+          result: null,
+          fileName: `${params.source.toUpperCase()}: ${params.query.trim()}`,
+          documentCount: result.document_count,
+          termCounts: result.term_counts,
+          network: result.network,
+          vosviewerJson: result.vosviewer_json || null,
+          networksByYear: result.networks_by_year || null,
+          cooccurrenceCsv: result.cooccurrence_csv || null,
+          biblioActiveView: 'force',
+          isPreprocessing: false,
+          pendingProvenance: {
+            originType: 'bibliometrics',
+            unitName: params.source,
+            indicatorsCount: get().dataMatrix[0]?.length || 0,
+            indicatorsList: get().compNames
+          },
+          activeTrajectories: new Set(),
+          entityColorOverrides: {}
+        });
+        get().fetchSizeSuggestions(get().dataMatrix);
+        return true;
+      } else {
+        alert("API Query error: " + (result?.error || "Unknown error"));
+        return false;
+      }
+    } catch (err: any) {
+      alert("API Query failed: " + (err.message || "Unknown error"));
+      return false;
+    } finally {
+      set({ isPreprocessing: false, uploadProgress: null });
+    }
+  },
+
+  vosRecluster: async (params) => {
+    const { vosviewerJson } = get();
+    if (!vosviewerJson) return { success: false, error: 'No network loaded.' };
+
+    try {
+      const response = await fetch('/api/preprocess/vos_recluster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vosviewer_json: vosviewerJson,
+          resolution: params.resolution,
+          min_cluster_size: params.minClusterSize
+        })
+      });
+      const result = await response.json();
+      if (result.success && result.clusters) {
+        return { success: true, clusters: result.clusters };
+      }
+      return { success: false, error: result.error || 'Recluster failed.' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error.' };
     }
   },
 
@@ -1190,6 +1343,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       documentCount: state.documentCount,
       termCounts: state.termCounts,
       network: state.network,
+      vosviewerJson: state.vosviewerJson,
       networksByYear: state.networksByYear,
       cooccurrenceCsv: state.cooccurrenceCsv,
       pendingNetworkCsv: state.pendingNetworkCsv,
@@ -1301,6 +1455,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
           documentCount: projectData.documentCount || 0,
           termCounts: projectData.termCounts || {},
           network: projectData.network || null,
+          vosviewerJson: projectData.vosviewerJson || null,
           networksByYear: projectData.networksByYear || null,
           cooccurrenceCsv: projectData.cooccurrenceCsv || null,
           pendingNetworkCsv: projectData.pendingNetworkCsv || null,
@@ -1353,8 +1508,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
           exploSubTab: projectData.exploSubTab || 'import',
           exploUmapColorScale: projectData.exploUmapColorScale || 'standard',
           exploSomColorScale: projectData.exploSomColorScale || 'standard',
-          biblioActiveView: projectData.biblioActiveView || 'graph',
-          biblioSelectedYear: projectData.biblioSelectedYear || 'all',
+          biblioActiveView: projectData.biblioActiveView || 'force',
+          biblioSelectedYear: projectData.biblioSelectedYear || 'Global',
           showLabels: projectData.showLabels ?? true,
           labelSearchQuery: projectData.labelSearchQuery || '',
           excludedLabels: new Set(projectData.excludedLabels || []),
@@ -1399,6 +1554,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       documentCount: 0,
       termCounts: {},
       network: null,
+      vosviewerJson: null,
       networksByYear: null,
       cooccurrenceCsv: null,
       pendingNetworkCsv: null,

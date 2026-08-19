@@ -22,6 +22,10 @@ def handle_preprocess(params):
     max_terms = params.get("max_terms", 100)
     min_cooc = params.get("min_cooccurrence", 2)
     temporal = params.get("temporal", False)
+    extraction_source = params.get("extraction_source", "keywords")
+    counting_method = params.get("counting_method", "full")
+    thesaurus_filepath = params.get("thesaurus_filepath", None)
+    relevance_ratio = params.get("relevance_ratio", 0.60)
     
     if not filepath or not os.path.exists(filepath):
         return {"success": False, "error": f"File not found: '{filepath}'"}
@@ -33,12 +37,49 @@ def handle_preprocess(params):
             custom_tag=custom_tag,
             max_terms=max_terms,
             min_cooccurrence=min_cooc,
-            temporal=temporal
+            temporal=temporal,
+            extraction_source=extraction_source,
+            counting_method=counting_method,
+            thesaurus_filepath=thesaurus_filepath,
+            relevance_ratio=relevance_ratio
         )
         
         return res_dict
     except Exception as e:
         return {"success": False, "error": f"Preprocess error: {str(e)}"}
+
+def handle_api_query(params):
+    source = params.get("source", "openalex")
+    query = params.get("query", "")
+    max_results = params.get("max_results", 100)
+    network_type = params.get("network_type", "co-occurrence")
+    custom_tag = params.get("custom_tag", "DE")
+    max_terms = params.get("max_terms", 50)
+    min_cooc = params.get("min_cooccurrence", 2)
+    temporal = params.get("temporal", False)
+    extraction_source = params.get("extraction_source", "keywords")
+    counting_method = params.get("counting_method", "full")
+    relevance_ratio = params.get("relevance_ratio", 0.60)
+
+    try:
+        from vos_api_connectors import search_openalex_works, search_crossref_works
+        from bibliometrics_parser import _process_record_list
+
+        if source == "crossref":
+            records = search_crossref_works(query, max_results=max_results)
+        else:
+            records = search_openalex_works(query, max_results=max_results)
+
+        if not records:
+            return {"success": False, "error": f"No records returned from {source.title()} for query '{query}'."}
+
+        return _process_record_list(
+            records, network_type, custom_tag, max_terms, min_cooc, temporal,
+            extraction_source=extraction_source, counting_method=counting_method,
+            relevance_ratio=relevance_ratio
+        )
+    except Exception as e:
+        return {"success": False, "error": f"API query error: {str(e)}"}
 
 def handle_suggest_size(params):
     import math
@@ -225,6 +266,87 @@ def handle_recluster(params):
     except Exception as e:
         import traceback
         return {"success": False, "error": f"Recluster error: {str(e)}", "traceback": traceback.format_exc()}
+
+
+def handle_vos_recluster(params):
+    """
+    Re-runs Louvain community detection on a VOSviewer network (items + links)
+    with custom resolution and min_cluster_size parameters.
+    Returns: { success, clusters: { item_id -> cluster_number } }
+    """
+    import networkx as nx
+
+    vos_json = params.get("vosviewer_json", {})
+    resolution = float(params.get("resolution", 1.0))
+    min_cluster_size = int(params.get("min_cluster_size", 2))
+
+    net = vos_json.get("network", vos_json)
+    items = net.get("items", [])
+    links = net.get("links", [])
+
+    if not items:
+        return {"success": False, "error": "No items in vosviewer_json."}
+
+    try:
+        G = nx.Graph()
+        for it in items:
+            G.add_node(it["id"])
+        for lk in links:
+            sid = lk.get("source_id") or lk.get("from_id")
+            tid = lk.get("target_id") or lk.get("to_id")
+            w   = float(lk.get("strength", 1))
+            if sid and tid and sid != tid:
+                G.add_edge(sid, tid, weight=w)
+
+        cluster_map = {}
+        if G.number_of_edges() > 0:
+            try:
+                communities = nx.community.louvain_communities(
+                    G, weight="weight", resolution=resolution, seed=42
+                )
+                for cidx, comm in enumerate(communities, start=1):
+                    for node in comm:
+                        cluster_map[node] = cidx
+            except Exception:
+                for cidx, comp in enumerate(nx.connected_components(G), start=1):
+                    for node in comp:
+                        cluster_map[node] = cidx
+        for it in items:
+            if it["id"] not in cluster_map:
+                cluster_map[it["id"]] = 1
+
+        # Merge small clusters into the nearest large cluster
+        if min_cluster_size > 1:
+            cluster_sizes = {}
+            for cid in cluster_map.values():
+                cluster_sizes[cid] = cluster_sizes.get(cid, 0) + 1
+
+            # Find the largest cluster as fallback
+            largest = max(cluster_sizes, key=cluster_sizes.get)
+            for node_id, cid in cluster_map.items():
+                if cluster_sizes[cid] < min_cluster_size:
+                    # Try to assign to neighbor's cluster
+                    neighbors = list(G.neighbors(node_id))
+                    if neighbors:
+                        nbr_clusters = [cluster_map[n] for n in neighbors if cluster_map.get(n) != cid]
+                        if nbr_clusters:
+                            # Pick the neighbor cluster with most members
+                            cluster_map[node_id] = max(set(nbr_clusters), key=nbr_clusters.count)
+                        else:
+                            cluster_map[node_id] = largest
+                    else:
+                        cluster_map[node_id] = largest
+
+        # Remap cluster ids to be consecutive starting at 1
+        unique_clusters = sorted(set(cluster_map.values()))
+        remap = {old: new for new, old in enumerate(unique_clusters, start=1)}
+        cluster_map = {node_id: remap[cid] for node_id, cid in cluster_map.items()}
+
+        return {"success": True, "clusters": cluster_map}
+
+    except Exception as e:
+        import traceback
+        return {"success": False, "error": f"VOS recluster error: {str(e)}", "traceback": traceback.format_exc()}
 
 def handle_umap(params):
     import torch
@@ -430,6 +552,12 @@ def main():
         print(json.dumps(res))
     elif action == "reduce_dim":
         res = handle_reduce_dim(params)
+        print(json.dumps(res))
+    elif action == "api_query":
+        res = handle_api_query(params)
+        print(json.dumps(res))
+    elif action == "vos_recluster":
+        res = handle_vos_recluster(params)
         print(json.dumps(res))
     else:
         print(json.dumps({"success": False, "error": f"Unknown action: {action}"}))

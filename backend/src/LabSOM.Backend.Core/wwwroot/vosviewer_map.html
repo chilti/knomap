@@ -1,0 +1,1997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOSviewer Engine - knoMap</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root, [data-theme="dark"] {
+            --bg-main: #050508;
+            --bg-panel: rgba(17, 24, 39, 0.92);
+            --bg-mode-bar: rgba(17, 24, 39, 0.85);
+            --bg-status-bar: rgba(3, 7, 18, 0.92);
+            --bg-tab-bar: rgba(3, 7, 18, 0.7);
+            --bg-input: #030712;
+            --bg-input-border: #374151;
+            --bg-button: rgba(31, 41, 55, 0.85);
+            --bg-button-hover: #374151;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --text-highlight: #818cf8;
+            --border-panel: rgba(255, 255, 255, 0.12);
+            --border-section: rgba(255, 255, 255, 0.08);
+            --canvas-bg: #050508;
+            --node-label-color: #f8fafc;
+            --node-label-bg: rgba(3, 7, 18, 0.75);
+            --link-color: rgba(99, 102, 241, 0.25);
+            --node-stroke: rgba(255, 255, 255, 0.7);
+        }
+
+        [data-theme="navy"] {
+            --bg-main: #0d1b2a;
+            --bg-panel: rgba(17, 32, 48, 0.94);
+            --bg-mode-bar: rgba(17, 32, 48, 0.88);
+            --bg-status-bar: rgba(13, 27, 42, 0.94);
+            --bg-tab-bar: rgba(13, 27, 42, 0.75);
+            --bg-input: #112030;
+            --bg-input-border: #234060;
+            --bg-button: rgba(26, 46, 68, 0.85);
+            --bg-button-hover: #234060;
+            --text-main: #f0f8ff;
+            --text-muted: #90b8d8;
+            --text-highlight: #00f0ff;
+            --border-panel: rgba(144, 184, 216, 0.18);
+            --border-section: rgba(144, 184, 216, 0.1);
+            --canvas-bg: #0d1b2a;
+            --node-label-color: #f0f8ff;
+            --node-label-bg: rgba(13, 27, 42, 0.8);
+            --link-color: rgba(0, 240, 255, 0.28);
+            --node-stroke: rgba(240, 248, 255, 0.75);
+        }
+
+        [data-theme="light"] {
+            --bg-main: #f8fafc;
+            --bg-panel: rgba(255, 255, 255, 0.95);
+            --bg-mode-bar: rgba(255, 255, 255, 0.92);
+            --bg-status-bar: rgba(241, 245, 249, 0.96);
+            --bg-tab-bar: rgba(226, 232, 240, 0.8);
+            --bg-input: #ffffff;
+            --bg-input-border: #cbd5e1;
+            --bg-button: rgba(241, 245, 249, 0.95);
+            --bg-button-hover: #e2e8f0;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --text-highlight: #4f46e5;
+            --border-panel: rgba(0, 0, 0, 0.12);
+            --border-section: rgba(0, 0, 0, 0.08);
+            --canvas-bg: #ffffff;
+            --node-label-color: #0f172a;
+            --node-label-bg: rgba(255, 255, 255, 0.85);
+            --link-color: rgba(79, 70, 229, 0.32);
+            --node-stroke: rgba(15, 23, 42, 0.6);
+        }
+
+        body, html {
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: var(--bg-main);
+            color: var(--text-main);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            user-select: none;
+            transition: background 0.25s ease, color 0.25s ease;
+        }
+
+        #app-container {
+            width: 100vw; height: 100vh;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-main);
+        }
+
+        /* Top Visualization Mode Bar */
+        #mode-bar {
+            position: absolute;
+            top: 14px;
+            left: 16px;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-mode-bar);
+            padding: 4px;
+            border-radius: 12px;
+            border: 1px solid var(--border-panel);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        .mode-btn {
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            outline: none;
+            color: var(--text-muted);
+            background: transparent;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .mode-btn:hover { color: var(--text-main); background: rgba(125, 125, 125, 0.12); }
+        .mode-btn.active {
+            background: #4f46e5;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.4);
+        }
+
+        /* Right Controls Floating Panel */
+        #options-panel {
+            position: absolute;
+            top: 14px;
+            right: 16px;
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: var(--bg-panel);
+            color: var(--text-main);
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid var(--border-panel);
+            backdrop-filter: blur(12px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+            font-size: 11px;
+            width: 250px;
+            max-height: calc(100vh - 80px);
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--bg-input-border) transparent;
+        }
+        #options-panel::-webkit-scrollbar { width: 4px; }
+        #options-panel::-webkit-scrollbar-thumb { background: var(--bg-input-border); border-radius: 2px; }
+
+        /* Panel Top Tabs (Options | Items | Analysis) */
+        #panel-tab-bar {
+            display: flex;
+            background: var(--bg-tab-bar);
+            border-radius: 8px;
+            padding: 2px;
+            border: 1px solid var(--border-section);
+            margin-bottom: 4px;
+        }
+        .tab-button {
+            flex: 1;
+            padding: 5px 0;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.15s ease;
+        }
+        .tab-button:hover { color: var(--text-main); }
+        .tab-button.active {
+            background: #4f46e5;
+            color: #ffffff;
+            box-shadow: 0 1px 4px rgba(79, 70, 229, 0.4);
+        }
+        .panel-tab-content { display: none; flex-direction: column; gap: 8px; }
+        .panel-tab-content.active { display: flex; }
+
+        .panel-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .panel-label { color: var(--text-muted); font-weight: 600; font-size: 11px; }
+        .panel-select, .panel-input {
+            background: var(--bg-input);
+            color: var(--text-main);
+            border: 1px solid var(--bg-input-border);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            outline: none;
+        }
+        .panel-slider {
+            width: 100px;
+            accent-color: #6366f1;
+            cursor: pointer;
+        }
+        .panel-section {
+            border-top: 1px solid var(--border-section);
+            padding-top: 8px;
+            margin-top: 2px;
+        }
+        .panel-section-title {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-highlight);
+            margin-bottom: 6px;
+        }
+        .apply-btn {
+            width: 100%;
+            padding: 6px 0;
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: #fff;
+            border: none;
+            border-radius: 7px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .apply-btn:hover { opacity: 0.88; }
+        .apply-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .action-btn {
+            width: 100%;
+            padding: 5px 0;
+            background: var(--bg-button);
+            border: 1px solid var(--border-panel);
+            color: var(--text-main);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .action-btn:hover {
+            background: var(--bg-button-hover);
+            color: var(--text-main);
+            border-color: #6366f1;
+        }
+
+        .cluster-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: 700;
+            margin-left: 4px;
+        }
+
+        /* Canvas Wrapper */
+        #canvas-wrapper {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            position: relative;
+            cursor: grab;
+            background: var(--canvas-bg);
+        }
+        #canvas-wrapper.grabbing { cursor: grabbing; }
+
+        canvas#main-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Minimap Overview in bottom-left */
+        #overview-minimap {
+            position: absolute;
+            bottom: 40px;
+            left: 16px;
+            width: 150px;
+            height: 100px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-panel);
+            border-radius: 10px;
+            z-index: 40;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        #overview-canvas { width: 100%; height: 100%; display: block; }
+        #viewport-rect {
+            position: absolute;
+            border: 1.5px solid #6366f1;
+            background: rgba(99, 102, 241, 0.15);
+            pointer-events: none;
+        }
+
+        /* Colorbar Legend for Overlay Visualization */
+        #overlay-colorbar {
+            position: absolute;
+            bottom: 40px;
+            right: 16px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-panel);
+            padding: 10px 14px;
+            border-radius: 12px;
+            z-index: 40;
+            display: none;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 190px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .gradient-bar {
+            width: 100%;
+            height: 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-panel);
+        }
+        .colorbar-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: var(--text-muted);
+            font-weight: 700;
+        }
+
+        /* Item Tooltip */
+        #tooltip {
+            position: absolute;
+            display: none;
+            background: var(--bg-panel);
+            color: var(--text-main);
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 12px;
+            pointer-events: none;
+            border: 1px solid var(--border-panel);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.35);
+            max-width: 300px;
+            z-index: 100;
+        }
+        #tooltip .t-label { font-weight: 700; font-size: 13px; color: var(--text-main); margin-bottom: 4px; }
+        #tooltip .t-cluster { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; margin-bottom: 6px; }
+        #tooltip .t-metric { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+        #tooltip .t-val { font-weight: 600; color: var(--text-highlight); }
+
+        /* Bottom Status Bar */
+        #status-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 28px;
+            background: var(--bg-status-bar);
+            border-top: 1px solid var(--border-section);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            font-size: 10px;
+            color: var(--text-muted);
+            z-index: 30;
+        }
+        .status-left, .status-right { display: flex; align-items: center; gap: 14px; }
+        .status-highlight { color: var(--text-highlight); font-weight: 600; }
+
+        /* Navigation Zoom Buttons */
+        #nav-buttons {
+            position: absolute;
+            bottom: 40px;
+            right: 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            z-index: 40;
+        }
+        .nav-btn {
+            width: 30px;
+            height: 30px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-panel);
+            border-radius: 8px;
+            color: var(--text-main);
+            font-size: 14px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .nav-btn:hover { background: #4f46e5; color: #ffffff; border-color: #6366f1; }
+
+        #empty-state {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 14px;
+            z-index: 20;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Top Visual Mode Selector -->
+        <div id="mode-bar">
+            <button class="mode-btn active" id="btn-mode-network" onclick="setVisualMode('network')" title="Group items by community clusters">
+                ● Network
+            </button>
+            <button class="mode-btn" id="btn-mode-overlay" onclick="setVisualMode('overlay')" title="Color items by continuous score gradient (e.g. publication year, citations)">
+                ◐ Overlay
+            </button>
+            <button class="mode-btn" id="btn-mode-density-item" onclick="setVisualMode('density-item')" title="Item density heatmap based on term frequencies">
+                ◎ Item Density
+            </button>
+            <button class="mode-btn" id="btn-mode-density-cluster" onclick="setVisualMode('density-cluster')" title="Cluster density heatmap blending cluster colors">
+                ◈ Cluster Density
+            </button>
+        </div>
+
+        <!-- Options Panel with VOSviewer Tabs -->
+        <div id="options-panel">
+            <div id="panel-tab-bar">
+                <button class="tab-button" id="tab-btn-options" onclick="selectPanelTab('options')">Options</button>
+                <button class="tab-button" id="tab-btn-items" onclick="selectPanelTab('items')">Items</button>
+                <button class="tab-button active" id="tab-btn-analysis" onclick="selectPanelTab('analysis')">Analysis</button>
+            </div>
+
+            <!-- ── TAB: ANALYSIS ───────────────────────────── -->
+            <div id="tab-content-analysis" class="panel-tab-content active">
+                <!-- Normalization -->
+                <div class="panel-section" style="border-top:none; padding-top:0;">
+                    <div class="panel-section-title">Normalization</div>
+                    <div class="panel-row">
+                        <span class="panel-label">Method:</span>
+                        <select class="panel-select" id="select-analysis-norm" style="width: 140px;" onchange="onAnalysisNormChange(this.value)">
+                            <option value="association" selected>Association Strength</option>
+                            <option value="fractionalization">Fractionalization</option>
+                            <option value="linlog">LinLog</option>
+                            <option value="none">None</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Layout -->
+                <div class="panel-section">
+                    <div class="panel-section-title">Layout</div>
+                    <div class="panel-row">
+                        <span class="panel-label">Attraction:</span>
+                        <input type="number" class="panel-input" id="input-attraction" value="2" min="1" max="10" step="1" style="width: 60px;">
+                    </div>
+                    <div class="panel-row">
+                        <span class="panel-label">Repulsion:</span>
+                        <input type="number" class="panel-input" id="input-repulsion" value="0" min="-5" max="5" step="1" style="width: 60px;">
+                    </div>
+                    <div class="panel-row" style="margin-top: 2px;">
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:#9ca3af; font-size:10px;">
+                            <input type="checkbox" id="check-default-layout" checked onchange="onToggleDefaultLayout(this.checked)">
+                            <span>Use default values</span>
+                        </label>
+                    </div>
+                    <div class="panel-row" style="margin-top: 6px;">
+                        <button class="apply-btn" id="btn-update-layout" onclick="updateLayout()">Update Layout</button>
+                    </div>
+                </div>
+
+                <!-- Clustering -->
+                <div class="panel-section">
+                    <div class="panel-section-title">Clustering</div>
+                    <div class="panel-row">
+                        <span class="panel-label">Resolution:</span>
+                        <input type="number" class="panel-input" id="input-resolution" value="1.00" min="0.1" max="5.0" step="0.1" style="width: 60px;">
+                    </div>
+                    <div class="panel-row">
+                        <span class="panel-label">Min. cluster size:</span>
+                        <input type="number" class="panel-input" id="input-min-cluster" value="1" min="1" max="50" step="1" style="width: 60px;">
+                    </div>
+                    <div class="panel-row" style="margin-top: 2px;">
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:#9ca3af; font-size:10px;">
+                            <input type="checkbox" id="check-merge-clusters" checked>
+                            <span>Merge small clusters</span>
+                        </label>
+                    </div>
+                    <div class="panel-row" style="margin-top: 6px;">
+                        <button class="apply-btn" id="btn-update-clustering" onclick="updateClustering()">Update Clustering</button>
+                    </div>
+                    <div id="cluster-status" style="font-size:10px; color:#818cf8; margin-top:4px; display:none;">⟳ Recalculating clusters…</div>
+                </div>
+
+                <!-- Rotate/flip -->
+                <div class="panel-section">
+                    <div class="panel-section-title">Rotate/flip</div>
+                    <div class="panel-row">
+                        <span class="panel-label">Degrees to rotate:</span>
+                        <input type="number" class="panel-input" id="input-rotate-deg" value="90" min="1" max="360" step="15" style="width: 60px;">
+                    </div>
+                    <div class="panel-row" style="margin-top: 6px;">
+                        <button class="action-btn" onclick="rotateMapByDegrees()">Rotate</button>
+                    </div>
+                    <div class="panel-row" style="margin-top: 3px;">
+                        <button class="action-btn" onclick="flipMapHorizontal()">Flip Horizontally</button>
+                    </div>
+                    <div class="panel-row" style="margin-top: 3px;">
+                        <button class="action-btn" onclick="flipMapVertical()">Flip Vertically</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: OPTIONS ────────────────────────────── -->
+            <div id="tab-content-options" class="panel-tab-content">
+                <div class="panel-section" style="border-top:none; padding-top:0;">
+                    <div class="panel-section-title">Visualization Type</div>
+                    <select class="panel-select" id="select-visual-mode" style="width: 100%; font-weight: 600;" onchange="setVisualMode(this.value)">
+                        <option value="network">● Network Visualization</option>
+                        <option value="overlay">◐ Overlay Visualization</option>
+                        <option value="density-item">◎ Item Density</option>
+                        <option value="density-cluster">◈ Cluster Density</option>
+                    </select>
+                </div>
+
+                <div class="panel-section" id="section-network-filter">
+                    <div class="panel-section-title">Network Filter</div>
+                    <div class="panel-row">
+                        <span class="panel-label" title="Mostrar sólo el componente conexo más grande (elimina islas periféricas en círculo)">Only Largest Component:</span>
+                        <input type="checkbox" id="check-only-lcc" onchange="onOnlyLccChange(this.checked)">
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <div class="panel-section-title">Display & Weights</div>
+                    <div class="panel-row" id="row-weights">
+                        <span class="panel-label">Weights:</span>
+                        <select class="panel-select" id="select-weights" onchange="onWeightChange(this.value)">
+                            <option value="Occurrences">Occurrences</option>
+                            <option value="Total link strength">Total link strength</option>
+                            <option value="Links">Links</option>
+                        </select>
+                    </div>
+                    <div class="panel-row" id="row-scores" style="display: none;">
+                        <span class="panel-label">Scores:</span>
+                        <select class="panel-select" id="select-scores" onchange="onScoreChange(this.value)">
+                            <option value="Avg. pub. year">Avg. pub. year</option>
+                            <option value="Avg. citations">Avg. citations</option>
+                        </select>
+                    </div>
+                    <div class="panel-row" id="row-overlay-colormap" style="display: none;">
+                        <span class="panel-label">Color Scheme:</span>
+                        <select class="panel-select" id="select-overlay-colormap" onchange="onOverlayColormapChange(this.value)">
+                            <option value="viridis">Viridis</option>
+                            <option value="plasma">Plasma</option>
+                            <option value="inferno">Inferno</option>
+                            <option value="rainbow">Rainbow</option>
+                            <option value="coolwarm">Coolwarm</option>
+                        </select>
+                    </div>
+                    <div class="panel-row" id="row-density-type" style="display: none;">
+                        <span class="panel-label">Density Mode:</span>
+                        <select class="panel-select" id="select-density-type" onchange="onDensityTypeChange(this.value)">
+                            <option value="item">Item Density</option>
+                            <option value="cluster">Cluster Density</option>
+                        </select>
+                    </div>
+                    <div class="panel-row" id="row-kernel" style="display: none;">
+                        <span class="panel-label">Kernel Width:</span>
+                        <input type="range" class="panel-slider" id="slider-kernel" min="10" max="80" step="5" value="35" oninput="onKernelChange(this.value)">
+                    </div>
+                    <div class="panel-row">
+                        <span class="panel-label">Scale:</span>
+                        <input type="range" class="panel-slider" id="slider-scale" min="0.5" max="2.5" step="0.1" value="1.0" oninput="onScaleChange(this.value)">
+                    </div>
+                </div>
+
+                <div class="panel-section" id="section-links-controls">
+                    <div class="panel-section-title">Lines & Links</div>
+                    <div class="panel-row">
+                        <span class="panel-label">Show Links:</span>
+                        <input type="checkbox" id="check-show-links" checked onchange="onShowLinksChange(this.checked)">
+                    </div>
+                    <div class="panel-row">
+                        <span class="panel-label">Curved Lines:</span>
+                        <input type="checkbox" id="check-curved" checked onchange="onCurvedChange(this.checked)">
+                    </div>
+                    <div class="panel-row">
+                        <span class="panel-label">Min. Strength:</span>
+                        <input type="range" class="panel-slider" id="slider-min-strength" min="0" max="1" step="0.05" value="0" oninput="onMinStrengthChange(this.value)">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: ITEMS ──────────────────────────────── -->
+            <div id="tab-content-items" class="panel-tab-content">
+                <div class="panel-section" style="border-top:none; padding-top:0;">
+                    <input type="text" class="panel-input" id="input-search-items" placeholder="Search items..." style="width: 100%; margin-bottom: 6px;" oninput="onSearchItems(this.value)">
+                    <div id="items-list-container" style="max-height: calc(100vh - 200px); overflow-y: auto; display: flex; flex-direction: column; gap: 3px; padding-right: 2px;">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Canvas Wrapper -->
+        <div id="canvas-wrapper">
+            <canvas id="main-canvas"></canvas>
+            <div id="empty-state">No network dataset loaded.</div>
+        </div>
+
+        <!-- Minimap Overview -->
+        <div id="overview-minimap">
+            <canvas id="overview-canvas"></canvas>
+            <div id="viewport-rect"></div>
+        </div>
+
+        <!-- Overlay Colorbar -->
+        <div id="overlay-colorbar">
+            <div class="colorbar-labels">
+                <span id="colorbar-min">2018</span>
+                <span id="colorbar-mid">2021</span>
+                <span id="colorbar-max">2024</span>
+            </div>
+            <div class="gradient-bar" id="colorbar-grad"></div>
+        </div>
+
+        <!-- Zoom Navigation Buttons -->
+        <div id="nav-buttons">
+            <button class="nav-btn" onclick="zoomDelta(1.2)" title="Zoom In">+</button>
+            <button class="nav-btn" onclick="zoomDelta(0.833)" title="Zoom Out">−</button>
+            <button class="nav-btn" onclick="resetZoom()" title="Reset Camera">⟲</button>
+            <button class="nav-btn" onclick="rotateMap90()" title="Rotate 90° Clockwise">↻</button>
+            <button class="nav-btn" onclick="flipMapHorizontal()" title="Flip Horizontal">⇆</button>
+            <button class="nav-btn" onclick="flipMapVertical()" title="Flip Vertical">⇅</button>
+        </div>
+
+        <!-- Tooltip -->
+        <div id="tooltip"></div>
+
+        <!-- Bottom Status Bar -->
+        <div id="status-bar">
+            <div class="status-left">
+                <span>Items: <strong id="stat-items" class="status-highlight">0</strong></span>
+                <span>Clusters: <strong id="stat-clusters" class="status-highlight">0</strong></span>
+                <span>Links: <strong id="stat-links" class="status-highlight">0</strong></span>
+                <span>Total Link Strength: <strong id="stat-tls" class="status-highlight">0</strong></span>
+            </div>
+            <div class="status-right">
+                <span id="stat-hover">Hover over a node or link to inspect details</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Curated cluster color palette for crisp academic contrast
+        const CLUSTER_COLORS = [
+            '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
+            '#ec4899', '#06b6d4', '#84cc16', '#d946ef', '#f97316',
+            '#14b8a6', '#6366f1', '#eab308', '#a855f7', '#22c55e'
+        ];
+
+        function hexToRgb(hex) {
+            const bigint = parseInt(hex.replace('#', ''), 16);
+            return {
+                r: (bigint >> 16) & 255,
+                g: (bigint >> 8) & 255,
+                b: bigint & 255
+            };
+        }
+        const CLUSTER_RGB = CLUSTER_COLORS.map(hexToRgb);
+
+        // State
+        let visualMode = 'network'; // 'network' | 'overlay' | 'density'
+        let densityType = 'item';   // 'item' | 'cluster'
+        let overlayColormap = 'viridis'; // 'viridis' | 'plasma' | 'inferno' | 'rainbow' | 'coolwarm'
+        let currentWeightAttr = 'Occurrences';
+        let currentScoreAttr = 'Avg. pub. year';
+        let showLinks = true;
+        let curvedLinks = true;
+        let minLinkStrengthRatio = 0.0;
+        let kernelWidth = 35;
+        let globalScale = 1.0;
+
+        let rawData = null;
+        let items = [];
+        let links = [];
+        let itemById = new Map();
+
+        // Normalization state (Default: Association Strength)
+        let currentNormalization = 'association';   // 'none' | 'association' | 'fractionalization' | 'linlog'
+        let rawLinkStrengths = new Map();    // link index -> original strength
+
+        // Camera / Viewport Transform
+        let transform = { x: 0, y: 0, k: 1 };
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let hoveredItem = null;
+
+        // Offscreen density canvas
+        let densityCanvas = document.createElement('canvas');
+        let densityCtx = densityCanvas.getContext('2d');
+
+        // Setup Main Canvas
+        const canvas = document.getElementById('main-canvas');
+        const ctx = canvas.getContext('2d');
+        const wrapper = document.getElementById('canvas-wrapper');
+        const overviewCanvas = document.getElementById('overview-canvas');
+        const overviewCtx = overviewCanvas.getContext('2d');
+        const viewportRect = document.getElementById('viewport-rect');
+        const tooltip = document.getElementById('tooltip');
+
+        function resizeCanvas() {
+            const rect = wrapper.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.resetTransform();
+            ctx.scale(dpr, dpr);
+            render();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        // Visual Mode Switching
+        function setVisualMode(mode) {
+            if (mode === 'density-item') {
+                visualMode = 'density';
+                densityType = 'item';
+            } else if (mode === 'density-cluster') {
+                visualMode = 'density';
+                densityType = 'cluster';
+            } else {
+                visualMode = mode;
+            }
+
+            // Sync top buttons
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            const activeBtnId = (visualMode === 'density') ? `btn-mode-density-${densityType}` : `btn-mode-${visualMode}`;
+            const activeBtn = document.getElementById(activeBtnId);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            // Sync dropdown select
+            const selectMode = document.getElementById('select-visual-mode');
+            if (selectMode) {
+                selectMode.value = (visualMode === 'density') ? `density-${densityType}` : visualMode;
+            }
+
+            const isOverlay = visualMode === 'overlay';
+            const isDensity = visualMode === 'density';
+
+            document.getElementById('row-weights').style.display = isOverlay ? 'none' : 'flex';
+            document.getElementById('row-scores').style.display = isOverlay ? 'flex' : 'none';
+            document.getElementById('row-overlay-colormap').style.display = isOverlay ? 'flex' : 'none';
+            document.getElementById('row-density-type').style.display = isDensity ? 'flex' : 'none';
+            document.getElementById('row-kernel').style.display = isDensity ? 'flex' : 'none';
+            document.getElementById('overlay-colorbar').style.display = isOverlay ? 'flex' : 'none';
+            document.getElementById('section-links-controls').style.display = isDensity ? 'none' : 'block';
+
+            const selectDensityType = document.getElementById('select-density-type');
+            if (selectDensityType) selectDensityType.value = densityType;
+
+            if (isOverlay) {
+                updateColorbar();
+            }
+            if (isDensity) {
+                computeDensityMap();
+            }
+            render();
+        }
+
+        function onWeightChange(val) {
+            currentWeightAttr = val;
+            if (visualMode === 'density') computeDensityMap();
+            render();
+        }
+
+        function onScoreChange(val) {
+            currentScoreAttr = val;
+            updateColorbar();
+            render();
+        }
+
+        function onOverlayColormapChange(val) {
+            overlayColormap = val;
+            updateColorbar();
+            render();
+        }
+
+        function onDensityTypeChange(val) {
+            densityType = val;
+            if (visualMode === 'density') {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                const activeBtn = document.getElementById(`btn-mode-density-${densityType}`);
+                if (activeBtn) activeBtn.classList.add('active');
+                const selectMode = document.getElementById('select-visual-mode');
+                if (selectMode) selectMode.value = `density-${densityType}`;
+            }
+            computeDensityMap();
+            render();
+        }
+
+        function onScaleChange(val) {
+            globalScale = parseFloat(val);
+            render();
+        }
+
+        function onShowLinksChange(val) {
+            showLinks = val;
+            render();
+        }
+
+        function onCurvedChange(val) {
+            curvedLinks = val;
+            render();
+        }
+
+        function onMinStrengthChange(val) {
+            minLinkStrengthRatio = parseFloat(val);
+            render();
+        }
+
+        let onlyLcc = false;
+
+        function getActiveItemsAndLinks() {
+            if (!onlyLcc || !items.length) {
+                return { activeItems: items, activeLinks: links };
+            }
+
+            const adj = new Map();
+            items.forEach(it => adj.set(it.id, new Set()));
+            links.forEach(l => {
+                if (adj.has(l.source_id) && adj.has(l.target_id)) {
+                    adj.get(l.source_id).add(l.target_id);
+                    adj.get(l.target_id).add(l.source_id);
+                }
+            });
+
+            const visited = new Set();
+            const components = [];
+
+            items.forEach(it => {
+                if (!visited.has(it.id)) {
+                    const comp = new Set();
+                    const queue = [it.id];
+                    visited.add(it.id);
+
+                    while (queue.length > 0) {
+                        const curr = queue.shift();
+                        comp.add(curr);
+                        for (const neighbor of (adj.get(curr) || [])) {
+                            if (!visited.has(neighbor)) {
+                                visited.add(neighbor);
+                                queue.push(neighbor);
+                            }
+                        }
+                    }
+                    components.push(comp);
+                }
+            });
+
+            components.sort((a, b) => b.size - a.size);
+            const lccSet = components.length > 0 ? components[0] : new Set();
+
+            const activeItems = items.filter(it => lccSet.has(it.id));
+            const activeItemIds = new Set(activeItems.map(it => it.id));
+            const activeLinks = links.filter(l => activeItemIds.has(l.source_id) && activeItemIds.has(l.target_id));
+
+            return { activeItems, activeLinks };
+        }
+
+        function onOnlyLccChange(val) {
+            onlyLcc = val;
+            if (visualMode === 'density') computeDensityMap();
+            populateItemsList(document.getElementById('input-search-items')?.value || '');
+            resetZoom();
+            render();
+        }
+
+        // Panel Tab Switching (Options | Items | Analysis)
+        function selectPanelTab(tabName) {
+            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.panel-tab-content').forEach(c => c.classList.remove('active'));
+
+            const btn = document.getElementById(`tab-btn-${tabName}`);
+            const content = document.getElementById(`tab-content-${tabName}`);
+            if (btn) btn.classList.add('active');
+            if (content) content.classList.add('active');
+
+            if (tabName === 'items') {
+                populateItemsList(document.getElementById('input-search-items')?.value || '');
+            }
+        }
+
+        function onAnalysisNormChange(method) {
+            applyNormalization(method);
+        }
+
+        function onToggleDefaultLayout(checked) {
+            const inputAttr = document.getElementById('input-attraction');
+            const inputRep = document.getElementById('input-repulsion');
+            if (checked) {
+                if (inputAttr) { inputAttr.value = 2; inputAttr.disabled = true; }
+                if (inputRep) { inputRep.value = 0; inputRep.disabled = true; }
+            } else {
+                if (inputAttr) inputAttr.disabled = false;
+                if (inputRep) inputRep.disabled = false;
+            }
+        }
+
+        // ── NORMALIZATION ────────────────────────────────────────────────────────
+        /**
+         * Applies in-browser normalization to link strengths.
+         * Methods:
+         *   association:       AS_ij = (w_ij / (occ_i * occ_j)) * sum_occ
+         *   fractionalization: FR_ij = (2 * w_ij) / (occ_i + occ_j)
+         *   linlog:            LL_ij = ln(1 + w_ij)
+         *   none:              w_ij (raw)
+         */
+        function applyNormalization(method) {
+            currentNormalization = method;
+
+            const selectNorm = document.getElementById('select-analysis-norm');
+            if (selectNorm && selectNorm.value !== method) selectNorm.value = method;
+
+            // Restore raw strengths first
+            links.forEach((lk, idx) => {
+                if (rawLinkStrengths.has(idx)) {
+                    lk.strength = rawLinkStrengths.get(idx);
+                } else {
+                    rawLinkStrengths.set(idx, lk.strength || 1);
+                }
+            });
+
+            if (method === 'none') {
+                render();
+                return;
+            }
+
+            const totalOcc = items.reduce((s, it) => s + (it.weights?.Occurrences || 1), 0);
+
+            links.forEach((lk, idx) => {
+                const src = itemById.get(lk.source_id);
+                const tgt = itemById.get(lk.target_id);
+                if (!src || !tgt) return;
+
+                const raw = rawLinkStrengths.get(idx);
+                const oi = src.weights?.Occurrences || 1;
+                const oj = tgt.weights?.Occurrences || 1;
+
+                let normalized = raw;
+                if (method === 'association') {
+                    normalized = (raw / Math.max(1, (oi * oj))) * totalOcc;
+                } else if (method === 'fractionalization') {
+                    normalized = (2 * raw) / Math.max(1, (oi + oj));
+                } else if (method === 'linlog') {
+                    normalized = Math.log(1 + Math.max(0, raw));
+                }
+                
+                if (isNaN(normalized) || !isFinite(normalized)) normalized = 0.1;
+                lk.strength = normalized;
+            });
+
+            render();
+        }
+
+        // ── VOS LAYOUT OPTIMIZATION (Attraction & Repulsion Minimization) ─────────
+        function updateLayout() {
+            if (!items || items.length === 0) return;
+
+            const btn = document.getElementById('btn-update-layout');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = 'Calculating Layout…';
+            }
+
+            const normMethod = document.getElementById('select-analysis-norm')?.value || currentNormalization;
+            const attraction = parseFloat(document.getElementById('input-attraction')?.value) || 2;
+            const repulsion = parseFloat(document.getElementById('input-repulsion')?.value) || 0;
+
+            // Apply normalization to link weights first
+            applyNormalization(normMethod);
+
+            // Execute VOS Layout minimization
+            setTimeout(() => {
+                runVosLayoutOptimization(attraction, repulsion);
+                if (visualMode === 'density') {
+                    computeDensityMap();
+                }
+                render();
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = 'Update Layout';
+                }
+            }, 20);
+        }
+
+        function runVosLayoutOptimization(attractionExp = 2, repulsionExp = 0) {
+            const n = items.length;
+            if (n <= 1) return;
+
+            const idxById = new Map();
+            items.forEach((it, i) => idxById.set(it.id, i));
+
+            // Sparse link list
+            const simLinks = [];
+            links.forEach(l => {
+                const u = idxById.get(l.source_id);
+                const v = idxById.get(l.target_id);
+                if (u !== undefined && v !== undefined && u !== v) {
+                    const w = Math.max(0.0001, Math.abs(l.strength) || 0.1);
+                    simLinks.push({ u, v, w });
+                }
+            });
+
+            const iterations = 120;
+            const k = Math.sqrt((850 * 850) / n); // Optimal equilibrium distance
+
+            for (let iter = 0; iter < iterations; iter++) {
+                const temp = 60 * (1 - iter / iterations); // Simulated annealing temperature
+                const dx = new Float64Array(n);
+                const dy = new Float64Array(n);
+
+                // 1. Repulsion between all node pairs
+                for (let i = 0; i < n; i++) {
+                    const xi = items[i].x;
+                    const yi = items[i].y;
+                    const wi = Math.sqrt(items[i].weights?.Occurrences || 1);
+
+                    for (let j = i + 1; j < n; j++) {
+                        const xj = items[j].x;
+                        const yj = items[j].y;
+                        const wj = Math.sqrt(items[j].weights?.Occurrences || 1);
+
+                        let deltaX = xi - xj;
+                        let deltaY = yi - yj;
+                        let dist = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                        if (dist < 0.1) {
+                            deltaX = (Math.random() - 0.5) * 2;
+                            deltaY = (Math.random() - 0.5) * 2;
+                            dist = Math.sqrt(deltaX * deltaX + deltaY * deltaY) || 0.1;
+                        }
+
+                        // VOS / LinLog repulsion force
+                        const repForce = (k * k * (wi * wj)) / (dist * Math.pow(Math.max(1, dist / 120), repulsionExp));
+                        const fx = (deltaX / dist) * repForce;
+                        const fy = (deltaY / dist) * repForce;
+
+                        dx[i] += fx;
+                        dy[i] += fy;
+                        dx[j] -= fx;
+                        dy[j] -= fy;
+                    }
+                }
+
+                // 2. Attraction along links weighted by normalized similarity
+                simLinks.forEach(({ u, v, w }) => {
+                    const xu = items[u].x;
+                    const yu = items[u].y;
+                    const xv = items[v].x;
+                    const yv = items[v].y;
+
+                    let deltaX = xv - xu;
+                    let deltaY = yv - yu;
+                    let dist = Math.sqrt(deltaX * deltaX + deltaY * deltaY) || 0.1;
+
+                    // VOS attraction force
+                    const attrForce = w * Math.pow(dist / k, attractionExp) * k;
+                    const fx = (deltaX / dist) * attrForce;
+                    const fy = (deltaY / dist) * attrForce;
+
+                    dx[u] += fx;
+                    dy[u] += fy;
+                    dx[v] -= fx;
+                    dy[v] -= fy;
+                });
+
+                // 3. Apply displacement with temperature cap
+                for (let i = 0; i < n; i++) {
+                    const d = Math.sqrt(dx[i] * dx[i] + dy[i] * dy[i]);
+                    if (d > 0.0001) {
+                        const step = Math.min(d, temp);
+                        items[i].x += (dx[i] / d) * step;
+                        items[i].y += (dy[i] / d) * step;
+                    }
+                }
+            }
+
+            // 4. Center coordinates around (0,0) and scale to canonical bounding box
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            items.forEach(it => {
+                if (it.x < minX) minX = it.x;
+                if (it.x > maxX) maxX = it.x;
+                if (it.y < minY) minY = it.y;
+                if (it.y > maxY) maxY = it.y;
+            });
+
+            const cx = (minX + maxX) / 2;
+            const cy = (minY + maxY) / 2;
+            const spanX = (maxX - minX) || 1;
+            const spanY = (maxY - minY) || 1;
+            const maxSpan = Math.max(spanX, spanY);
+            const targetSpan = 900;
+            const scaleFactor = targetSpan / maxSpan;
+
+            items.forEach(it => {
+                it.x = Math.round(((it.x - cx) * scaleFactor) * 100) / 100;
+                it.y = Math.round(((it.y - cy) * scaleFactor) * 100) / 100;
+            });
+        }
+
+        // ── CLUSTERING ───────────────────────────────────────────────────────────
+        function updateClustering() {
+            if (!items.length) return;
+            const resolution = parseFloat(document.getElementById('input-resolution')?.value) || 1.0;
+            const minClusterSize = parseInt(document.getElementById('input-min-cluster')?.value) || 1;
+
+            const status = document.getElementById('cluster-status');
+            if (status) status.style.display = 'block';
+            const btn = document.getElementById('btn-update-clustering');
+            if (btn) btn.disabled = true;
+
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'REQUEST_RECLUSTER',
+                    resolution,
+                    minClusterSize
+                }, '*');
+            }
+        }
+
+        function applyReclusterResult(clusterAssignments) {
+            const lookup = {};
+            Object.keys(clusterAssignments).forEach(k => {
+                lookup[k] = clusterAssignments[k];
+                lookup[parseInt(k, 10)] = clusterAssignments[k];
+            });
+
+            items.forEach(it => {
+                const val = lookup[it.id];
+                if (val !== undefined) {
+                    it.cluster = val;
+                }
+            });
+            const clusters = new Set(items.map(it => it.cluster || 1));
+            document.getElementById('stat-clusters').innerText = clusters.size;
+            const status = document.getElementById('cluster-status');
+            if (status) status.style.display = 'none';
+            const btn = document.getElementById('btn-update-clustering');
+            if (btn) btn.disabled = false;
+            if (visualMode === 'density') computeDensityMap();
+            populateItemsList(document.getElementById('input-search-items')?.value || '');
+            render();
+        }
+
+        // ── ROTATE / FLIP ────────────────────────────────────────────────────────
+        function rotateMapByDegrees(degrees) {
+            if (!items || !items.length) return;
+            const deg = (typeof degrees === 'number') ? degrees : (parseFloat(document.getElementById('input-rotate-deg')?.value) || 90);
+            const rad = (deg * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+
+            items.forEach(it => {
+                const ox = it.x || 0;
+                const oy = it.y || 0;
+                it.x = ox * cos - oy * sin;
+                it.y = ox * sin + oy * cos;
+            });
+            if (visualMode === 'density') computeDensityMap();
+            render();
+        }
+
+        function rotateMap90() {
+            rotateMapByDegrees(90);
+        }
+
+        function flipMapHorizontal() {
+            if (!items || !items.length) return;
+            items.forEach(it => {
+                it.x = -(it.x || 0);
+            });
+            if (visualMode === 'density') computeDensityMap();
+            render();
+        }
+
+        function flipMapVertical() {
+            if (!items || !items.length) return;
+            items.forEach(it => {
+                it.y = -(it.y || 0);
+            });
+            if (visualMode === 'density') computeDensityMap();
+            render();
+        }
+
+        // ── ITEMS LIST & SEARCH ──────────────────────────────────────────────────
+        function onSearchItems(val) {
+            populateItemsList(val);
+        }
+
+        function populateItemsList(filterText = '') {
+            const container = document.getElementById('items-list-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            const { activeItems } = getActiveItemsAndLinks();
+            const filter = filterText.toLowerCase().trim();
+            const filtered = activeItems.filter(it => !filter || (it.label || '').toLowerCase().includes(filter));
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div style="color: #6b7280; text-align: center; padding: 12px; font-size: 10px;">No items match.</div>';
+                return;
+            }
+
+            // Sort by occurrences descending
+            const sorted = [...filtered].sort((a, b) => (b.weights?.Occurrences || 1) - (a.weights?.Occurrences || 1));
+
+            sorted.forEach(it => {
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.alignItems = 'center';
+                row.style.justifyContent = 'space-between';
+                row.style.padding = '4px 6px';
+                row.style.borderRadius = '5px';
+                row.style.cursor = 'pointer';
+                row.style.fontSize = '11px';
+                row.style.transition = 'background 0.1s';
+                row.onmouseenter = () => { row.style.background = 'rgba(79, 70, 229, 0.2)'; };
+                row.onmouseleave = () => { row.style.background = 'transparent'; };
+                row.onclick = () => { focusOnItem(it.id); };
+
+                const cIdx = ((it.cluster || 1) - 1) % CLUSTER_COLORS.length;
+                const color = CLUSTER_COLORS[cIdx];
+
+                row.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px;">
+                        <span style="width:8px; height:8px; border-radius:50%; background:${color}; flex-shrink:0;"></span>
+                        <span style="color:#e5e7eb; overflow:hidden; text-overflow:ellipsis;" title="${it.label}">${it.label}</span>
+                    </div>
+                    <span style="color:#9ca3af; font-size:10px; font-weight:600;">${it.weights?.[currentWeightAttr] || 1}</span>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function focusOnItem(itemId) {
+            const it = itemById.get(itemId);
+            if (!it) return;
+            hoveredItem = it;
+            transform.x = -it.x * transform.k;
+            transform.y = -it.y * transform.k;
+            updateTooltip(it, wrapper.clientWidth / 2, wrapper.clientHeight / 2);
+            render();
+        }
+
+        function onKernelChange(val) {
+            kernelWidth = parseInt(val);
+            computeDensityMap();
+            render();
+        }
+
+        // Color maps
+        function viridisColormap(t) {
+            t = Math.max(0, Math.min(1, t));
+            const c0 = [68, 1, 84], c1 = [59, 82, 139], c2 = [33, 145, 140], c3 = [94, 201, 98], c4 = [253, 231, 37];
+            let cA, cB, localT;
+            if (t < 0.25) { cA = c0; cB = c1; localT = t / 0.25; }
+            else if (t < 0.5) { cA = c1; cB = c2; localT = (t - 0.25) / 0.25; }
+            else if (t < 0.75) { cA = c2; cB = c3; localT = (t - 0.5) / 0.25; }
+            else { cA = c3; cB = c4; localT = (t - 0.75) / 0.25; }
+            const r = Math.round(cA[0] + (cB[0] - cA[0]) * localT);
+            const g = Math.round(cA[1] + (cB[1] - cA[1]) * localT);
+            const b = Math.round(cA[2] + (cB[2] - cA[2]) * localT);
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function plasmaColormap(t) {
+            t = Math.max(0, Math.min(1, t));
+            const r = Math.round(255 * Math.sin(t * Math.PI * 0.9 + 0.1));
+            const g = Math.round(255 * Math.sin(t * Math.PI * 0.8));
+            const b = Math.round(255 * Math.cos(t * Math.PI * 0.7));
+            return `rgb(${Math.max(0, r)}, ${Math.max(0, g)}, ${Math.max(0, b)})`;
+        }
+
+        function infernoColormap(t) {
+            t = Math.max(0, Math.min(1, t));
+            const r = Math.round(255 * Math.pow(t, 0.8));
+            const g = Math.round(255 * Math.pow(t, 2.0));
+            const b = Math.round(255 * (t < 0.5 ? t * 1.5 : (1 - t) * 1.5));
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function rainbowColormap(t) {
+            t = Math.max(0, Math.min(1, t));
+            const hue = (1 - t) * 240;
+            return `hsl(${hue}, 90%, 50%)`;
+        }
+
+        function coolwarmColormap(t) {
+            t = Math.max(0, Math.min(1, t));
+            const r = Math.round(255 * (t < 0.5 ? 0.23 + t * 1.2 : 0.83 + (t - 0.5) * 0.34));
+            const g = Math.round(255 * (1 - Math.abs(t - 0.5) * 1.4));
+            const b = Math.round(255 * (t < 0.5 ? 0.75 - t * 0.5 : 0.5 - (t - 0.5) * 0.8));
+            return `rgb(${r}, ${Math.max(0, g)}, ${Math.max(0, b)})`;
+        }
+
+        function getColormapColor(t) {
+            if (overlayColormap === 'plasma') return plasmaColormap(t);
+            if (overlayColormap === 'inferno') return infernoColormap(t);
+            if (overlayColormap === 'rainbow') return rainbowColormap(t);
+            if (overlayColormap === 'coolwarm') return coolwarmColormap(t);
+            return viridisColormap(t);
+        }
+
+        const COLORBAR_GRADIENTS = {
+            viridis: 'linear-gradient(to right, #440154, #3b528b, #21918c, #5ec962, #fde725)',
+            plasma: 'linear-gradient(to right, #0d0887, #6a00a8, #b12a90, #e16462, #fca636, #f0f921)',
+            inferno: 'linear-gradient(to right, #000004, #420a68, #932667, #dd513a, #fca50a, #fcffa4)',
+            rainbow: 'linear-gradient(to right, #3b82f6, #06b6d4, #10b981, #eab308, #ef4444)',
+            coolwarm: 'linear-gradient(to right, #3b4cc0, #8cb2e9, #dddde9, #f49a7b, #b40426)'
+        };
+
+        // Update Colorbar UI
+        function updateColorbar() {
+            const { activeItems } = getActiveItemsAndLinks();
+            if (activeItems.length === 0) return;
+            const scores = activeItems.map(it => it.scores?.[currentScoreAttr]).filter(s => typeof s === 'number' && !isNaN(s));
+            if (scores.length === 0) return;
+
+            const min = Math.min(...scores);
+            const max = Math.max(...scores);
+            const mid = ((min + max) / 2).toFixed(1);
+
+            document.getElementById('colorbar-min').innerText = min.toFixed(1);
+            document.getElementById('colorbar-mid').innerText = mid;
+            document.getElementById('colorbar-max').innerText = max.toFixed(1);
+
+            document.getElementById('colorbar-grad').style.background = COLORBAR_GRADIENTS[overlayColormap] || COLORBAR_GRADIENTS.viridis;
+        }
+
+        // Compute 2D Kernel Density Estimation (KDE) Buffer
+        function computeDensityMap() {
+            const { activeItems } = getActiveItemsAndLinks();
+            if (activeItems.length === 0) return;
+            const w = 400;
+            const h = 400;
+            densityCanvas.width = w;
+            densityCanvas.height = h;
+
+            const imgData = densityCtx.createImageData(w, h);
+            const data = imgData.data;
+
+            // Normalize coordinate space
+            const xs = activeItems.map(it => it.x || 0);
+            const ys = activeItems.map(it => it.y || 0);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+            const spanX = (maxX - minX) || 1;
+            const spanY = (maxY - minY) || 1;
+
+            const sigma = kernelWidth / 200.0;
+            const twoSigmaSq = 2 * sigma * sigma;
+
+            const densityGrid = new Float32Array(w * h);
+            const rGrid = (densityType === 'cluster') ? new Float32Array(w * h) : null;
+            const gGrid = (densityType === 'cluster') ? new Float32Array(w * h) : null;
+            const bGrid = (densityType === 'cluster') ? new Float32Array(w * h) : null;
+
+            let maxDensity = 0.0001;
+
+            activeItems.forEach(it => {
+                const normX = ((it.x || 0) - minX) / spanX;
+                const normY = ((it.y || 0) - minY) / spanY;
+                const weight = Math.sqrt(it.weights?.[currentWeightAttr] || 1);
+
+                const px = Math.floor(normX * (w - 1));
+                const py = Math.floor(normY * (h - 1));
+                const radius = Math.floor(sigma * w * 2.5);
+
+                const x0 = Math.max(0, px - radius);
+                const x1 = Math.min(w - 1, px + radius);
+                const y0 = Math.max(0, py - radius);
+                const y1 = Math.min(h - 1, py + radius);
+
+                const cIdx = ((it.cluster || 1) - 1) % CLUSTER_RGB.length;
+                const rgb = CLUSTER_RGB[cIdx];
+
+                for (let y = y0; y <= y1; y++) {
+                    for (let x = x0; x <= x1; x++) {
+                        const dx = (x - px) / w;
+                        const dy = (y - py) / h;
+                        const distSq = dx * dx + dy * dy;
+                        const val = weight * Math.exp(-distSq / twoSigmaSq);
+                        const idx = y * w + x;
+                        densityGrid[idx] += val;
+                        if (densityType === 'cluster') {
+                            rGrid[idx] += val * rgb.r;
+                            gGrid[idx] += val * rgb.g;
+                            bGrid[idx] += val * rgb.b;
+                        }
+                        if (densityGrid[idx] > maxDensity) maxDensity = densityGrid[idx];
+                    }
+                }
+            });
+
+            // Colorize density map
+            for (let i = 0; i < densityGrid.length; i++) {
+                const d = densityGrid[i];
+                const norm = Math.pow(d / maxDensity, 0.75); // gamma curve
+                const p = i * 4;
+                if (norm > 0.02 && d > 0) {
+                    if (densityType === 'cluster') {
+                        // Blend cluster RGB colors
+                        data[p] = Math.floor(rGrid[i] / d);
+                        data[p + 1] = Math.floor(gGrid[i] / d);
+                        data[p + 2] = Math.floor(bGrid[i] / d);
+                        data[p + 3] = Math.floor(Math.min(235, norm * 255));
+                    } else {
+                        // Item density gradient: Blue -> Cyan -> Green -> Yellow -> Red
+                        data[p] = Math.floor(Math.min(255, norm * 280));      // R
+                        data[p + 1] = Math.floor(Math.min(255, norm * 260));  // G
+                        data[p + 2] = Math.floor(Math.max(0, (1 - norm) * 255)); // B
+                        data[p + 3] = Math.floor(Math.min(220, norm * 240));  // Alpha
+                    }
+                } else {
+                    data[p + 3] = 0;
+                }
+            }
+
+            densityCtx.putImageData(imgData, 0, 0);
+        }
+
+        // Layout Initializer — only runs when backend provides NO x,y coords
+        function initLayout() {
+            const hasCoords = items.some(it => typeof it.x === 'number' && typeof it.y === 'number' && !isNaN(it.x) && (it.x !== 0 || it.y !== 0));
+            if (hasCoords) return;
+
+            runVosLayoutOptimization(2, 0);
+        }
+
+        // Theme management helper
+        let activeTheme = 'dark';
+        function getThemeCssVar(name, fallback) {
+            return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+        }
+
+        function applyTheme(themeName) {
+            activeTheme = themeName || 'dark';
+            document.documentElement.setAttribute('data-theme', activeTheme);
+            if (visualMode === 'density') {
+                computeDensityMap();
+            }
+            render();
+        }
+
+        // Main Render Loop
+        function render() {
+            const rect = wrapper.getBoundingClientRect();
+            const w = rect.width;
+            const h = rect.height;
+
+            const canvasBg = getThemeCssVar('--canvas-bg', '#050508');
+            ctx.fillStyle = canvasBg;
+            ctx.fillRect(0, 0, w, h);
+
+            const { activeItems, activeLinks } = getActiveItemsAndLinks();
+
+            if (!activeItems || activeItems.length === 0) {
+                document.getElementById('empty-state').style.display = 'block';
+                return;
+            }
+            document.getElementById('empty-state').style.display = 'none';
+
+            ctx.save();
+            // Apply camera pan & zoom centered
+            ctx.translate(w / 2 + transform.x, h / 2 + transform.y);
+            ctx.scale(transform.k, transform.k);
+
+            // 1. Draw Density Heatmap Background if active
+            if (visualMode === 'density' && densityCanvas.width > 0) {
+                const xs = activeItems.map(it => it.x || 0);
+                const ys = activeItems.map(it => it.y || 0);
+                const minX = Math.min(...xs) - 80, maxX = Math.max(...xs) + 80;
+                const minY = Math.min(...ys) - 80, maxY = Math.max(...ys) + 80;
+                ctx.drawImage(densityCanvas, minX, minY, maxX - minX, maxY - minY);
+            }
+
+            // 2. Draw Links
+            if (showLinks && visualMode !== 'density') {
+                const maxLinks = 1000;
+                const linksToDraw = activeLinks.slice(0, maxLinks);
+
+                // Precompute strength range for relative visual encoding
+                const allStrengths = linksToDraw.map(l => Math.abs(l.strength) || 0);
+                const maxStrength = allStrengths.length ? Math.max(...allStrengths) : 1;
+                const minStrength = allStrengths.length ? Math.min(...allStrengths) : 0;
+                const strengthSpan = (maxStrength - minStrength) || 1;
+                const defaultLinkColor = getThemeCssVar('--link-color', 'rgba(99, 102, 241, 0.25)');
+
+                linksToDraw.forEach(l => {
+                    const src = itemById.get(l.source_id);
+                    const tgt = itemById.get(l.target_id);
+                    if (!src || !tgt) return;
+
+                    let t = (Math.abs(l.strength) - minStrength) / strengthSpan; // 0..1
+                    if (isNaN(t) || !isFinite(t)) t = 0.5;
+                    
+                    if (t < minLinkStrengthRatio) return;
+
+                    const isConnectedToHover = hoveredItem && (hoveredItem.id === src.id || hoveredItem.id === tgt.id);
+                    const strokeWidth = (0.4 + t * 5.0) * globalScale;  // 0.4px (weak) → 5.4px (strong)
+
+                    ctx.beginPath();
+                    ctx.lineWidth = strokeWidth;
+
+                    if (isConnectedToHover) {
+                        ctx.strokeStyle = '#38bdf8';
+                        ctx.globalAlpha = 0.9;
+                    } else {
+                        ctx.strokeStyle = defaultLinkColor;
+                        ctx.globalAlpha = activeTheme === 'light' ? 0.75 : 0.6;
+                    }
+
+                    if (curvedLinks) {
+                        const midX = (src.x + tgt.x) / 2 + (tgt.y - src.y) * 0.15;
+                        const midY = (src.y + tgt.y) / 2 + (src.x - tgt.x) * 0.15;
+                        ctx.moveTo(src.x, src.y);
+                        ctx.quadraticCurveTo(midX, midY, tgt.x, tgt.y);
+                    } else {
+                        ctx.moveTo(src.x, src.y);
+                        ctx.lineTo(tgt.x, tgt.y);
+                    }
+                    ctx.stroke();
+                });
+            }
+
+            ctx.globalAlpha = 1.0;
+
+            // 3. Compute Node Colors and Radii
+            const scoresList = activeItems.map(it => it.scores?.[currentScoreAttr]).filter(s => typeof s === 'number' && !isNaN(s));
+            const minScore = scoresList.length ? Math.min(...scoresList) : 0;
+            const maxScore = scoresList.length ? Math.max(...scoresList) : 1;
+            const scoreSpan = (maxScore - minScore) || 1;
+
+            const nodeStrokeColor = getThemeCssVar('--node-stroke', 'rgba(255,255,255,0.7)');
+            const labelTextColor = getThemeCssVar('--node-label-color', '#f8fafc');
+            const labelBackdropColor = getThemeCssVar('--node-label-bg', 'rgba(3, 7, 18, 0.75)');
+
+            // Sort nodes by weight ascending so top nodes render on top
+            const sortedItems = [...activeItems].sort((a, b) => (a.weights?.[currentWeightAttr] || 1) - (b.weights?.[currentWeightAttr] || 1));
+
+            // Occupancy bounding-box array for Smart Labeling
+            const renderedLabels = [];
+
+            sortedItems.forEach(it => {
+                const weight = it.weights?.[currentWeightAttr] || 1;
+                const radius = Math.max(4, Math.min(26, (Math.sqrt(weight) * 2.8 + 3) * globalScale));
+                const isHovered = hoveredItem?.id === it.id;
+
+                let nodeColor;
+                if (visualMode === 'overlay') {
+                    const s = it.scores?.[currentScoreAttr];
+                    const t = typeof s === 'number' ? (s - minScore) / scoreSpan : 0.5;
+                    nodeColor = getColormapColor(t);
+                } else if (visualMode === 'density') {
+                    nodeColor = activeTheme === 'light' ? 'rgba(30, 41, 59, 0.85)' : 'rgba(255,255,255,0.85)';
+                } else {
+                    const cIdx = ((it.cluster || 1) - 1) % CLUSTER_COLORS.length;
+                    nodeColor = CLUSTER_COLORS[cIdx];
+                }
+
+                // Circle
+                ctx.beginPath();
+                ctx.arc(it.x, it.y, radius, 0, 2 * Math.PI);
+                ctx.fillStyle = nodeColor;
+                ctx.fill();
+                ctx.lineWidth = isHovered ? 2.5 : 1.2;
+                ctx.strokeStyle = isHovered ? '#38bdf8' : nodeStrokeColor;
+                ctx.stroke();
+
+                // Smart Label Collision Detection
+                const fontSize = Math.max(9, Math.min(14, (Math.sqrt(weight) * 1.1 + 8) * globalScale));
+                ctx.font = `${isHovered ? '700' : '600'} ${fontSize}px 'Inter', sans-serif`;
+                const textWidth = ctx.measureText(it.label).width;
+                const labelBox = {
+                    x: it.x - textWidth / 2,
+                    y: it.y + radius + 3,
+                    w: textWidth + 6,
+                    h: fontSize + 4
+                };
+
+                const collides = renderedLabels.some(b => (
+                    labelBox.x < b.x + b.w &&
+                    labelBox.x + labelBox.w > b.x &&
+                    labelBox.y < b.y + b.h &&
+                    labelBox.y + labelBox.h > b.y
+                ));
+
+                if (!collides || isHovered || weight > 5) {
+                    renderedLabels.push(labelBox);
+
+                    // Text backdrop shadow
+                    ctx.fillStyle = labelBackdropColor;
+                    ctx.fillRect(labelBox.x - 2, labelBox.y - 1, labelBox.w + 4, labelBox.h);
+
+                    ctx.fillStyle = isHovered ? '#38bdf8' : labelTextColor;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(it.label, it.x, it.y + radius + 4);
+                }
+            });
+
+            ctx.restore();
+
+            // 4. Render Overview Minimap
+            renderMinimap(w, h, activeItems);
+        }
+
+        // Render Minimap
+        function renderMinimap(mainW, mainH, activeItemsList) {
+            const list = activeItemsList || getActiveItemsAndLinks().activeItems;
+            const mw = overviewCanvas.width = 150;
+            const mh = overviewCanvas.height = 100;
+            overviewCtx.clearRect(0, 0, mw, mh);
+
+            if (!list || list.length === 0) return;
+
+            const xs = list.map(it => it.x || 0);
+            const ys = list.map(it => it.y || 0);
+            const minX = Math.min(...xs) - 40, maxX = Math.max(...xs) + 40;
+            const minY = Math.min(...ys) - 40, maxY = Math.max(...ys) + 40;
+            const spanX = (maxX - minX) || 1;
+            const spanY = (maxY - minY) || 1;
+
+            // Draw points
+            list.forEach(it => {
+                const px = ((it.x - minX) / spanX) * (mw - 10) + 5;
+                const py = ((it.y - minY) / spanY) * (mh - 10) + 5;
+                const cIdx = ((it.cluster || 1) - 1) % CLUSTER_COLORS.length;
+
+                overviewCtx.beginPath();
+                overviewCtx.arc(px, py, 1.8, 0, 2 * Math.PI);
+                overviewCtx.fillStyle = CLUSTER_COLORS[cIdx];
+                overviewCtx.fill();
+            });
+
+            // Update Viewport Rect overlay
+            const viewWorldW = mainW / transform.k;
+            const viewWorldH = mainH / transform.k;
+            const viewWorldX = (-transform.x - mainW / 2) / transform.k;
+            const viewWorldY = (-transform.y - mainH / 2) / transform.k;
+
+            const rx = ((viewWorldX - minX) / spanX) * (mw - 10) + 5;
+            const ry = ((viewWorldY - minY) / spanY) * (mh - 10) + 5;
+            const rw = (viewWorldW / spanX) * (mw - 10);
+            const rh = (viewWorldH / spanY) * (mh - 10);
+
+            viewportRect.style.left = `${Math.max(0, Math.min(mw - 10, rx))}px`;
+            viewportRect.style.top = `${Math.max(0, Math.min(mh - 10, ry))}px`;
+            viewportRect.style.width = `${Math.max(10, Math.min(mw, rw))}px`;
+            viewportRect.style.height = `${Math.max(10, Math.min(mh, rh))}px`;
+        }
+
+        // Camera Transforms
+        function zoomDelta(factor) {
+            transform.k = Math.max(0.1, Math.min(10, transform.k * factor));
+            render();
+        }
+        function resetZoom() {
+            transform = { x: 0, y: 0, k: 1.0 };
+            render();
+        }
+
+        // Mouse Events
+        wrapper.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            dragStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+            wrapper.classList.add('grabbing');
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                transform.x = e.clientX - dragStart.x;
+                transform.y = e.clientY - dragStart.y;
+                render();
+            } else {
+                // Raycast hover check
+                const rect = wrapper.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                const worldX = (mouseX - (rect.width / 2 + transform.x)) / transform.k;
+                const worldY = (mouseY - (rect.height / 2 + transform.y)) / transform.k;
+
+                const { activeItems } = getActiveItemsAndLinks();
+                let hit = null;
+                for (let i = activeItems.length - 1; i >= 0; i--) {
+                    const it = activeItems[i];
+                    const weight = it.weights?.[currentWeightAttr] || 1;
+                    const radius = (Math.sqrt(weight) * 2.8 + 4) * globalScale;
+                    const dx = worldX - it.x;
+                    const dy = worldY - it.y;
+                    if (dx * dx + dy * dy <= radius * radius) {
+                        hit = it;
+                        break;
+                    }
+                }
+
+                if (hit !== hoveredItem) {
+                    hoveredItem = hit;
+                    render();
+                    updateTooltip(hit, e.clientX, e.clientY);
+                } else if (hit) {
+                    updateTooltip(hit, e.clientX, e.clientY);
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            wrapper.classList.remove('grabbing');
+        });
+
+        wrapper.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.1 : 0.909;
+            zoomDelta(factor);
+        }, { passive: false });
+
+        function updateTooltip(item, clientX, clientY) {
+            if (!item) {
+                tooltip.style.display = 'none';
+                document.getElementById('stat-hover').innerText = 'Hover over a node or link to inspect details';
+                return;
+            }
+
+            const cIdx = ((item.cluster || 1) - 1) % CLUSTER_COLORS.length;
+            const cColor = CLUSTER_COLORS[cIdx];
+
+            tooltip.innerHTML = `
+                <div class="t-label">${item.label}</div>
+                <div class="t-cluster" style="background: ${cColor}33; color: ${cColor}; border: 1px solid ${cColor}66;">
+                    Cluster ${item.cluster || 1}
+                </div>
+                <div class="t-metric">Occurrences: <span class="t-val">${item.weights?.Occurrences ?? 'N/A'}</span></div>
+                <div class="t-metric">Links: <span class="t-val">${item.weights?.Links ?? 'N/A'}</span></div>
+                <div class="t-metric">Total link strength: <span class="t-val">${item.weights?.['Total link strength'] ?? 'N/A'}</span></div>
+                ${item.scores?.['Avg. pub. year'] ? `<div class="t-metric">Avg. pub. year: <span class="t-val">${item.scores['Avg. pub. year']}</span></div>` : ''}
+                ${item.scores?.['Avg. citations'] ? `<div class="t-metric">Avg. citations: <span class="t-val">${item.scores['Avg. citations']}</span></div>` : ''}
+            `;
+
+            tooltip.style.left = `${clientX + 14}px`;
+            tooltip.style.top = `${clientY + 14}px`;
+            tooltip.style.display = 'block';
+
+            document.getElementById('stat-hover').innerHTML = `Selected: <strong class="status-highlight">${item.label}</strong> (Cluster ${item.cluster || 1}, Occurrences: ${item.weights?.Occurrences || 1})`;
+        }
+
+        // Handle incoming data via postMessage
+        function loadVosData(data) {
+            if (!data) return;
+            rawData = data;
+
+            const net = data.network || data;
+            items = net.items || [];
+            links = net.links || [];
+
+            itemById.clear();
+            items.forEach(it => itemById.set(it.id, it));
+
+            // Record raw link strengths
+            rawLinkStrengths.clear();
+            links.forEach((lk, idx) => {
+                rawLinkStrengths.set(idx, lk.strength || 1);
+            });
+
+            // Default normalization is Association Strength
+            currentNormalization = 'association';
+            const normSel = document.getElementById('select-analysis-norm');
+            if (normSel) normSel.value = 'association';
+            applyNormalization('association');
+
+            // Enable buttons if data loaded
+            const clBtn = document.getElementById('btn-update-clustering');
+            if (clBtn) clBtn.disabled = false;
+            const layBtn = document.getElementById('btn-update-layout');
+            if (layBtn) layBtn.disabled = false;
+
+            initLayout();
+
+            // Populate Weights dropdown dynamically
+            if (items.length > 0 && items[0].weights) {
+                const selectW = document.getElementById('select-weights');
+                if (selectW) {
+                    selectW.innerHTML = '';
+                    Object.keys(items[0].weights).forEach(k => {
+                        const opt = document.createElement('option');
+                        opt.value = k;
+                        opt.innerText = k;
+                        selectW.appendChild(opt);
+                    });
+                }
+                currentWeightAttr = Object.keys(items[0].weights)[0] || 'Occurrences';
+            }
+
+            // Populate Scores dropdown dynamically
+            if (items.length > 0 && items[0].scores) {
+                const selectS = document.getElementById('select-scores');
+                if (selectS) {
+                    selectS.innerHTML = '';
+                    Object.keys(items[0].scores).forEach(k => {
+                        const opt = document.createElement('option');
+                        opt.value = k;
+                        opt.innerText = k;
+                        selectS.appendChild(opt);
+                    });
+                }
+                currentScoreAttr = Object.keys(items[0].scores)[0] || 'Avg. pub. year';
+            }
+
+            // Update stats
+            const clusters = new Set(items.map(it => it.cluster || 1));
+            const tls = items.reduce((acc, it) => acc + (it.weights?.['Total link strength'] || 0), 0);
+
+            document.getElementById('stat-items').innerText = items.length;
+            document.getElementById('stat-clusters').innerText = clusters.size;
+            document.getElementById('stat-links').innerText = links.length;
+            document.getElementById('stat-tls').innerText = Math.round(tls / 2);
+
+            populateItemsList();
+            updateColorbar();
+            computeDensityMap();
+            resetZoom();
+        }
+
+        function exportVosImage(format, scale, filename) {
+            if (!items || !items.length) return;
+            scale = scale || 2;
+
+            if (format === 'svg') {
+                exportVosSvg(filename);
+                return;
+            }
+
+            const w = canvas.width * scale;
+            const h = canvas.height * scale;
+
+            const offscreen = document.createElement('canvas');
+            offscreen.width = w;
+            offscreen.height = h;
+            const offCtx = offscreen.getContext('2d');
+
+            const bg = getThemeCssVar('--canvas-bg', '#050508');
+            offCtx.fillStyle = bg;
+            offCtx.fillRect(0, 0, w, h);
+
+            offCtx.save();
+            offCtx.scale(scale, scale);
+            offCtx.translate(canvas.width / 2 + transform.x, canvas.height / 2 + transform.y);
+            offCtx.scale(transform.k, transform.k);
+
+            // Draw Edges
+            const edgeColor = getThemeCssVar('--link-color', 'rgba(99, 102, 241, 0.25)');
+            links.forEach(lk => {
+                const s = itemById.get(lk.source_id);
+                const t = itemById.get(lk.target_id);
+                if (!s || !t) return;
+
+                offCtx.strokeStyle = edgeColor;
+                offCtx.lineWidth = 1;
+                offCtx.beginPath();
+                offCtx.moveTo(s.x, s.y);
+                offCtx.lineTo(t.x, t.y);
+                offCtx.stroke();
+            });
+
+            // Draw Nodes & Labels
+            const labelColor = getThemeCssVar('--node-label-color', '#f8fafc');
+            const strokeColor = getThemeCssVar('--node-stroke', '#ffffff');
+
+            items.forEach(it => {
+                const weight = it.weights?.[currentWeightAttr] || 1;
+                const r = Math.max(4, Math.min(26, (Math.sqrt(weight) * 2.8 + 3) * globalScale));
+                const cIdx = ((it.cluster || 1) - 1) % CLUSTER_COLORS.length;
+                const color = CLUSTER_COLORS[cIdx];
+
+                offCtx.fillStyle = color;
+                offCtx.beginPath();
+                offCtx.arc(it.x, it.y, r, 0, Math.PI * 2);
+                offCtx.fill();
+
+                offCtx.strokeStyle = strokeColor;
+                offCtx.lineWidth = 1.2;
+                offCtx.stroke();
+
+                offCtx.font = `bold ${Math.max(9, Math.round((Math.sqrt(weight) * 1.1 + 8) * globalScale))}px Inter, sans-serif`;
+                offCtx.fillStyle = labelColor;
+                offCtx.textAlign = 'center';
+                offCtx.textBaseline = 'top';
+                offCtx.fillText(it.label, it.x, it.y + r + 4);
+            });
+
+            offCtx.restore();
+
+            offscreen.toBlob((blob) => {
+                if (!blob) return;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename || 'vosviewer_map.png';
+                a.click();
+                URL.revokeObjectURL(url);
+            }, 'image/png');
+        }
+
+        function exportVosSvg(filename) {
+            const w = canvas.width;
+            const h = canvas.height;
+            const bg = getThemeCssVar('--canvas-bg', '#050508');
+            const labelColor = getThemeCssVar('--node-label-color', '#f8fafc');
+            const edgeColor = getThemeCssVar('--link-color', 'rgba(99, 102, 241, 0.25)');
+            const strokeColor = getThemeCssVar('--node-stroke', '#ffffff');
+
+            let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">\n`;
+            svg += `<rect width="100%" height="100%" fill="${bg}"/>\n`;
+            svg += `<g transform="translate(${w/2 + transform.x}, ${h/2 + transform.y}) scale(${transform.k})">\n`;
+
+            links.forEach(lk => {
+                const s = itemById.get(lk.source_id);
+                const t = itemById.get(lk.target_id);
+                if (!s || !t) return;
+                svg += `<line x1="${s.x.toFixed(2)}" y1="${s.y.toFixed(2)}" x2="${t.x.toFixed(2)}" y2="${t.y.toFixed(2)}" stroke="${edgeColor}" stroke-width="1"/>\n`;
+            });
+
+            items.forEach(it => {
+                const weight = it.weights?.[currentWeightAttr] || 1;
+                const r = Math.max(4, Math.min(26, (Math.sqrt(weight) * 2.8 + 3) * globalScale));
+                const cIdx = ((it.cluster || 1) - 1) % CLUSTER_COLORS.length;
+                const color = CLUSTER_COLORS[cIdx];
+                const safeLabel = (it.label || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                svg += `<circle cx="${it.x.toFixed(2)}" cy="${it.y.toFixed(2)}" r="${r.toFixed(2)}" fill="${color}" stroke="${strokeColor}" stroke-width="1.2"/>\n`;
+                svg += `<text x="${it.x.toFixed(2)}" y="${(it.y + r + 4).toFixed(2)}" fill="${labelColor}" font-family="Inter, sans-serif" font-size="${Math.max(9, Math.round((Math.sqrt(weight) * 1.1 + 8) * globalScale))}" font-weight="bold" text-anchor="middle">${safeLabel}</text>\n`;
+            });
+
+            svg += `</g>\n</svg>`;
+
+            const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'vosviewer_map.svg';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Message Listener
+        window.addEventListener('message', (event) => {
+            if (event.data) {
+                if (event.data.type === 'LOAD_DATA' || event.data.type === 'LOAD_VOS_DATA') {
+                    loadVosData(event.data.data);
+                } else if (event.data.type === 'SET_THEME') {
+                    applyTheme(event.data.theme);
+                } else if (event.data.type === 'EXPORT_VOS_IMAGE') {
+                    exportVosImage(event.data.format, event.data.scale, event.data.filename);
+                } else if (event.data.type === 'RECLUSTER_RESULT') {
+                    applyReclusterResult(event.data.clusters);
+                } else if (event.data.type === 'SET_ONLY_LCC') {
+                    const check = document.getElementById('check-only-lcc');
+                    if (check) check.checked = event.data.value;
+                    onOnlyLccChange(event.data.value);
+                }
+            }
+        });
+
+        // Initialize & Signal Ready to Parent Window
+        window.addEventListener('DOMContentLoaded', () => {
+            try {
+                const storedTheme = localStorage.getItem('labsom-theme') || 'dark';
+                applyTheme(storedTheme);
+            } catch (e) {
+                applyTheme('dark');
+            }
+            resizeCanvas();
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: 'VOS_READY' }, '*');
+            }
+        });
+    </script>
+</body>
+</html>

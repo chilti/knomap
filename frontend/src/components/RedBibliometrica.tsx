@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import * as d3Force from 'd3-force';
 import { useSomStore } from '../store/somStore';
-import { Share2, Users, FileText, Info, ArrowRight } from 'lucide-react';
+import { Share2, Users, FileText, Info, ArrowRight, Eye, Layers, Table, Download, ExternalLink } from 'lucide-react';
 import { SendToAssistantButton } from './SendToAssistantButton';
+import { VosViewerContainer, networkToVosJson } from './vos/VosViewerContainer';
+import { VosExportModal } from './vos/VosExportModal';
 
 interface ForceNode extends d3Force.SimulationNodeDatum {
   id: string;
@@ -20,6 +22,7 @@ interface ForceLink extends d3Force.SimulationLinkDatum<ForceNode> {
 export const RedBibliometrica: React.FC = () => {
   const { 
     network, 
+    vosviewerJson,
     networksByYear, 
     documentCount, 
     cooccurrenceCsv, 
@@ -28,7 +31,8 @@ export const RedBibliometrica: React.FC = () => {
     biblioSelectedYear, 
     setBiblioSelectedYear,
     loadCsvData,
-    setActiveTab
+    setActiveTab,
+    vosRecluster
   } = useSomStore();
 
   const handleSendToSOM = () => {
@@ -51,18 +55,23 @@ export const RedBibliometrica: React.FC = () => {
 
     setActiveTab('multidimensional');
   };
+
   const [nodes, setNodes] = useState<ForceNode[]>([]);
   const [links, setLinks] = useState<ForceLink[]>([]);
   const [hoveredNode, setHoveredNode] = useState<ForceNode | null>(null);
   const [hideDisconnected, setHideDisconnected] = useState<boolean>(false);
+  const [onlyLargestComponent, setOnlyLargestComponent] = useState<boolean>(false);
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
 
-  // Alias store names to match local usage in JSX
-  const activeView = biblioActiveView;
-  const setActiveView = setBiblioActiveView;
+  // Sub-view: 'force' (Default) | 'matrix' | 'vosviewer'
+  const viewerMode: 'force' | 'matrix' | 'vosviewer' = 
+    (biblioActiveView === 'vosviewer' || biblioActiveView === 'matrix') ? biblioActiveView : 'force';
+  const setViewerMode = (mode: 'force' | 'matrix' | 'vosviewer') => setBiblioActiveView(mode);
+
   const selectedYear = biblioSelectedYear;
   const setSelectedYear = setBiblioSelectedYear;
 
-  // Zoom, Pan & Dragging States
+  // Zoom, Pan & Dragging States for Classic Force graph
   const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -75,6 +84,24 @@ export const RedBibliometrica: React.FC = () => {
   
   const width = 800;
   const height = 500;
+
+  // Derive active VOSviewer JSON data
+  const currentVosData = useMemo(() => {
+    if (selectedYear !== 'Global' && networksByYear && networksByYear[selectedYear]) {
+      const yearEntry = networksByYear[selectedYear];
+      if (yearEntry.vosviewer_json) {
+        return yearEntry.vosviewer_json;
+      }
+      return networkToVosJson(yearEntry);
+    }
+    if (vosviewerJson) {
+      return vosviewerJson;
+    }
+    if (network) {
+      return networkToVosJson(network);
+    }
+    return null;
+  }, [vosviewerJson, network, networksByYear, selectedYear]);
 
   useEffect(() => {
     if (!network) return;
@@ -98,8 +125,55 @@ export const RedBibliometrica: React.FC = () => {
       weight: e.data.weight
     }));
 
-    // If hideDisconnected is true, filter out nodes that have no links
-    if (hideDisconnected) {
+    // If onlyLargestComponent is true, find and keep ONLY the largest connected component (LCC)
+    if (onlyLargestComponent) {
+      const adj = new Map<string, Set<string>>();
+      parsedNodes.forEach(n => adj.set(n.id, new Set()));
+      parsedLinks.forEach(link => {
+        const sourceId = typeof link.source === 'object' ? (link.source as ForceNode).id : link.source;
+        const targetId = typeof link.target === 'object' ? (link.target as ForceNode).id : link.target;
+        if (adj.has(sourceId) && adj.has(targetId)) {
+          adj.get(sourceId)!.add(targetId);
+          adj.get(targetId)!.add(sourceId);
+        }
+      });
+
+      const visited = new Set<string>();
+      const components: Set<string>[] = [];
+
+      for (const node of parsedNodes) {
+        if (!visited.has(node.id)) {
+          const comp = new Set<string>();
+          const queue = [node.id];
+          visited.add(node.id);
+
+          while (queue.length > 0) {
+            const curr = queue.shift()!;
+            comp.add(curr);
+            for (const neighbor of adj.get(curr) || []) {
+              if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push(neighbor);
+              }
+            }
+          }
+          components.push(comp);
+        }
+      }
+
+      // Sort by component size descending
+      components.sort((a, b) => b.size - a.size);
+      const lccSet = components.length > 0 ? components[0] : new Set<string>();
+
+      parsedNodes = parsedNodes.filter(n => lccSet.has(n.id));
+      const nodeIds = new Set(parsedNodes.map(n => n.id));
+      parsedLinks = parsedLinks.filter(link => {
+        const sourceId = typeof link.source === 'object' ? (link.source as ForceNode).id : link.source;
+        const targetId = typeof link.target === 'object' ? (link.target as ForceNode).id : link.target;
+        return nodeIds.has(sourceId) && nodeIds.has(targetId);
+      });
+    } else if (hideDisconnected) {
+      // If hideDisconnected is true, filter out nodes that have no links
       const connectedNodeIds = new Set<string>();
       parsedLinks.forEach(link => {
         const sourceId = typeof link.source === 'object' ? (link.source as ForceNode).id : link.source;
@@ -139,9 +213,9 @@ export const RedBibliometrica: React.FC = () => {
       simulation.stop();
       simulationRef.current = null;
     };
-  }, [network, networksByYear, selectedYear, hideDisconnected]);
+  }, [network, networksByYear, selectedYear, hideDisconnected, onlyLargestComponent]);
 
-  // Handle passive scroll zoom (prevents browser/body scroll)
+  // Handle passive scroll zoom for Classic force graph
   useEffect(() => {
     const svgEl = svgRef.current;
     if (!svgEl) return;
@@ -159,19 +233,19 @@ export const RedBibliometrica: React.FC = () => {
     return () => {
       svgEl.removeEventListener('wheel', handleWheelRaw);
     };
-  }, [network]);
+  }, [network, viewerMode]);
 
-  if (!network) {
+  if (!network && !vosviewerJson) {
     return (
       <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-gray-700 rounded-2xl h-96 text-gray-400 bg-gray-900 bg-opacity-40">
         <Share2 className="w-12 h-12 mb-4 text-gray-500 animate-pulse" />
         <p className="text-lg font-medium text-gray-200">No network loaded</p>
-        <p className="text-sm mt-1 text-center max-w-md">Load a Pubmed or Web of Science file in the control panel and click "Process Bibliometrics".</p>
+        <p className="text-sm mt-1 text-center max-w-md">Load a bibliographic dataset (WoS, Scopus, PubMed, Dimensions, Lens, RIS) and click "Process Bibliometrics".</p>
       </div>
     );
   }
 
-  // Mouse Handlers for Zoom/Pan and Dragging
+  // Mouse Handlers for Zoom/Pan and Dragging (Classic View)
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     const target = e.target as SVGElement;
     if (target.tagName === 'svg' || target.tagName === 'rect' || target.id === 'bg-panner') {
@@ -209,12 +283,8 @@ export const RedBibliometrica: React.FC = () => {
   const handleMouseUpOrLeave = () => {
     setIsPanning(false);
     if (draggedNode) {
-      if (hoveredNode && hoveredNode.id === draggedNode.id) {
-        // Keep hovered node pinned at its current position
-      } else {
-        draggedNode.fx = null;
-        draggedNode.fy = null;
-      }
+      draggedNode.fx = null;
+      draggedNode.fy = null;
       setDraggedNode(null);
       if (simulationRef.current) {
         simulationRef.current.alphaTarget(0);
@@ -299,7 +369,7 @@ export const RedBibliometrica: React.FC = () => {
     });
     
     return (
-      <div className="w-full overflow-auto max-h-[450px] border border-gray-800 rounded-xl bg-gray-950">
+      <div className="w-full overflow-auto max-h-[600px] border border-gray-800 rounded-xl bg-gray-950 p-4">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="border-b border-gray-800 bg-gray-900 bg-opacity-80 sticky top-0 backdrop-blur-md z-10">
@@ -334,36 +404,126 @@ export const RedBibliometrica: React.FC = () => {
     );
   };
 
+  const totalItemsCount = currentVosData?.network?.items?.length || nodes.length;
+  const totalLinksCount = currentVosData?.network?.links?.length || links.length;
+
   return (
     <div className="flex flex-col h-full bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl p-6">
+      {/* Top Header & Toolbar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-4 mb-4 gap-4">
         <div>
           <h3 className="text-lg font-semibold text-gray-200 flex items-center space-x-2">
             <Share2 className="w-5 h-5 text-indigo-400" />
-            <span>Bibliometric Co-occurrence Network</span>
+            <span>Bibliometric Network Visualizer (VOSviewer Engine)</span>
           </h3>
-          <p className="text-xs text-gray-500 mt-1">Nodes and links generated from the analyzed documents.</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Explore Network, Overlay, and Density visualizations with smart labeling, density KDE, and modular clustering.
+          </p>
+          {viewerMode === 'vosviewer' && (
+            <div className="text-[11px] text-gray-400 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <a
+                href="https://github.com/neesjanvaneck/VOSviewer-Online"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-indigo-400 hover:text-indigo-300 underline inline-flex items-center gap-0.5 transition-colors"
+                title="VOSviewer-Online GitHub Repository"
+              >
+                <span>GitHub Repository</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <span className="text-gray-600">•</span>
+              <a
+                href="https://app.vosviewer.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-indigo-400 hover:text-indigo-300 underline inline-flex items-center gap-0.5 transition-colors"
+                title="Official VOSviewer Online Web App"
+              >
+                <span>app.vosviewer.com</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <span className="text-gray-600">•</span>
+              <span className="text-gray-400">
+                <a
+                  href="https://orcid.org/0000-0001-8448-4521"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-300 hover:text-white underline transition-colors"
+                >
+                  Nees Jan van Eck
+                </a>{' '}
+                and{' '}
+                <a
+                  href="https://orcid.org/0000-0001-8249-1752"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-300 hover:text-white underline transition-colors"
+                >
+                  Ludo Waltman
+                </a>
+                . Published under a{' '}
+                <a
+                  href="https://creativecommons.org/licenses/by/4.0/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-300 hover:text-white underline transition-colors"
+                >
+                  Creative Commons Attribution 4.0 International (CC BY 4.0)
+                </a>{' '}
+                license.
+              </span>
+            </div>
+          )}
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
+          {/* View Mode Switcher */}
           <div className="flex bg-gray-950 p-1 rounded-lg border border-gray-800">
             <button
-              onClick={() => setActiveView('graph')}
-              className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                activeView === 'graph' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200'
+              onClick={() => setViewerMode('force')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
+                viewerMode === 'force' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
               }`}
+              title="Classic 2D Force Graph"
             >
-              Network Graph
+              <Layers className="w-3.5 h-3.5" />
+              <span>Force Graph</span>
             </button>
             <button
-              onClick={() => setActiveView('matrix')}
-              className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                activeView === 'matrix' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200'
+              onClick={() => setViewerMode('matrix')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
+                viewerMode === 'matrix' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
               }`}
+              title="Adjacency Matrix Table"
             >
-              Adjacency Matrix
+              <Table className="w-3.5 h-3.5" />
+              <span>Matrix</span>
+            </button>
+            <button
+              onClick={() => setViewerMode('vosviewer')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
+                viewerMode === 'vosviewer' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+              }`}
+              title="Interactive VOSviewer Visualizations (Network, Overlay, Density)"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>VOSviewer Map</span>
             </button>
           </div>
+
+          {/* Temporal Period Selector */}
+          {networksByYear && (
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="bg-gray-950 text-xs text-emerald-400 font-bold border border-gray-800 hover:border-emerald-500 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition shadow-lg cursor-pointer"
+            >
+              <option value="Global">Global (All Periods)</option>
+              {Object.keys(networksByYear).map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          )}
 
           {cooccurrenceCsv && (
             <button
@@ -374,6 +534,15 @@ export const RedBibliometrica: React.FC = () => {
               <span>Download CSV</span>
             </button>
           )}
+
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="px-3 py-1.5 bg-indigo-950/60 border border-indigo-500/40 hover:bg-indigo-900/60 text-indigo-200 hover:text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+            title="Export High-Res Graphics (PNG, SVG) & VOS Packages"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export Map</span>
+          </button>
 
           <SendToAssistantButton
             title={`Co-occurrence Bibliometric Network (${selectedYear})`}
@@ -386,9 +555,10 @@ export const RedBibliometrica: React.FC = () => {
                 source: typeof l.source === 'object' ? l.source.id : l.source,
                 target: typeof l.target === 'object' ? l.target.id : l.target,
                 weight: l.weight
-              }))
+              })),
+              vosviewer: currentVosData
             }}
-            dataContextPrompt={`Co-occurrence Bibliometric Network (Period/Year: ${selectedYear}).\nTotal analyzed nodes: ${nodes.length}.\nTotal co-occurrence links: ${links.length}.\nTotal corpus documents: ${documentCount}.\nTop entities by frequency: ${nodes.slice(0, 20).map(n => `${n.label} (freq: ${n.frequency})`).join(', ')}.`}
+            dataContextPrompt={`Co-occurrence Bibliometric Network (Period/Year: ${selectedYear}).\nTotal items: ${totalItemsCount}.\nTotal links: ${totalLinksCount}.\nTotal corpus documents: ${documentCount}.\nTop entities by frequency: ${nodes.slice(0, 20).map(n => `${n.label} (freq: ${n.frequency})`).join(', ')}.`}
             buttonText="AI Assistant"
             variant="header"
           />
@@ -404,42 +574,55 @@ export const RedBibliometrica: React.FC = () => {
             </button>
           )}
 
-          {activeView === 'graph' && (
+          <div className="flex items-center space-x-2">
+            <label className="flex items-center space-x-1.5 text-xs text-gray-300 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800 cursor-pointer hover:border-indigo-500 transition-colors shadow-sm" title="Mostrar sólo el componente conexo más grande (elimina islas periféricas en círculo)">
+              <input
+                type="checkbox"
+                checked={onlyLargestComponent}
+                onChange={(e) => {
+                  setOnlyLargestComponent(e.target.checked);
+                  if (e.target.checked) setHideDisconnected(false);
+                }}
+                className="w-3.5 h-3.5 bg-gray-950 border-gray-800 rounded text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+              />
+              <span className="font-semibold select-none text-indigo-300">Only Largest Component</span>
+            </label>
+
             <label className="flex items-center space-x-1.5 text-xs text-gray-400 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800 cursor-pointer hover:border-indigo-500 transition-colors">
               <input
                 type="checkbox"
                 checked={hideDisconnected}
+                disabled={onlyLargestComponent}
                 onChange={(e) => setHideDisconnected(e.target.checked)}
-                className="w-3.5 h-3.5 bg-gray-950 border-gray-800 rounded text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+                className="w-3.5 h-3.5 bg-gray-950 border-gray-800 rounded text-indigo-500 focus:ring-indigo-500 cursor-pointer disabled:opacity-40"
               />
               <span className="font-semibold select-none">Hide Disconnected</span>
             </label>
-          )}
+          </div>
 
           <div className="flex items-center space-x-4 text-xs text-gray-400 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800">
             <span className="flex items-center"><FileText className="w-3.5 h-3.5 mr-1 text-indigo-400" /> Docs: {documentCount}</span>
-            <span className="flex items-center"><Users className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Nodes: {nodes.length}</span>
+            <span className="flex items-center"><Users className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Items: {totalItemsCount}</span>
+            <span className="flex items-center text-gray-500">Links: {totalLinksCount}</span>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 relative bg-gray-950 rounded-xl overflow-hidden border border-gray-800 flex items-center justify-center min-h-[450px]">
-        {activeView === 'graph' ? (
+      {/* Main Visualizer Area */}
+      <div className="flex-1 relative bg-gray-950 rounded-xl overflow-hidden border border-gray-800 flex items-center justify-center min-h-[620px]">
+        {viewerMode === 'vosviewer' ? (
+          <VosViewerContainer
+            data={currentVosData}
+            onlyLargestComponent={onlyLargestComponent}
+            className="w-full h-full"
+            onReclusterRequest={async (params) => {
+              const result = await vosRecluster(params);
+              return result.success ? { clusters: result.clusters } : null;
+            }}
+          />
+        ) : viewerMode === 'force' ? (
           <>
             <div className="absolute top-4 right-4 flex flex-col items-end space-y-2 z-10">
-              {networksByYear && (
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  className="bg-gray-900 bg-opacity-95 text-xs text-emerald-400 font-bold border border-gray-800 hover:border-emerald-500 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition shadow-lg cursor-pointer mb-2"
-                >
-                  <option value="Global">Global</option>
-                  {Object.keys(networksByYear).map(year => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
-              )}
-              
               <button
                 type="button"
                 onClick={() => setZoomScale(s => Math.min(10, s * 1.2))}
@@ -568,6 +751,12 @@ export const RedBibliometrica: React.FC = () => {
           renderAdjacencyTable()
         )}
       </div>
+
+      {/* Export Modal */}
+      <VosExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+      />
     </div>
   );
 };

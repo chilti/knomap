@@ -160,20 +160,56 @@ app.MapPost("/api/preprocess/bibliometrics", async (HttpRequest req, PreprocessS
         return Results.BadRequest(new { success = false, error = "No file uploaded." });
     }
 
-    var file = req.Form.Files[0];
+    var file = req.Form.Files["file"] ?? req.Form.Files[0];
+    var thesaurusFile = req.Form.Files["thesaurusFile"];
     
     // Read parameters from form
     var request = new PreprocessRequest
     {
-        Network_Type = req.Form["networkType"],
-        Custom_Tag = req.Form["customTag"],
+        Network_Type = req.Form["networkType"].FirstOrDefault() ?? "co-occurrence",
+        Custom_Tag = req.Form["customTag"].FirstOrDefault() ?? "DE",
         Max_Terms = int.TryParse(req.Form["maxTerms"], out int mt) ? mt : 100,
         Min_Cooccurrence = int.TryParse(req.Form["minCooc"], out int mc) ? mc : 2,
         Only_Major_Mesh = bool.TryParse(req.Form["onlyMajor"], out bool om) ? om : false,
-        Temporal = bool.TryParse(req.Form["temporal"], out bool temp) ? temp : false
+        Temporal = bool.TryParse(req.Form["temporal"], out bool temp) ? temp : false,
+        Extraction_Source = req.Form["extractionSource"].FirstOrDefault() ?? "keywords",
+        Counting_Method = req.Form["countingMethod"].FirstOrDefault() ?? "full",
+        Relevance_Ratio = double.TryParse(req.Form["relevanceRatio"], out double rr) ? rr : 0.60
     };
 
-    var result = await preprocessor.PreprocessBibliometricsWithFileAsync(file, request);
+    var result = await preprocessor.PreprocessBibliometricsWithFileAsync(file, request, thesaurusFile);
+    if (!result.Success)
+    {
+        return Results.Json(result, statusCode: 500);
+    }
+    return Results.Ok(result);
+});
+
+// 2b. Live API Query Endpoint (OpenAlex / Crossref)
+app.MapPost("/api/preprocess/api_query", async (ApiQueryRequest request, PreprocessService preprocessor) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Query))
+    {
+        return Results.BadRequest(new { success = false, error = "Search query is required." });
+    }
+
+    var result = await preprocessor.PreprocessApiQueryAsync(request);
+    if (!result.Success)
+    {
+        return Results.Json(result, statusCode: 500);
+    }
+    return Results.Ok(result);
+});
+
+// 2c. VOS Recluster Endpoint — re-runs Louvain on the current VOS network
+app.MapPost("/api/preprocess/vos_recluster", async (VosReclusterRequest request, PreprocessService preprocessor) =>
+{
+    if (request.Vosviewer_Json is null)
+    {
+        return Results.BadRequest(new { success = false, error = "vosviewer_json is required." });
+    }
+
+    var result = await preprocessor.VosReclusterAsync(request);
     if (!result.Success)
     {
         return Results.Json(result, statusCode: 500);
