@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { type NormalizationInfo, type NormalizationType, applyNormalizationToMatrix } from '../utils/normalization';
+import { 
+  type NormalizationInfo, 
+  type NormalizationType, 
+  type LongitudinalNormalizationType, 
+  applyNormalizationToMatrix, 
+  applyIntertemporalNormalization 
+} from '../utils/normalization';
 import { applyCmaSmoothing } from '../utils/timeSeries';
 import { useAiStore } from './aiStore';
 
@@ -15,6 +21,7 @@ export interface SOMConfig {
   init: 'random' | 'linear' | 'pca';
   metric: 'euclidean' | 'manhattan' | 'canberra';
   learningRate: number;
+  sigma?: number | null;
   clusteringAlgorithm: 'agglomerative' | 'dbscan';
   nClusters: number;
   eps: number;
@@ -35,6 +42,7 @@ export interface TrainingResult {
   errors: number[];
   umap: number[][] | null;
   umapSource: string | null;
+  is_longitudinal?: boolean;
 }
 
 export interface LongitudinalDriftMetric {
@@ -59,6 +67,11 @@ export interface LongitudinalSOMTrainingResult {
   periods: string[];
   maps: Record<string, LongitudinalPeriodResult>;
   drift_metrics: Record<string, LongitudinalDriftMetric>;
+  normalization_info?: {
+    type: LongitudinalNormalizationType;
+    params?: any;
+    label: string;
+  };
 }
 
 export interface SubperiodMatrixItem {
@@ -153,6 +166,7 @@ interface SOMState {
 
   setActiveRunId: (id: string | null) => void;
   deleteRun: (id: string) => void;
+  clearAllRuns: () => void;
   renameRun: (id: string, newName: string) => void;
   setPendingProvenance: (prov: DataProvenance | null) => void;
 
@@ -212,7 +226,23 @@ interface SOMState {
   setActiveLongitudinalPeriod: (period: string) => void;
   cooccurrenceMatricesByPeriod: Record<string, SubperiodMatrixItem> | null;
   setCooccurrenceMatricesByPeriod: (matrices: Record<string, SubperiodMatrixItem> | null) => void;
-  trainLongitudinalSOM: () => Promise<boolean>;
+  longitudinalNormType: LongitudinalNormalizationType;
+  setLongitudinalNormType: (type: LongitudinalNormalizationType) => void;
+  trainLongitudinalSOM: (customConfig?: {
+    rows?: number;
+    cols?: number;
+    iterations?: number;
+    refineIterations?: number;
+    method?: 'basic' | 'batch';
+    learningRate?: number;
+    sigma?: number | null;
+    refineSigma?: number | null;
+    refineLearningRate?: number | null;
+    normType?: LongitudinalNormalizationType;
+  }) => Promise<boolean>;
+  exportLongitudinalToExperiments: () => boolean;
+  isLongitudinalArchiveLoading: boolean;
+  loadLongitudinalArchive: (file: File) => Promise<boolean>;
   
   // Training outputs
   result: TrainingResult | null;
@@ -286,10 +316,10 @@ interface SOMState {
   clearDimState: () => void;
 
   // ExploradorDatos UI preferences
-  exploSubTab: 'import' | 'training' | 'maps' | 'umap';
+  exploSubTab: 'import' | 'training' | 'maps' | 'umap' | 'longitudinal';
   exploUmapColorScale: 'standard' | 'viridis' | 'cividis';
   exploSomColorScale: 'standard' | 'viridis' | 'cividis';
-  setExploSubTab: (tab: 'import' | 'training' | 'maps' | 'umap') => void;
+  setExploSubTab: (tab: 'import' | 'training' | 'maps' | 'umap' | 'longitudinal') => void;
   setExploUmapColorScale: (scale: 'standard' | 'viridis' | 'cividis') => void;
   setExploSomColorScale: (scale: 'standard' | 'viridis' | 'cividis') => void;
 
@@ -336,7 +366,7 @@ interface SOMState {
   tlachiaUnitCache: Record<string, any>;
   tlachiaLlmCache: Record<string, string>;
   tlachiaActiveUnit: string | null;
-  tlachiaSidebarTab: 'profiles' | 'temporal';
+  tlachiaSidebarTab: 'profiles' | 'temporal' | 'longitudinal';
   tlachiaIsUploading: boolean;
   tlachiaBaseline: any | null;
   tlachiaSelectedBaselineSource: string | null;
@@ -350,7 +380,7 @@ interface SOMState {
     tlachiaUnitCache: Record<string, any>,
     tlachiaLlmCache: Record<string, string>,
     tlachiaActiveUnit: string | null,
-    tlachiaSidebarTab: 'profiles' | 'temporal',
+    tlachiaSidebarTab: 'profiles' | 'temporal' | 'longitudinal',
     tlachiaIsUploading: boolean,
     tlachiaBaseline: any | null,
     tlachiaSelectedBaselineSource: string | null,
@@ -362,6 +392,7 @@ interface SOMState {
   }>) => void;
   uploadTlachIAFiles: (formData: FormData) => Promise<void>;
   ensureAllTlachiaUnitsCached: () => Promise<void>;
+  sendTlachiaToLongitudinalSom: (unitName: string, longitudinalData: any, selectedEntities?: string[]) => void;
 
   
   // Setters & Actions
@@ -385,6 +416,7 @@ interface SOMState {
     relevanceRatio?: number,
     temporalWindow?: number
   ) => Promise<void>;
+  preprocessEda: (file: File) => Promise<boolean>;
   queryBibliometricsApi: (params: {
     source: 'openalex' | 'crossref';
     query: string;
@@ -489,6 +521,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
     init: 'pca',
     metric: 'euclidean',
     learningRate: 0.5,
+    sigma: null,
     clusteringAlgorithm: 'agglomerative',
     nClusters: 4,
     eps: 0.5,
@@ -610,7 +643,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   setExploSomColorScale: (scale) => set({ exploSomColorScale: scale }),
 
   // RedBibliometrica UI preferences
-  biblioActiveView: 'force',
+  biblioActiveView: 'eda',
   biblioSelectedYear: 'Global',
   setBiblioActiveView: (view) => set({ biblioActiveView: view }),
   setBiblioSelectedYear: (year) => set({ biblioSelectedYear: year }),
@@ -872,6 +905,63 @@ export const useSomStore = create<SOMState>((set, get) => ({
     }));
   },
 
+  sendTlachiaToLongitudinalSom: (unitName: string, longitudinalData: any, selectedEntities?: string[]) => {
+    if (!longitudinalData || !longitudinalData.som_periods_data) {
+      alert("No hay matrices longitudinales disponibles para esta entidad.");
+      return;
+    }
+
+    const periodsData = longitudinalData.som_periods_data;
+    const sortedPeriods = Object.keys(periodsData).sort();
+    if (sortedPeriods.length === 0) {
+      alert("No hay periodos configurados en los datos longitudinales.");
+      return;
+    }
+
+    // Filter by selectedEntities if provided and not empty
+    let targetPeriodsData = periodsData;
+    if (selectedEntities && selectedEntities.length > 0) {
+      const entitySet = new Set(selectedEntities);
+      targetPeriodsData = {};
+      for (const p of sortedPeriods) {
+        const pData = periodsData[p];
+        if (!pData || !pData.labels) continue;
+        const newLabels: string[] = [];
+        const newData: number[][] = [];
+        pData.labels.forEach((label: string, idx: number) => {
+          if (entitySet.has(label)) {
+            newLabels.push(label);
+            newData.push(pData.data[idx]);
+          }
+        });
+        targetPeriodsData[p] = {
+          labels: newLabels,
+          data: newData,
+          compNames: pData.compNames
+        };
+      }
+    }
+
+    const firstPeriod = sortedPeriods[0];
+    const latestPeriod = sortedPeriods[sortedPeriods.length - 1];
+    const latestData = targetPeriodsData[latestPeriod] || targetPeriodsData[firstPeriod];
+
+    set({
+      cooccurrenceMatricesByPeriod: targetPeriodsData,
+      fileName: `${unitName} - TlachIA Longitudinal (${firstPeriod} → ${latestPeriod})`,
+      activeTab: 'multidimensional',
+      exploSubTab: 'longitudinal',
+      activeLongitudinalPeriod: firstPeriod,
+      longitudinalResults: null,
+      ...(latestData && latestData.data && latestData.labels ? {
+        dataMatrix: latestData.data,
+        originalDataMatrix: latestData.data,
+        labels: latestData.labels,
+        compNames: longitudinalData.indicators || [],
+      } : {})
+    });
+  },
+
   ensureAllIncitesUnitsCached: async () => {
     const { incitesUnitNames, incitesUnitCache } = get();
     if (!incitesUnitNames || incitesUnitNames.length === 0) return;
@@ -964,6 +1054,14 @@ export const useSomStore = create<SOMState>((set, get) => ({
     });
   },
 
+  clearAllRuns: () => {
+    set({
+      savedRuns: [],
+      activeRunId: null,
+      result: null
+    });
+  },
+
   renameRun: (id, newName) => {
     set((state) => ({
       savedRuns: state.savedRuns.map(r => r.id === id ? { ...r, name: newName } : r)
@@ -981,6 +1079,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
   setActiveLongitudinalPeriod: (activeLongitudinalPeriod) => set({ activeLongitudinalPeriod }),
   cooccurrenceMatricesByPeriod: null,
   setCooccurrenceMatricesByPeriod: (cooccurrenceMatricesByPeriod) => set({ cooccurrenceMatricesByPeriod }),
+  longitudinalNormType: 'none',
+  setLongitudinalNormType: (longitudinalNormType) => set({ longitudinalNormType }),
+  isLongitudinalArchiveLoading: false,
 
   // Time-Series Preprocessing
   isCmaSmoothingActive: false,
@@ -1189,6 +1290,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       if (thesaurusFile) formData.append('thesaurusFile', thesaurusFile);
       if (relevanceRatio !== undefined) formData.append('relevanceRatio', relevanceRatio.toString());
       if (temporalWindow !== undefined) formData.append('temporalWindow', temporalWindow.toString());
+      formData.append('includeEda', 'false');
 
       const responseText = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -1223,8 +1325,14 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
       const result = JSON.parse(responseText);
       if (result?.success) {
-        // Note: For temporal sequences, we load frequency_csv instead of cooccurrence_csv because it contains the stacked Year_Entity vectors
-        const networkCsv = temporal ? result.frequency_csv : result.cooccurrence_csv;
+        const effectiveWindow = result.temporal_window || temporalWindow || 1;
+        const hasSubperiods = result.cooccurrence_matrices_by_period && Object.keys(result.cooccurrence_matrices_by_period).length >= 2;
+        const autoMode = (effectiveWindow >= 5 && hasSubperiods) ? 'longitudinal' : 'pathsom';
+        const isLongitudinal = autoMode === 'longitudinal' || effectiveWindow >= 5;
+
+        // Note: For PathSOM trajectories (< 5 years), load frequency_csv.
+        // For longitudinal (>= 5 years) or static networks, load cooccurrence_csv as a normal adjacency matrix.
+        const networkCsv = (temporal && !isLongitudinal) ? result.frequency_csv : result.cooccurrence_csv;
         const origin = networkType === 'bipartite' ? 'bipartite' : 'monothematic';
         
         if (get().dataMatrix && get().dataMatrix.length > 0) {
@@ -1235,10 +1343,6 @@ export const useSomStore = create<SOMState>((set, get) => ({
         } else if (networkCsv) {
           get().loadCsvData(networkCsv, 0, [], origin);
         }
-        
-        const effectiveWindow = result.temporal_window || temporalWindow || 1;
-        const hasSubperiods = result.cooccurrence_matrices_by_period && Object.keys(result.cooccurrence_matrices_by_period).length >= 2;
-        const autoMode = (effectiveWindow >= 5 && hasSubperiods) ? 'longitudinal' : 'pathsom';
 
         set({
           dataMatrix: get().dataMatrix,
@@ -1255,9 +1359,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
           vosviewerJson: result.vosviewer_json || null,
           networksByYear: result.networks_by_year || null,
           cooccurrenceMatricesByPeriod: result.cooccurrence_matrices_by_period || null,
-          edaReport: result.eda_report || null,
-          sankeyData: result.sankey_data || null,
-          termGrowth: result.term_growth || null,
+          edaReport: result.eda_report || get().edaReport || null,
+          sankeyData: result.sankey_data || get().sankeyData || null,
+          termGrowth: result.term_growth || get().termGrowth || null,
           temporalWindow: effectiveWindow,
           temporalAnalysisMode: autoMode,
           cooccurrenceCsv: result.cooccurrence_csv || null,
@@ -1283,6 +1387,65 @@ export const useSomStore = create<SOMState>((set, get) => ({
       console.error(e);
       alert(e.message || "Local API Connection failed. Make sure the backend is booted.");
       set({ isPreprocessing: false, uploadProgress: null });
+    }
+  },
+
+  preprocessEda: async (file: File) => {
+    set({ isPreprocessing: true, uploadProgress: 0 });
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const responseText = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            set({ uploadProgress: percent });
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr.responseText);
+          } else {
+            let errMsg = `Server error ${xhr.status}`;
+            try {
+              const resJson = JSON.parse(xhr.responseText);
+              errMsg = resJson.error || errMsg;
+            } catch {}
+            reject(new Error(errMsg));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Local API Connection failed. Make sure the backend is booted."));
+        xhr.timeout = 3600000;
+        xhr.ontimeout = () => reject(new Error("Request timed out"));
+        xhr.open('POST', getApiUrl('/api/preprocess/eda'));
+        xhr.send(formData);
+      });
+
+      const result = JSON.parse(responseText);
+      if (result?.success) {
+        set({
+          fileName: file.name,
+          documentCount: result.document_count || 0,
+          edaReport: result.eda_report || null,
+          sankeyData: result.sankey_data || null,
+          termGrowth: result.term_growth || null,
+          biblioActiveView: 'eda',
+          isPreprocessing: false,
+          uploadProgress: null
+        });
+        return true;
+      } else {
+        alert("Preprocess EDA error: " + (result?.error || "Unknown error"));
+        set({ isPreprocessing: false, uploadProgress: null });
+        return false;
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(e.message || "Local API Connection failed. Make sure the backend is booted.");
+      set({ isPreprocessing: false, uploadProgress: null });
+      return false;
     }
   },
 
@@ -1316,7 +1479,12 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
       const result = await res.json();
       if (result?.success) {
-        const networkCsv = params.temporal ? result.frequency_csv : result.cooccurrence_csv;
+        const effectiveWindow = result.temporal_window || 1;
+        const hasSubperiods = result.cooccurrence_matrices_by_period && Object.keys(result.cooccurrence_matrices_by_period).length >= 2;
+        const autoMode = (effectiveWindow >= 5 && hasSubperiods) ? 'longitudinal' : 'pathsom';
+        const isLongitudinal = autoMode === 'longitudinal' || effectiveWindow >= 5;
+
+        const networkCsv = (params.temporal && !isLongitudinal) ? result.frequency_csv : result.cooccurrence_csv;
         const origin = params.networkType === 'bipartite' ? 'bipartite' : 'monothematic';
 
         if (get().dataMatrix && get().dataMatrix.length > 0) {
@@ -1416,6 +1584,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
         init: config.init,
         metric: config.metric,
         learning_rate: config.learningRate,
+        sigma: config.sigma && config.sigma > 0 ? Number(config.sigma) : null,
         clustering_algorithm: config.clusteringAlgorithm,
         n_clusters: config.nClusters,
         eps: config.eps,
@@ -1555,17 +1724,63 @@ export const useSomStore = create<SOMState>((set, get) => ({
     }
   },
 
-  trainLongitudinalSOM: async (): Promise<boolean> => {
+  trainLongitudinalSOM: async (customConfig?: {
+    rows?: number;
+    cols?: number;
+    iterations?: number;
+    refineIterations?: number;
+    method?: 'basic' | 'batch';
+    learningRate?: number;
+    sigma?: number | null;
+    refineSigma?: number | null;
+    refineLearningRate?: number | null;
+    normType?: LongitudinalNormalizationType;
+  }): Promise<boolean> => {
     const { cooccurrenceMatricesByPeriod, config, hardware } = get();
     if (!cooccurrenceMatricesByPeriod || Object.keys(cooccurrenceMatricesByPeriod).length === 0) {
       alert("No hay matrices de subperiodos disponibles para el entrenamiento longitudinal.");
       return false;
     }
 
+    const effectiveRows = customConfig?.rows ?? config.rows;
+    const effectiveCols = customConfig?.cols ?? config.cols;
+    const gridAvgSize = (effectiveRows + effectiveCols) / 2.0;
+    const effectiveIterations = customConfig?.iterations ?? 1000;
+    const effectiveRefineIterations = customConfig?.refineIterations ?? 200;
+    const effectiveMethod: 'basic' = 'basic';
+    const effectiveLearningRate = customConfig?.learningRate ?? 0.9;
+    const effectiveSigma = customConfig?.sigma !== undefined && customConfig.sigma !== null && customConfig.sigma > 0
+      ? customConfig.sigma
+      : Number((0.5 * gridAvgSize).toFixed(2));
+    const effectiveRefineSigma = customConfig?.refineSigma !== undefined && customConfig.refineSigma !== null && customConfig.refineSigma > 0
+      ? customConfig.refineSigma
+      : Number((0.125 * gridAvgSize).toFixed(3));
+    const effectiveRefineLearningRate = customConfig?.refineLearningRate !== undefined && customConfig.refineLearningRate !== null && customConfig.refineLearningRate > 0
+      ? customConfig.refineLearningRate
+      : 0.1;
+    const effectiveNormType: LongitudinalNormalizationType = customConfig?.normType ?? get().longitudinalNormType ?? 'none';
+
+    if (customConfig) {
+      set((state) => ({
+        config: {
+          ...state.config,
+          rows: effectiveRows,
+          cols: effectiveCols,
+          iterations: effectiveIterations,
+          method: effectiveMethod,
+          learningRate: effectiveLearningRate,
+          sigma: effectiveSigma
+        }
+      }));
+    }
+
+    // Apply intertemporal normalization across all periods
+    const { normalizedPeriodsData, scalerInfo } = applyIntertemporalNormalization(cooccurrenceMatricesByPeriod, effectiveNormType);
+
     set({ isTraining: true });
     try {
       const periodsData: Record<string, any> = {};
-      for (const [period, item] of Object.entries(cooccurrenceMatricesByPeriod)) {
+      for (const [period, item] of Object.entries(normalizedPeriodsData)) {
         periodsData[period] = {
           data: item.data,
           labels: item.labels,
@@ -1575,26 +1790,59 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
       const payload = {
         periods_data: periodsData,
-        rows: config.rows,
-        cols: config.cols,
-        iterations: config.iterations,
-        method: config.method,
+        rows: effectiveRows,
+        cols: effectiveCols,
+        iterations: effectiveIterations,
+        refine_iterations: effectiveRefineIterations,
+        method: effectiveMethod,
         init: config.init,
         metric: config.metric,
-        learning_rate: config.learningRate,
+        learning_rate: effectiveLearningRate,
+        sigma: effectiveSigma,
+        refine_sigma: effectiveRefineSigma,
+        refine_learning_rate: effectiveRefineLearningRate,
         clustering_algorithm: config.clusteringAlgorithm,
         n_clusters: config.nClusters,
         eps: config.eps,
         min_samples: config.minSamples,
         fallback_level: hardware?.level ?? 3,
-        run_umap: true
+        run_umap: false
       };
 
-      const res = await fetch(getApiUrl('/api/som/train-longitudinal'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      // Resilient fetch with retry in case of transient local network flaps
+      let res: Response | null = null;
+      let lastErr: any = null;
+      const maxRetries = 2;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          res = await fetch(getApiUrl('/api/som/train-longitudinal'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (res) break;
+        } catch (fetchErr: any) {
+          lastErr = fetchErr;
+          console.warn(`[SOM] Attempt ${attempt} failed: ${fetchErr?.message}. Retrying in 1.5s...`);
+          if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, 1500));
+          }
+        }
+      }
+
+      if (!res) {
+        throw lastErr || new Error("No se pudo conectar con el servidor tras reintentar.");
+      }
+
+      if (!res.ok) {
+        let errMsg = `Error del servidor (${res.status})`;
+        try {
+          const errObj = await res.json();
+          errMsg = errObj.error || errMsg;
+        } catch {}
+        throw new Error(errMsg);
+      }
 
       const resJson = await res.json();
       if (resJson?.success && resJson.maps) {
@@ -1629,8 +1877,10 @@ export const useSomStore = create<SOMState>((set, get) => ({
             is_longitudinal: true,
             periods: periodsList,
             maps: formattedMaps,
-            drift_metrics: resJson.drift_metrics || {}
+            drift_metrics: resJson.drift_metrics || {},
+            normalization_info: scalerInfo
           },
+          longitudinalNormType: effectiveNormType,
           activeLongitudinalPeriod: firstPeriod,
           isTraining: false
         });
@@ -1645,6 +1895,187 @@ export const useSomStore = create<SOMState>((set, get) => ({
       alert("Error al conectar con el servidor: " + (e.message || "Error desconocido"));
       set({ isTraining: false });
       return false;
+    }
+  },
+
+  exportLongitudinalToExperiments: (): boolean => {
+    const { longitudinalResults, cooccurrenceMatricesByPeriod, pendingNetworkOrigin, config, savedRuns } = get();
+    if (!longitudinalResults || !longitudinalResults.maps || !cooccurrenceMatricesByPeriod) {
+      alert("No hay mapas longitudinales entrenados para exportar.");
+      return false;
+    }
+
+    const periods = longitudinalResults.periods || Object.keys(longitudinalResults.maps);
+    if (periods.length === 0) return false;
+
+    const newRuns: SomRun[] = [];
+    const normInfo = longitudinalResults.normalization_info;
+
+    for (let idx = 0; idx < periods.length; idx++) {
+      const p = periods[idx];
+      const pMap = longitudinalResults.maps[p];
+      const matItem = cooccurrenceMatricesByPeriod[p];
+      if (!pMap || !matItem || !matItem.data || matItem.data.length === 0) continue;
+
+      const rawMatrix = matItem.data;
+      const numRows = rawMatrix.length;
+      const numCols = rawMatrix[0]?.length || 0;
+      const isSymmetric = (pendingNetworkOrigin === 'monothematic') || (numRows === numCols);
+      const matrixOrigin: 'csv' | 'monothematic' | 'bipartite' = pendingNetworkOrigin || (isSymmetric ? 'monothematic' : 'csv');
+
+      // Determine appropriate matrix and normalization info
+      let effectiveMatrix = rawMatrix;
+      let expNormInfo: NormalizationInfo | null = null;
+
+      if (normInfo && normInfo.type !== 'none') {
+        expNormInfo = {
+          type: (normInfo.type as any),
+          params: normInfo.params || {}
+        };
+      } else if (isSymmetric) {
+        let bestNormType: NormalizationType = 'cooc_association';
+        let normRes = applyNormalizationToMatrix(rawMatrix, bestNormType);
+        const hasInvalid = normRes.normalizedMatrix.some(row => row.some(v => isNaN(v) || !isFinite(v)));
+        if (hasInvalid) {
+          bestNormType = 'cooc_cosine';
+          normRes = applyNormalizationToMatrix(rawMatrix, bestNormType);
+        }
+        effectiveMatrix = normRes.normalizedMatrix;
+        expNormInfo = normRes.scalerInfo;
+      }
+
+      const labels = matItem.labels || [];
+      const compNames = (matItem as any).compNames || matItem.labels || [];
+
+      const trainedResult: TrainingResult = {
+        weights: pMap.weights,
+        umatrix: pMap.umatrix,
+        clustering: pMap.clustering,
+        frequencies: pMap.frequencies,
+        quantizationErrors: pMap.quantizationErrors,
+        bmus: pMap.bmus,
+        hexGrid: pMap.hexGrid,
+        mappedLabels: pMap.mappedLabels,
+        errors: pMap.errors,
+        umap: pMap.umap || null,
+        umapSource: pMap.umapSource || null,
+        is_longitudinal: true
+      };
+
+      const runId = `longitudinal_${p}_${Date.now()}_${idx}`;
+      const phaseLabel = pMap.training_phase === 'base_full' ? 'Base 100%' : 'Warm-Start';
+      const normLabel = normInfo?.label ? ` - ${normInfo.label}` : '';
+      const runName = `Longitudinal SOM: ${p} (${phaseLabel}${normLabel})`;
+
+      const runItem: SomRun = {
+        id: runId,
+        name: runName,
+        createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        provenance: {
+          originType: isSymmetric ? 'bibliometrics' : 'csv_upload',
+          unitName: `Subperiod ${p}`,
+          indicatorsCount: compNames.length,
+          indicatorsList: compNames
+        },
+        dataMatrix: effectiveMatrix,
+        originalDataMatrix: rawMatrix,
+        labels: labels,
+        compNames: compNames,
+        normalizationInfo: expNormInfo,
+        matrixOrigin: matrixOrigin,
+        fileName: `Longitudinal_${p}.csv`,
+        config: {
+          ...config,
+          rows: pMap.hexGrid && pMap.hexGrid.length > 0 ? Math.max(...pMap.hexGrid.map((h: any) => h.row)) + 1 : config.rows,
+          cols: pMap.hexGrid && pMap.hexGrid.length > 0 ? Math.max(...pMap.hexGrid.map((h: any) => h.col)) + 1 : config.cols,
+          iterations: pMap.iterations
+        },
+        isCmaSmoothingActive: false,
+        cmaWindowSize: 3,
+        result: trainedResult,
+        activeTrajectories: [],
+        entityColorOverrides: {}
+      };
+
+      newRuns.push(runItem);
+    }
+
+    if (newRuns.length === 0) {
+      alert("No se pudieron generar experimentos a partir de los mapas actuales.");
+      return false;
+    }
+
+    // Set the latest period as the active dataset in SOM & UMAP
+    const latestRun = newRuns[newRuns.length - 1];
+
+    set({
+      savedRuns: [...savedRuns, ...newRuns],
+      dataMatrix: latestRun.dataMatrix,
+      originalDataMatrix: latestRun.originalDataMatrix,
+      labels: latestRun.labels,
+      compNames: latestRun.compNames,
+      normalizationInfo: latestRun.normalizationInfo,
+      matrixOrigin: latestRun.matrixOrigin,
+      result: latestRun.result,
+      activeRunId: latestRun.id,
+      fileName: latestRun.fileName,
+      activeTab: 'multidimensional',
+      exploSubTab: 'maps'
+    });
+
+    alert(`Se agregaron exitosamente ${newRuns.length} experimentos a "SOM & UMAP" (uno por cada subperíodo temporal), normalizados con ${latestRun.normalizationInfo?.type === 'cooc_association' ? 'Fuerza de Asociación (Association Strength)' : 'Simétrica Bipartita'}.`);
+    return true;
+  },
+
+  loadLongitudinalArchive: async (file: File): Promise<boolean> => {
+    set({ isLongitudinalArchiveLoading: true });
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(getApiUrl('/api/preprocess/longitudinal-archive'), {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        let errMsg = `Error al procesar archivo (${res.status})`;
+        try {
+          const errJson = await res.json();
+          errMsg = errJson.error || errMsg;
+        } catch {}
+        throw new Error(errMsg);
+      }
+
+      const data = await res.json();
+      if (!data.success || !data.periods_data) {
+        throw new Error(data.error || 'El archivo no contiene datos longitudinales válidos.');
+      }
+
+      const sortedPeriods = Object.keys(data.periods_data).sort();
+      const latestP = sortedPeriods[sortedPeriods.length - 1];
+      const latestData = data.periods_data[latestP];
+
+      set({
+        cooccurrenceMatricesByPeriod: data.periods_data,
+        fileName: data.archive_name || file.name,
+        exploSubTab: 'longitudinal',
+        activeLongitudinalPeriod: latestP,
+        ...(latestData && latestData.data && latestData.labels ? {
+          dataMatrix: latestData.data,
+          originalDataMatrix: latestData.data,
+          labels: latestData.labels,
+          compNames: data.indicators || [],
+        } : {})
+      });
+
+      return true;
+    } catch (err: any) {
+      console.error('Error in loadLongitudinalArchive:', err);
+      alert(`Error al cargar serie longitudinal: ${err.message}`);
+      return false;
+    } finally {
+      set({ isLongitudinalArchiveLoading: false });
     }
   },
 

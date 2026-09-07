@@ -95,10 +95,14 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-// Allow large matrices (e.g. for SOM Weights)
+// Allow large matrices and long-running computations (e.g. for SOM Training & Weights)
 builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
 {
-    options.Limits.MaxRequestBodySize = int.MaxValue; 
+    options.Limits.MaxRequestBodySize = int.MaxValue;
+    options.Limits.MinRequestBodyDataRate = null;
+    options.Limits.MinResponseDataRate = null;
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(10);
+    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(20);
 });
 
 // Enable CORS for local SPA frontends (Vite runs on localhost)
@@ -177,10 +181,28 @@ app.MapPost("/api/preprocess/bibliometrics", async (HttpRequest req, PreprocessS
         Temporal_Window = int.TryParse(req.Form["temporalWindow"], out int tw) ? tw : 1,
         Extraction_Source = req.Form["extractionSource"].FirstOrDefault() ?? "keywords",
         Counting_Method = req.Form["countingMethod"].FirstOrDefault() ?? "full",
-        Relevance_Ratio = double.TryParse(req.Form["relevanceRatio"], out double rr) ? rr : 0.60
+        Relevance_Ratio = double.TryParse(req.Form["relevanceRatio"], out double rr) ? rr : 0.60,
+        Include_Eda = bool.TryParse(req.Form["includeEda"], out bool ie) && ie
     };
 
     var result = await preprocessor.PreprocessBibliometricsWithFileAsync(file, request, thesaurusFile);
+    if (!result.Success)
+    {
+        return Results.Json(result, statusCode: 500);
+    }
+    return Results.Ok(result);
+});
+
+// 2a. Fast EDA Preprocessing Endpoint (Corpus Health, Authors, Keywords, Sankey)
+app.MapPost("/api/preprocess/eda", async (HttpRequest req, PreprocessService preprocessor) =>
+{
+    if (!req.HasFormContentType || req.Form.Files.Count == 0)
+    {
+        return Results.BadRequest(new { success = false, error = "No file uploaded." });
+    }
+
+    var file = req.Form.Files["file"] ?? req.Form.Files[0];
+    var result = await preprocessor.PreprocessEdaWithFileAsync(file);
     if (!result.Success)
     {
         return Results.Json(result, statusCode: 500);
@@ -218,6 +240,19 @@ app.MapPost("/api/preprocess/vos_recluster", async (VosReclusterRequest request,
         return Results.Json(result, statusCode: 500);
     }
     return Results.Ok(result);
+});
+
+// 2.4b Longitudinal Archive Upload & Parse (.7z, .zip, .tar.gz)
+app.MapPost("/api/preprocess/longitudinal-archive", async (HttpRequest req, PreprocessService preprocessor) =>
+{
+    if (!req.HasFormContentType || req.Form.Files.Count == 0)
+    {
+        return Results.BadRequest(new { success = false, error = "No archive file uploaded." });
+    }
+
+    var uploadedFile = req.Form.Files[0];
+    var jsonResult = await preprocessor.ProcessLongitudinalArchiveAsync(uploadedFile);
+    return Results.Content(jsonResult, "application/json");
 });
 
 // 2.5a InCites Upload & Process — returns ONLY unit names (tiny payload)
@@ -337,11 +372,18 @@ app.MapPost("/api/som/train-longitudinal", async (LongitudinalSOMTrainingRequest
         return Results.BadRequest(new { success = false, error = "Periods data is empty or invalid." });
     }
     
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    Console.WriteLine($"[SOM] Starting train-longitudinal for {request.PeriodsData.Count} periods (Grid: {request.Rows}x{request.Cols}, Method: {request.Method}, Iterations: {request.Iterations}, Refine: {request.RefineIterations})...");
+    
     var result = await engine.TrainLongitudinalAsync(request);
+    sw.Stop();
+    
     if (!result.Success)
     {
+        Console.WriteLine($"[SOM] train-longitudinal failed after {sw.ElapsedMilliseconds}ms: {result.Error}");
         return Results.Json(result, statusCode: 500);
     }
+    Console.WriteLine($"[SOM] train-longitudinal completed successfully in {sw.ElapsedMilliseconds}ms for {result.Maps?.Count ?? 0} maps.");
     return Results.Ok(result);
 });
 

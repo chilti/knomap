@@ -717,6 +717,9 @@ namespace LabSOM.Backend.Core.Services
         [JsonPropertyName("learning_rate")]
         public double Learning_Rate { get; set; }
         
+        [JsonPropertyName("sigma")]
+        public double? Sigma { get; set; }
+        
         [JsonPropertyName("n_clusters")]
         public int N_Clusters { get; set; }
         
@@ -782,6 +785,18 @@ namespace LabSOM.Backend.Core.Services
         
         [JsonPropertyName("umap_source")]
         public string Umap_Source { get; set; }
+
+        [JsonPropertyName("training_phase")]
+        public string? Training_Phase { get; set; }
+
+        [JsonPropertyName("iterations")]
+        public int? Iterations { get; set; }
+
+        [JsonPropertyName("doc_count")]
+        public int? Doc_Count { get; set; }
+
+        [JsonPropertyName("drift_from_prev")]
+        public LongitudinalDriftMetric? Drift_From_Prev { get; set; }
     }
 
     public class EvaluateClustersRequest
@@ -974,6 +989,18 @@ namespace LabSOM.Backend.Core.Services
 
         [JsonPropertyName("fallback_level")]
         public int FallbackLevel { get; set; } = 3;
+
+        [JsonPropertyName("refine_iterations")]
+        public int? RefineIterations { get; set; }
+
+        [JsonPropertyName("sigma")]
+        public double? Sigma { get; set; }
+
+        [JsonPropertyName("refine_sigma")]
+        public double? RefineSigma { get; set; }
+
+        [JsonPropertyName("refine_learning_rate")]
+        public double? RefineLearningRate { get; set; }
     }
 
     public class LongitudinalDriftMetric

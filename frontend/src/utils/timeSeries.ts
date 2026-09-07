@@ -8,41 +8,48 @@ export function parseTrajectoryEntity(label: string): { entity: string; timeText
   const parts = label.split('_');
   if (parts.length < 2) return { entity: label, timeText: '', isTemporal: false };
 
-  // Heuristic: check if the first part or last part is a number (year/index)
   const firstPart = parts[0];
   const lastPart = parts[parts.length - 1];
 
-  const isFirstNumber = !isNaN(Number(firstPart));
-  const isLastNumber = !isNaN(Number(lastPart));
+  // Helper to check if a token represents time (year, year-range, index, T-step)
+  const isTemporalToken = (token: string) => {
+    if (!token) return false;
+    if (!isNaN(Number(token)) && token.trim() !== '') return true;
+    if (/^\d{4}-\d{4}$/.test(token)) return true;
+    if (/^T\d+$/i.test(token)) return true;
+    return false;
+  };
 
-  if (isFirstNumber && !isLastNumber) {
-    // Format: "2025_BUAP"
+  const isFirstTemporal = isTemporalToken(firstPart);
+  const isLastTemporal = isTemporalToken(lastPart);
+
+  if (isFirstTemporal && !isLastTemporal) {
+    // Format: "2025_BUAP" or "2015-2019_AI"
     return {
       entity: parts.slice(1).join('_'),
       timeText: firstPart,
       isTemporal: true
     };
-  } else if (isLastNumber && !isFirstNumber) {
+  } else if (isLastTemporal && !isFirstTemporal) {
     // Format: "BUAP_2025"
     return {
       entity: parts.slice(0, parts.length - 1).join('_'),
       timeText: lastPart,
       isTemporal: true
     };
-  } else if (isFirstNumber && isLastNumber) {
-    // If both are numbers, default to first part as time
+  } else if (isFirstTemporal && isLastTemporal) {
+    // If both are temporal, default to first part as time
     return {
       entity: parts.slice(1).join('_'),
       timeText: firstPart,
       isTemporal: true
     };
   } else {
-    // Default to classic PathSOM "Prefix_Entity" if neither is strictly a number
-    // but there is an underscore.
+    // Not a temporal label (e.g., "artificial_intelligence", "covid_pandemic")
     return {
-      entity: parts.slice(1).join('_'),
-      timeText: firstPart,
-      isTemporal: true
+      entity: label,
+      timeText: '',
+      isTemporal: false
     };
   }
 }

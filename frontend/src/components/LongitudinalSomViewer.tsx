@@ -3,9 +3,89 @@ import { useSomStore } from '../store/somStore';
 import { 
   Play, Pause, SkipBack, SkipForward, Activity, 
   TrendingUp, Compass, Grid, Zap, RefreshCw, BarChart2, 
-  Info
+  Info, Settings, Share2, ArrowLeft, Sliders
 } from 'lucide-react';
 import { SendToAssistantButton } from './SendToAssistantButton';
+
+// Helper to estimate spectral aspect ratio (sigma_1 / sigma_2) via covariance SVD/PCA
+function estimateSpectralRatio(data: number[][]): number {
+  if (!data || data.length < 2 || !data[0] || data[0].length < 2) return 1.0;
+  const n = data.length;
+  const d = data[0].length;
+  
+  const means = new Array(d).fill(0);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < d; j++) {
+      means[j] += data[i][j] || 0;
+    }
+  }
+  for (let j = 0; j < d; j++) means[j] /= n;
+
+  const useFeatureCov = d <= n;
+  const k = useFeatureCov ? d : n;
+
+  const getTopEigenvalue = (matrix: number[][], deflatedVector: number[] | null): { val: number; vec: number[] } => {
+    let v = new Array(k).fill(0).map((_, i) => ((i % 2 === 0 ? 1 : -1) * 0.5));
+    for (let iter = 0; iter < 12; iter++) {
+      if (deflatedVector) {
+        let dot = 0;
+        for (let i = 0; i < k; i++) dot += v[i] * deflatedVector[i];
+        for (let i = 0; i < k; i++) v[i] -= dot * deflatedVector[i];
+      }
+      const norm = Math.sqrt(v.reduce((sum, x) => sum + x * x, 0)) || 1;
+      v = v.map(x => x / norm);
+      
+      const w = new Array(k).fill(0);
+      for (let i = 0; i < k; i++) {
+        for (let j = 0; j < k; j++) {
+          w[i] += matrix[i][j] * v[j];
+        }
+      }
+      v = w;
+    }
+    const norm = Math.sqrt(v.reduce((sum, x) => sum + x * x, 0)) || 1;
+    v = v.map(x => x / norm);
+    
+    let val = 0;
+    for (let i = 0; i < k; i++) {
+      let rowDot = 0;
+      for (let j = 0; j < k; j++) rowDot += matrix[i][j] * v[j];
+      val += v[i] * rowDot;
+    }
+    return { val: Math.max(0, val), vec: v };
+  };
+
+  try {
+    if (useFeatureCov) {
+      const cov = Array.from({ length: d }, () => new Array(d).fill(0));
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < d; j++) {
+          const valJ = (data[i][j] || 0) - means[j];
+          for (let l = j; l < d; l++) {
+            const valL = (data[i][l] || 0) - means[l];
+            cov[j][l] += valJ * valL;
+          }
+        }
+      }
+      for (let j = 0; j < d; j++) {
+        for (let l = j; l < d; l++) {
+          cov[j][l] /= n;
+          cov[l][j] = cov[j][l];
+        }
+      }
+      const e1 = getTopEigenvalue(cov, null);
+      const e2 = getTopEigenvalue(cov, e1.vec);
+      const s1 = Math.sqrt(e1.val);
+      const s2 = Math.sqrt(e2.val);
+      if (s2 > 1e-4) {
+        return Math.max(0.33, Math.min(3.0, s1 / s2));
+      }
+    }
+  } catch {
+    return 1.0;
+  }
+  return 1.0;
+}
 
 export const LongitudinalSomViewer: React.FC = () => {
   const {
@@ -14,8 +94,11 @@ export const LongitudinalSomViewer: React.FC = () => {
     setActiveLongitudinalPeriod,
     cooccurrenceMatricesByPeriod,
     trainLongitudinalSOM,
+    exportLongitudinalToExperiments,
     isTraining,
-    config
+    config,
+    longitudinalNormType,
+    setLongitudinalNormType
   } = useSomStore();
 
   const [activeSubTab, setActiveSubTab] = useState<'player' | 'side_by_side' | 'drift' | 'migration'>('player');
@@ -23,6 +106,69 @@ export const LongitudinalSomViewer: React.FC = () => {
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1500); // ms per step
   const [colorMode, setColorMode] = useState<'umatrix' | 'clusters' | 'frequencies'>('clusters');
   const [selectedNeuron, setSelectedNeuron] = useState<number | null>(null);
+
+  // Configuration mode & parameters
+  const [isConfigMode, setIsConfigMode] = useState<boolean>(false);
+  const [gridSizeMode, setGridSizeMode] = useState<'optimal' | 'big' | 'custom'>('optimal');
+  const [gridRows, setGridRows] = useState<number>(config.rows || 10);
+  const [gridCols, setGridCols] = useState<number>(config.cols || 12);
+  const [method] = useState<'basic'>('basic');
+  // First map (Base) parameters - 2016: Full training
+  const [baseIterations, setBaseIterations] = useState<number>(1000);
+  const [baseSigma, setBaseSigma] = useState<number | null>(null);
+  const [baseLearningRate, setBaseLearningRate] = useState<number>(0.9);
+  // Subsequent maps (Warm-Start) parameters - 2017-2019: Refinement phase
+  const [refineIterations, setRefineIterations] = useState<number>(200);
+  const [refineSigma, setRefineSigma] = useState<number | null>(null);
+  const [refineLearningRate, setRefineLearningRate] = useState<number>(0.1);
+
+  // Dynamic academic grid sizing: average size = (rows + cols) / 2
+  const gridAvgSize = useMemo(() => (gridRows + gridCols) / 2.0, [gridRows, gridCols]);
+  // Base sigma = 1/2 of grid's average size
+  const autoBaseSigma = useMemo(() => Number((0.5 * gridAvgSize).toFixed(2)), [gridAvgSize]);
+  // Refinement sigma = 1/8 of grid's average size (1/4 of base sigma)
+  const autoRefineSigma = useMemo(() => Number((0.125 * gridAvgSize).toFixed(3)), [gridAvgSize]);
+
+  // Compute number of entities and spectral aspect ratio from active periods data
+  const { suggestedOptimalGrid, suggestedBigGrid } = useMemo(() => {
+    let n = 100;
+    let sampleData: number[][] = [];
+    if (cooccurrenceMatricesByPeriod) {
+      const keys = Object.keys(cooccurrenceMatricesByPeriod);
+      if (keys.length > 0 && cooccurrenceMatricesByPeriod[keys[0]]?.data) {
+        sampleData = cooccurrenceMatricesByPeriod[keys[0]].data;
+        n = sampleData.length || 100;
+      }
+    }
+
+    const ratio = estimateSpectralRatio(sampleData);
+
+    // Optimal Longitudinal Density: M ~ 1.2 * N (ideal for meso-clusters & trajectory stability)
+    const targetOptimal = Math.max(36, Math.min(400, Math.round(1.2 * n)));
+    const optCols = Math.max(4, Math.round(Math.sqrt(targetOptimal * ratio)));
+    const optRows = Math.max(4, Math.round(Math.sqrt(targetOptimal / ratio)));
+
+    // Big SOM (Step 2 criteria): M = 10 * N (ideal for continuous U-matrix and micro-frontiers)
+    const targetBig = 10 * n;
+    const bigCols = Math.max(6, Math.round(Math.sqrt(targetBig * ratio)));
+    const bigRows = Math.max(6, Math.round(Math.sqrt(targetBig / ratio)));
+
+    return {
+      suggestedOptimalGrid: { rows: optRows, cols: optCols, total: optRows * optCols },
+      suggestedBigGrid: { rows: bigRows, cols: bigCols, total: bigRows * bigCols }
+    };
+  }, [cooccurrenceMatricesByPeriod]);
+
+  // Synchronize grid size when mode changes
+  useEffect(() => {
+    if (gridSizeMode === 'optimal') {
+      setGridRows(suggestedOptimalGrid.rows);
+      setGridCols(suggestedOptimalGrid.cols);
+    } else if (gridSizeMode === 'big') {
+      setGridRows(suggestedBigGrid.rows);
+      setGridCols(suggestedBigGrid.cols);
+    }
+  }, [gridSizeMode, suggestedOptimalGrid, suggestedBigGrid]);
 
   const periods = useMemo(() => {
     if (longitudinalResults?.periods && longitudinalResults.periods.length > 0) {
@@ -33,6 +179,25 @@ export const LongitudinalSomViewer: React.FC = () => {
     }
     return [];
   }, [longitudinalResults, cooccurrenceMatricesByPeriod]);
+
+  // Detect if data is a square co-occurrence network or a rectangular performance matrix
+  const isNetworkData = useMemo(() => {
+    if (!cooccurrenceMatricesByPeriod) return false;
+    const firstKey = Object.keys(cooccurrenceMatricesByPeriod)[0];
+    if (!firstKey) return false;
+    const item = cooccurrenceMatricesByPeriod[firstKey];
+    if (!item || !item.data || item.data.length === 0) return false;
+    return item.data.length === (item.data[0]?.length || 0);
+  }, [cooccurrenceMatricesByPeriod]);
+
+  // Set default normalization type based on data kind if not yet customized
+  useEffect(() => {
+    if (isNetworkData && !longitudinalNormType.startsWith('cooc_') && longitudinalNormType !== 'none') {
+      setLongitudinalNormType('cooc_association');
+    } else if (!isNetworkData && longitudinalNormType.startsWith('cooc_')) {
+      setLongitudinalNormType('min_max');
+    }
+  }, [isNetworkData, longitudinalNormType, setLongitudinalNormType]);
 
   // Set default active period if not set
   useEffect(() => {
@@ -247,26 +412,41 @@ export const LongitudinalSomViewer: React.FC = () => {
     );
   };
 
-  // If no longitudinal results yet, show training initiation card
-  if (!longitudinalResults || !longitudinalResults.maps) {
+  // If no longitudinal results yet or explicitly in config mode, show training configuration card
+  if (!longitudinalResults || !longitudinalResults.maps || isConfigMode) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 bg-gray-900/60 border border-gray-800 rounded-3xl max-w-4xl mx-auto my-8 shadow-2xl backdrop-blur-xl">
-        <div className="w-16 h-16 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-6">
+      <div className="flex flex-col items-center justify-center p-8 md:p-12 bg-gray-900/60 border border-gray-800 rounded-3xl max-w-4xl mx-auto my-6 shadow-2xl backdrop-blur-xl w-full">
+        {longitudinalResults?.maps && (
+          <div className="w-full flex justify-between items-center mb-6 pb-4 border-b border-gray-800">
+            <span className="text-xs text-indigo-400 font-bold uppercase tracking-wider">
+              Modo de Configuración & Reentrenamiento
+            </span>
+            <button
+              onClick={() => setIsConfigMode(false)}
+              className="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 hover:text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Volver a los Mapas Entrenados</span>
+            </button>
+          </div>
+        )}
+
+        <div className="w-16 h-16 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-5">
           <TrendingUp className="w-8 h-8 text-white" />
         </div>
 
-        <h3 className="text-2xl font-black text-white tracking-tight mb-2">
+        <h3 className="text-2xl font-black text-white tracking-tight mb-2 text-center">
           Longitudinal SOM Analysis (Chained Evolutionary Maps)
         </h3>
-        <p className="text-sm text-gray-400 text-center max-w-xl mb-8 leading-relaxed">
-          For subperiods of <strong>5 years or more</strong>, the system trains a map for each time window using Kohonen's <em>Warm-Start</em> protocol: previous period weights initialize the next SOM, accelerating convergence in the refinement phase (20% iterations) and ensuring topological quadrant coherence across periods.
+        <p className="text-xs text-gray-400 text-center max-w-xl mb-6 leading-relaxed">
+          Para subperiodos de <strong>5 años o más</strong>, el sistema entrena un mapa por ventana temporal usando el protocolo <em>Warm-Start</em>: los pesos sinápticos del periodo anterior inicializan el siguiente SOM, acelerando la convergencia en fase de refinamiento ({refineIterations} épocas) y preservando la coherencia de cuadrantes temáticos.
         </p>
 
         {periods.length > 0 ? (
-          <div className="w-full bg-gray-950/80 border border-gray-800 rounded-2xl p-6 mb-8 space-y-4">
+          <div className="w-full bg-gray-950/80 border border-gray-800 rounded-2xl p-6 mb-6 space-y-5">
             <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-              <span className="text-xs font-bold uppercase text-gray-400">Subperiods Detected:</span>
-              <span className="text-xs font-bold text-indigo-400">{periods.length} Time Windows</span>
+              <span className="text-xs font-bold uppercase text-gray-400">Subperiodos Detectados:</span>
+              <span className="text-xs font-bold text-indigo-400">{periods.length} Ventanas Temporales</span>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -278,52 +458,514 @@ export const LongitudinalSomViewer: React.FC = () => {
                   <span className="font-bold">{p}</span>
                   {idx === 0 ? (
                     <span className="text-[9px] bg-emerald-950 text-emerald-300 border border-emerald-800/60 px-1.5 py-0.5 rounded font-mono">
-                      Base (100% Iters)
+                      Base ({baseIterations} épocas)
                     </span>
                   ) : (
                     <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800/60 px-1.5 py-0.5 rounded font-mono">
-                      Warm-Start (20% Refine)
+                      Warm-Start ({refineIterations} épocas)
                     </span>
                   )}
                 </div>
               ))}
             </div>
 
-            <div className="grid grid-cols-3 gap-4 pt-2 text-xs">
-              <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-800">
-                <span className="text-gray-500 block mb-1">SOM Grid</span>
-                <span className="text-white font-bold">{config.rows} × {config.cols} ({config.rows * config.cols} neurons)</span>
+            {/* Intertemporal Data Normalization Settings */}
+            <div className="bg-gray-900/70 p-4 rounded-xl border border-gray-800 space-y-3 pt-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Sliders className="w-4 h-4 text-indigo-400" />
+                  <span className="text-xs font-bold uppercase text-gray-300">Normalización de Datos Multiperiodo</span>
+                </div>
+                <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800/60 px-2 py-0.5 rounded font-mono font-bold">
+                  {isNetworkData ? 'Red Bibliométrica Cuadrada' : 'Perfiles de Desempeño (Matriz Rectangular)'}
+                </span>
               </div>
-              <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-800">
-                <span className="text-gray-500 block mb-1">Base Iterations</span>
-                <span className="text-white font-bold">{config.iterations} epochs</span>
+
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                {isNetworkData
+                  ? 'Métrica de similitud y proximidad semántica aplicada a las matrices de co-ocurrencia por periodo:'
+                  : 'Escalamiento intertemporal global calculado sobre todos los periodos juntos (mantiene la estabilidad de cuadrantes y la validez analítica de la deriva sináptica ΔW):'}
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {isNetworkData ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('cooc_association')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
+                        longitudinalNormType === 'cooc_association'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold">Fuerza de Asociación (VOS)</span>
+                        <span className="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1 rounded font-mono">Recomendado</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1 font-mono">C_ij / (C_i · C_j) — VOSviewer canonical</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('cooc_cosine')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
+                        longitudinalNormType === 'cooc_cosine'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Coseno de Salton</div>
+                      <p className="text-[10px] text-gray-400 mt-1 font-mono">C_ij / sqrt(C_i · C_j)</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('cooc_jaccard')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
+                        longitudinalNormType === 'cooc_jaccard'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Índice de Jaccard</div>
+                      <p className="text-[10px] text-gray-400 mt-1 font-mono">C_ij / (C_i + C_j - C_ij)</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('cooc_inclusion')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
+                        longitudinalNormType === 'cooc_inclusion'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Índice de Inclusión</div>
+                      <p className="text-[10px] text-gray-400 mt-1 font-mono">C_ij / min(C_i, C_j)</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('none')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer sm:col-span-2 ${
+                        longitudinalNormType === 'none'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Sin Normalización (Co-ocurrencias Brutas)</div>
+                      <p className="text-[10px] text-gray-400 mt-1">Conteo directo de co-ocurrencias sin transformación</p>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('min_max')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
+                        longitudinalNormType === 'min_max'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold">Min-Max Global [0, 1]</span>
+                        <span className="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1 rounded font-mono">Recomendado</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">Escalamiento unificado intertemporal. Mantiene las proporciones reales de crecimiento o declive.</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('z_score')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
+                        longitudinalNormType === 'z_score'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Z-Score Global (μ=0, σ=1)</div>
+                      <p className="text-[10px] text-gray-400 mt-1">Estandarización basada en media y desviación estándar de toda la serie continua.</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('div_max')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
+                        longitudinalNormType === 'div_max'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Dividir por Máximo Global</div>
+                      <p className="text-[10px] text-gray-400 mt-1">Conserva el cero absoluto escalando por el valor pico de cada indicador en cualquier periodo.</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLongitudinalNormType('none')}
+                      className={`p-2.5 rounded-lg border text-left transition cursor-pointer ${
+                        longitudinalNormType === 'none'
+                          ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm ring-1 ring-indigo-500/50'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">Sin Normalización (Valores Crudos)</div>
+                      <p className="text-[10px] text-gray-400 mt-1">Mantiene las escalas originales sin ajuste (útil si las variables ya vienen calibradas).</p>
+                    </button>
+                  </>
+                )}
               </div>
-              <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-800">
-                <span className="text-gray-500 block mb-1">Refinement Iterations</span>
-                <span className="text-indigo-300 font-bold">{Math.max(10, Math.round(config.iterations * 0.2))} epochs (Warm-Start)</span>
+            </div>
+
+            {/* Global Architecture Settings */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              {/* Card 1: SOM Grid */}
+              <div className="bg-gray-900/70 p-4 rounded-xl border border-gray-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase text-gray-400">Rejilla Neuronal (SOM Grid)</span>
+                  <span className="text-[11px] font-bold text-indigo-400 font-mono">
+                    {gridRows} × {gridCols} ({gridRows * gridCols} neuronas)
+                  </span>
+                </div>
+
+                {/* Grid Size Mode Radio Buttons (Step 2 Style) */}
+                <div className="flex flex-col space-y-2 bg-gray-950/80 p-3 rounded-xl border border-gray-800/80">
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">
+                    Criterio de Tamaño de Malla
+                  </span>
+
+                  <label className="flex items-start space-x-2.5 text-xs text-gray-300 cursor-pointer hover:text-indigo-300 transition-colors">
+                    <input 
+                      type="radio" 
+                      name="longitudinalGridMode" 
+                      value="optimal" 
+                      className="mt-0.5 text-indigo-500 bg-gray-900 border-gray-700 focus:ring-0 focus:ring-offset-0"
+                      checked={gridSizeMode === 'optimal'} 
+                      onChange={() => {
+                        setGridSizeMode('optimal');
+                        setGridRows(suggestedOptimalGrid.rows);
+                        setGridCols(suggestedOptimalGrid.cols);
+                      }} 
+                    />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-gray-200 flex items-center gap-1.5">
+                        Densidad Óptima Longitudinal 
+                        <span className="text-emerald-400 font-mono text-[11px] font-normal">
+                          ({suggestedOptimalGrid.rows} × {suggestedOptimalGrid.cols}, ~{suggestedOptimalGrid.total} neuronas)
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-gray-500 leading-tight">
+                        Meso-clusters y dinámicas de escisión/fusión (Jiménez-Andrade et al., 2024)
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start space-x-2.5 text-xs text-gray-300 cursor-pointer hover:text-indigo-300 transition-colors">
+                    <input 
+                      type="radio" 
+                      name="longitudinalGridMode" 
+                      value="big" 
+                      className="mt-0.5 text-indigo-500 bg-gray-900 border-gray-700 focus:ring-0 focus:ring-offset-0"
+                      checked={gridSizeMode === 'big'} 
+                      onChange={() => {
+                        setGridSizeMode('big');
+                        setGridRows(suggestedBigGrid.rows);
+                        setGridCols(suggestedBigGrid.cols);
+                      }} 
+                    />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-gray-200 flex items-center gap-1.5">
+                        Big SOM (Paso 2) 
+                        <span className="text-purple-400 font-mono text-[11px] font-normal">
+                          ({suggestedBigGrid.rows} × {suggestedBigGrid.cols}, ~{suggestedBigGrid.total} neuronas)
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-gray-500 leading-tight">
+                        10 × N neuronas con ratio espectral PCA para U-Matrix continua
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 text-xs text-gray-300 cursor-pointer hover:text-indigo-300 transition-colors pt-0.5">
+                    <input 
+                      type="radio" 
+                      name="longitudinalGridMode" 
+                      value="custom" 
+                      className="text-indigo-500 bg-gray-900 border-gray-700 focus:ring-0 focus:ring-offset-0"
+                      checked={gridSizeMode === 'custom'} 
+                      onChange={() => setGridSizeMode('custom')} 
+                    />
+                    <span className="font-semibold text-gray-200">Personalizado (User Defined)</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-0.5">Filas (m)</label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={100}
+                      value={gridRows}
+                      onChange={(e) => {
+                        setGridRows(Math.max(2, parseInt(e.target.value) || 2));
+                        setGridSizeMode('custom');
+                      }}
+                      className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-0.5">Columnas (n)</label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={100}
+                      value={gridCols}
+                      onChange={(e) => {
+                        setGridCols(Math.max(2, parseInt(e.target.value) || 2));
+                        setGridSizeMode('custom');
+                      }}
+                      className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-500 italic">Topología hexagonal bidimensional continua</p>
+              </div>
+
+              {/* Card 2: Solver Algorithm (Basic SOM) */}
+              <div className="bg-gray-900/70 p-4 rounded-xl border border-gray-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase text-gray-400">Algoritmo de Aprendizaje</span>
+                  <span className="text-[11px] font-bold text-emerald-400 font-mono">
+                    Basic SOM (Online / Estocástico)
+                  </span>
+                </div>
+                <div className="p-2.5 bg-gray-950/70 border border-gray-800/80 rounded-lg space-y-1">
+                  <div className="text-xs text-white font-medium">Algoritmo de Kohonen Secuencial</div>
+                  <p className="text-[10px] text-gray-400 leading-relaxed">
+                    Actualización iterativa vector a vector con decaimiento lineal del factor de aprendizaje (<span className="text-emerald-300 font-mono font-bold">α</span>) y contracción exponencial de vecindad gaussiana (<span className="text-purple-300 font-mono font-bold">σ</span>).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Comparison Cards: First Map vs Subsequent Maps */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+              {/* Primer Mapa (Periodo Base) */}
+              <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-800/40 space-y-3 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-xs font-bold uppercase text-emerald-300">Primer Mapa (Periodo 1 - Base)</span>
+                  </div>
+                  <span className="text-[9px] bg-emerald-900/60 text-emerald-200 border border-emerald-700/60 px-2 py-0.5 rounded font-mono">
+                    Inicialización Global
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">
+                      Épocas Base: <strong className="text-emerald-300 font-mono">{baseIterations}</strong>
+                    </label>
+                    <input
+                      type="number"
+                      min={10}
+                      max={100000}
+                      step={50}
+                      value={baseIterations}
+                      onChange={(e) => setBaseIterations(Math.max(10, parseInt(e.target.value) || 10))}
+                      className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:border-emerald-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-gray-400">
+                        Sigma Inicial (σ₀):
+                      </label>
+                      <span className="text-[10px] text-emerald-300 font-mono font-bold">
+                        {baseSigma !== null && baseSigma > 0 ? baseSigma : `Auto (${autoBaseSigma})`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min={0.1}
+                        max={100}
+                        step={0.5}
+                        value={baseSigma ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                          setBaseSigma(val !== null && !isNaN(val) && val > 0 ? val : null);
+                        }}
+                        placeholder={`Auto (${autoBaseSigma})`}
+                        className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:border-emerald-500 outline-none"
+                      />
+                      {baseSigma !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setBaseSigma(null)}
+                          className="text-[9px] px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded font-medium transition cursor-pointer"
+                          title="Restablecer a cálculo automático (½ · promedio de malla)"
+                        >
+                          Auto
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] text-gray-400">
+                      Factor de Aprendizaje Inicial (α₀):
+                    </label>
+                    <span className="text-[10px] text-emerald-300 font-mono font-bold">
+                      {baseLearningRate}
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    min={0.01}
+                    max={1.0}
+                    step={0.05}
+                    value={baseLearningRate}
+                    onChange={(e) => setBaseLearningRate(Math.max(0.01, Math.min(1.0, parseFloat(e.target.value) || 0.9)))}
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:border-emerald-500 outline-none"
+                  />
+                </div>
+
+                <p className="text-[10px] text-gray-400 italic leading-relaxed border-t border-emerald-900/30 pt-2">
+                  Configuración canónica: σ₀ = ½ · promedio(filas+cols) = {autoBaseSigma}, α₀ = {baseLearningRate}, {baseIterations} épocas (Full training) para estructurar el espacio semántico base.
+                </p>
+              </div>
+
+              {/* Siguientes Mapas (Warm-Start Refinement) */}
+              <div className="bg-purple-950/20 p-4 rounded-xl border border-purple-800/40 space-y-3 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-purple-400" />
+                    <span className="text-xs font-bold uppercase text-purple-300">Siguientes Mapas (Periodos 2+)</span>
+                  </div>
+                  <span className="text-[9px] bg-purple-900/60 text-purple-200 border border-purple-700/60 px-2 py-0.5 rounded font-mono">
+                    Refinement Phase
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-gray-400 block mb-1">
+                      Épocas Warm-Start: <strong className="text-purple-300 font-mono">{refineIterations}</strong>
+                    </label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={50000}
+                      step={10}
+                      value={refineIterations}
+                      onChange={(e) => setRefineIterations(Math.max(5, parseInt(e.target.value) || 200))}
+                      className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-purple-200 font-mono focus:border-purple-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-gray-400">
+                        Sigma Refinamiento (σ):
+                      </label>
+                      <span className="text-[10px] text-purple-300 font-mono font-bold">
+                        {refineSigma !== null && refineSigma > 0 ? refineSigma : `Auto (${autoRefineSigma})`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min={0.05}
+                        max={50}
+                        step={0.1}
+                        value={refineSigma ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                          setRefineSigma(val !== null && !isNaN(val) && val > 0 ? val : null);
+                        }}
+                        placeholder={`Auto (${autoRefineSigma})`}
+                        className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-purple-200 font-mono focus:border-purple-500 outline-none"
+                      />
+                      {refineSigma !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setRefineSigma(null)}
+                          className="text-[9px] px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded font-medium transition cursor-pointer"
+                          title="Restablecer a cálculo automático (⅛ · promedio de malla)"
+                        >
+                          Auto
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] text-gray-400">
+                      Factor Aprendizaje Refinamiento (α):
+                    </label>
+                    <span className="text-[10px] text-purple-300 font-mono font-bold">
+                      {refineLearningRate}
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    min={0.001}
+                    max={0.5}
+                    step={0.01}
+                    value={refineLearningRate}
+                    onChange={(e) => setRefineLearningRate(Math.max(0.001, Math.min(0.5, parseFloat(e.target.value) || 0.1)))}
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-purple-200 font-mono focus:border-purple-500 outline-none"
+                  />
+                </div>
+
+                <p className="text-[10px] text-gray-400 italic leading-relaxed border-t border-purple-900/30 pt-2">
+                  Ajuste fino canónico: σ = ⅛ · promedio(filas+cols) = {autoRefineSigma}, α = {refineLearningRate}, {refineIterations} épocas heredando pesos previos (W<sub>t-1</sub>) para mantener estables los cuadrantes.
+                </p>
               </div>
             </div>
           </div>
         ) : (
           <div className="p-4 bg-amber-950/40 border border-amber-800/60 rounded-2xl text-xs text-amber-300 mb-6">
-            ⚠️ No subperiod matrices found. Please check "Generate Temporal Sequences" with a subperiod of 5 years or more in the Bibliometric Networks tab.
+            ⚠️ No se encontraron matrices de subperiodos. Verifica que "Generate Temporal Sequences" esté activo con una ventana de 5 o más años en la pestaña Redes Bibliométricas.
           </div>
         )}
 
         <button
-          onClick={() => trainLongitudinalSOM()}
+          onClick={async () => {
+            const ok = await trainLongitudinalSOM({
+              rows: gridRows,
+              cols: gridCols,
+              iterations: baseIterations,
+              refineIterations: refineIterations,
+              method: method,
+              learningRate: baseLearningRate,
+              sigma: baseSigma !== null ? baseSigma : autoBaseSigma,
+              refineSigma: refineSigma !== null ? refineSigma : autoRefineSigma,
+              refineLearningRate: refineLearningRate,
+              normType: longitudinalNormType
+            });
+            if (ok) setIsConfigMode(false);
+          }}
           disabled={isTraining || periods.length === 0}
           className="px-8 py-3.5 bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold rounded-2xl transition shadow-xl shadow-indigo-900/40 flex items-center space-x-3 cursor-pointer text-sm"
         >
           {isTraining ? (
             <>
               <RefreshCw className="w-5 h-5 animate-spin" />
-              <span>Training Evolutionary Maps ({periods.length} SOMs)...</span>
+              <span>Entrenando Mapas Evolutivos ({periods.length} SOMs)...</span>
             </>
           ) : (
             <>
               <Zap className="w-5 h-5 text-amber-300" />
-              <span>Train Longitudinal SOMs</span>
+              <span>{longitudinalResults?.maps ? 'Reentrenar SOMs Longitudinales' : 'Train Longitudinal SOMs'}</span>
             </>
           )}
         </button>
@@ -347,6 +989,11 @@ export const LongitudinalSomViewer: React.FC = () => {
               <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800/60 px-2 py-0.5 rounded-full font-bold uppercase">
                 Warm-Start Chaining
               </span>
+              {longitudinalResults?.normalization_info?.label && (
+                <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800/60 px-2 py-0.5 rounded-full font-mono font-medium">
+                  Norm: {longitudinalResults.normalization_info.label}
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-0.5">
               Continuous temporal evolution with spatial alignment of thematic quadrants
@@ -397,24 +1044,44 @@ export const LongitudinalSomViewer: React.FC = () => {
           </button>
         </div>
 
-        {/* AI Assistant Snapshot */}
-        <SendToAssistantButton
-          title={`Longitudinal SOM Map (${activeLongitudinalPeriod})`}
-          viewSource="som"
-          chartType="hex_map"
-          dataContextPrompt={`Longitudinal SOM Evolutionary Map for period ${activeLongitudinalPeriod}`}
-          data={{
-            activePeriod: activeLongitudinalPeriod,
-            periods: longitudinalResults.periods,
-            driftMetrics: longitudinalResults.drift_metrics,
-            mapInfo: activeMap ? {
-              training_phase: activeMap.training_phase,
-              iterations: activeMap.iterations,
-              frequencies: activeMap.frequencies,
-              quantizationErrors: activeMap.quantizationErrors
-            } : null
-          }}
-        />
+        {/* Actions & AI Assistant Snapshot */}
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setIsConfigMode(true)}
+            className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 hover:text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+            title="Reconfigurar parámetros de cuadrícula e iteraciones para reentrenar"
+          >
+            <Settings className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Reconfigurar / Reentrenar</span>
+          </button>
+
+          <button
+            onClick={() => exportLongitudinalToExperiments()}
+            className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-md shadow-indigo-950/50 cursor-pointer"
+            title="Enviar matrices normalizadas y modelos entrenados a la pestaña SOM & UMAP"
+          >
+            <Share2 className="w-3.5 h-3.5 text-white" />
+            <span>Enviar a SOM & UMAP</span>
+          </button>
+
+          <SendToAssistantButton
+            title={`Longitudinal SOM Map (${activeLongitudinalPeriod})`}
+            viewSource="som"
+            chartType="hex_map"
+            dataContextPrompt={`Longitudinal SOM Evolutionary Map for period ${activeLongitudinalPeriod}`}
+            data={{
+              activePeriod: activeLongitudinalPeriod,
+              periods: longitudinalResults.periods,
+              driftMetrics: longitudinalResults.drift_metrics,
+              mapInfo: activeMap ? {
+                training_phase: activeMap.training_phase,
+                iterations: activeMap.iterations,
+                frequencies: activeMap.frequencies,
+                quantizationErrors: activeMap.quantizationErrors
+              } : null
+            }}
+          />
+        </div>
       </div>
 
       {/* SUB-VIEW 1: TIMELINE PLAYER */}

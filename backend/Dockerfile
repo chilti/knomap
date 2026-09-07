@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python-is-python3 \
+    p7zip-full \
     wget \
     ca-certificates \
     software-properties-common \

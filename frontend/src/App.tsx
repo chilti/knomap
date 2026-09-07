@@ -21,6 +21,48 @@ import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronR
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
 
+const BIPARTITE_TAG_OPTIONS = [
+  { group: 'OpenAlex (Taxonomía, Conceptos & ODS)', options: [
+    { value: 'Topic', label: 'Topic - OpenAlex Topics (Subtemas específicos)' },
+    { value: 'Subfield', label: 'Subfield - OpenAlex Subfields (Subcampos temáticos)' },
+    { value: 'Field', label: 'Field - OpenAlex Fields (Campos disciplinares)' },
+    { value: 'Domain', label: 'Domain - OpenAlex Domains (Grandes dominios)' },
+    { value: 'Concept', label: 'Concept - OpenAlex Concepts (Wikidata / Temas)' },
+    { value: 'SDG', label: 'SDG - Objetivos de Desarrollo Sostenible (ODS 1-17)' },
+  ]},
+  { group: 'Temática & Disciplinas (WoS / Scopus / OpenAlex)', options: [
+    { value: 'DE', label: 'DE - Author Keywords' },
+    { value: 'ID', label: 'ID - Keywords Plus / Conceptos' },
+    { value: 'WC', label: 'WC - Web of Science Categories / Áreas Temáticas' },
+    { value: 'SC', label: 'SC - Research Areas / Subfields' },
+    { value: 'TI', label: 'TI - Términos del Título' },
+    { value: 'AB', label: 'AB - Términos del Resumen (Abstract)' },
+  ]},
+  { group: 'Estructura Social, Institucional & Geopolítica', options: [
+    { value: 'AU', label: 'AU - Authors / Autores' },
+    { value: 'C1', label: 'C1 - Institutions / Instituciones' },
+    { value: 'CU', label: 'CU - Countries / Países' },
+    { value: 'SO', label: 'SO - Source / Revista o Fuente' },
+    { value: 'PU', label: 'PU - Publisher / Editorial' },
+  ]},
+  { group: 'Temporal, Políticas & Tipología', options: [
+    { value: 'PY', label: 'PY - Publication Year (Año de publicación)' },
+    { value: 'OA', label: 'OA - Open Access (Diamond, Gold, Green, Bronze...)' },
+    { value: 'DT', label: 'DT - Document Type (Artículo, Revisión, Libro...)' },
+    { value: 'LA', label: 'LA - Language / Idioma de publicación' },
+    { value: 'FU', label: 'FU - Funding Agency / Agencias de financiamiento' },
+    { value: 'CR', label: 'CR - Cited References / Referencias citadas' },
+  ]},
+  { group: 'PubMed (MEDLINE)', options: [
+    { value: 'MH', label: 'MH - MeSH Terms' },
+    { value: 'OT', label: 'OT - Other Terms / Keywords' },
+    { value: 'AU', label: 'AU - Authors' },
+    { value: 'AD', label: 'AD - Affiliation' },
+    { value: 'JT', label: 'JT - Journal Title' },
+    { value: 'DP', label: 'DP - Date / Year' },
+  ]}
+];
+
 export default function App() {
   const {
     activeTab,
@@ -29,6 +71,7 @@ export default function App() {
     setSharedBibFile,
     isPreprocessing,
     preprocessBibliometrics,
+    preprocessEda,
     fetchSystemStatus,
     hardware,
     pendingNetworkCsv,
@@ -39,11 +82,12 @@ export default function App() {
     temporalWindow,
     setTemporalWindow,
     cooccurrenceMatricesByPeriod,
-    setTemporalAnalysisMode
+    setTemporalAnalysisMode,
+    setBiblioActiveView
   } = useSomStore();
 
   const { llmConfig, openLlmConfigModal } = useAiStore();
-  const { isWebMode, isAuthenticated, user, checkAuth, saveCloudProject, logout, isLoading: isAuthLoading } = useAuthStore();
+  const { isWebMode, isAuthenticated, isLoading: isAuthLoading, user, checkAuth, saveCloudProject, logout } = useAuthStore();
 
   const [biblioMainView, setBiblioMainView] = useState<'network' | 'longitudinal'>('network');
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -127,11 +171,12 @@ export default function App() {
 
   // Preprocessor form states
   const [networkType, setNetworkType] = useState<string>('co-occurrence:all_keywords');
-  const [customTag, setCustomTag] = useState<string>('AU');
-  const [customTag2, setCustomTag2] = useState<string>('DE');
+  const [customTag, setCustomTag] = useState<string>('DE');
+  const [customTag2, setCustomTag2] = useState<string>('PY');
   const [showAdvancedPopup, setShowAdvancedPopup] = useState<boolean>(false);
   const [maxTerms, setMaxTerms] = useState<number>(50);
   const [minCooc, setMinCooc] = useState<number>(2);
+  const [isBiblioConfigExpanded, setIsBiblioConfigExpanded] = useState<boolean>(true);
   const [temporal, setTemporal] = useState<boolean>(false);
   const [showTagsModal, setShowTagsModal] = useState<boolean>(false);
   const [showApiModal, setShowApiModal] = useState<boolean>(false);
@@ -259,6 +304,18 @@ export default function App() {
       windowSize
     );
     setBiblioMainView('network');
+    setBiblioActiveView('force');
+    setIsBiblioConfigExpanded(false);
+  };
+
+  const handleFileImport = async (file: File) => {
+    setSharedBibFile(file);
+    setBiblioMainView('network');
+    setBiblioActiveView('eda');
+    setIsBiblioConfigExpanded(true);
+
+    await preprocessEda(file);
+    setBiblioActiveView('eda');
   };
 
   // Dynamic padding based on collapsed statebar
@@ -762,435 +819,519 @@ export default function App() {
 
               {/* Tab 3: Bibliometrics Preprocessor */}
               {activeTab === 'bibliometrics' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-                  {/* Bibliometric input form */}
-                  <div className="lg:col-span-1 bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-6 flex flex-col overflow-auto max-h-[75vh]">
-                    <div>
-                      <h3 className="text-md font-bold text-gray-200 flex items-center space-x-2">
-                        <Sliders className="w-5 h-5 text-indigo-400" />
-                        <span>Bibliometric Configuration</span>
-                      </h3>
-                      <p className="text-xs text-gray-500 mt-1">Configure local source paths and parsing thresholds to build co-occurrence maps.</p>
-                    </div>
-
-                    <form onSubmit={handlePreprocess} className="space-y-4">
-
-                      <div>
-                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Bibliometric Data Source</label>
-                        <div className="flex flex-col space-y-2">
-                          <div className="flex items-center space-x-2">
-                            <button
-                              type="button"
-                              onClick={() => fileInputRef.current?.click()}
-                              className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-md"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                              <span>Import File</span>
-                            </button>
-
-                            <input
-                              type="file"
-                              ref={fileInputRef}
-                              accept=".txt,.csv,.tsv,.ris,.json,.map,.net"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) setSharedBibFile(file);
-                              }}
-                              className="hidden"
-                            />
-                          </div>
-
-                          {sharedBibFile && (
-                            <div className="flex items-center space-x-2 bg-emerald-950/40 border border-emerald-800/60 px-3 py-1.5 rounded-lg">
-                              <span className="text-xs text-emerald-400 font-bold truncate max-w-[220px]" title={sharedBibFile.name}>
-                                {sharedBibFile.name}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setSharedBibFile(null)}
-                                className="text-gray-500 hover:text-red-400 text-xs ml-auto"
-                                title="Clear file"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          )}
-
-                          <p className="text-[10px] text-gray-500">
-                            Supports: <strong>WoS, Scopus, PubMed, Dimensions, Lens, RIS, VOS JSON</strong>.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Network Type</label>
-                          <select
-                            value={networkType}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setNetworkType(val);
-                              if (val.startsWith('bipartite')) {
-                                setShowAdvancedPopup(true);
-                                setMaxTerms(10);
-                              } else {
-                                setShowAdvancedPopup(false);
-                              }
-                            }}
-                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
-                          >
-                            {getNetworkTypeOptions().map(grp => (
-                              <optgroup key={grp.group} label={grp.group} className="bg-gray-900 text-indigo-300 font-bold">
-                                {grp.options.map(opt => (
-                                  <option key={opt.value} value={opt.value} className="bg-gray-950 text-gray-200 font-normal">
-                                    {opt.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Counting Method</label>
-                          <select
-                            value={countingMethod}
-                            onChange={(e) => setCountingMethod(e.target.value as 'full' | 'fractional')}
-                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
-                            title="Full Counting counts all co-occurrences equally; Fractional Counting weights by 1/(n-1)"
-                          >
-                            <option value="full">Full Counting</option>
-                            <option value="fractional">Fractional Counting (1/n)</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Extraction Source & NLP Mining */}
-                      {networkType.startsWith('co-occurrence') && (
-                        <div>
-                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Term Extraction Source</label>
-                          <select
-                            value={extractionSource}
-                            onChange={(e) => setExtractionSource(e.target.value as any)}
-                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-indigo-400 font-bold focus:outline-none"
-                          >
-                            <option value="keywords">Keywords (DE, ID, MeSH)</option>
-                            <option value="title_abstract">Title & Abstract (NLP Mining & Relevance Score)</option>
-                            <option value="title">Title only (NLP)</option>
-                            <option value="abstract">Abstract only (NLP)</option>
-                          </select>
-                        </div>
-                      )}
-
-                      {/* Relevance Score Slider (when NLP is active) */}
-                      {extractionSource !== 'keywords' && networkType.startsWith('co-occurrence') && (
-                        <div className="p-3 bg-gray-950/70 border border-indigo-500/30 rounded-xl space-y-2">
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="text-gray-300 font-semibold">VOS Relevance Filter</span>
-                            <span className="text-indigo-400 font-bold">Top {Math.round(relevanceRatio * 100)}% terms</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0.2"
-                            max="1.0"
-                            step="0.05"
-                            value={relevanceRatio}
-                            onChange={(e) => setRelevanceRatio(parseFloat(e.target.value))}
-                            className="w-full accent-indigo-500 cursor-pointer"
-                          />
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Max Nodes</label>
-                          <input
-                            type="number"
-                            value={maxTerms}
-                            onChange={(e) => setMaxTerms(parseInt(e.target.value) || 20)}
-                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Min Weight</label>
-                          <input
-                            type="number"
-                            value={minCooc}
-                            onChange={(e) => setMinCooc(parseInt(e.target.value) || 2)}
-                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Thesaurus & Disambiguation File Upload */}
-                      <div>
-                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">VOS Thesaurus File (Optional)</label>
+                <div className="flex flex-col space-y-5 w-full h-full">
+                  {/* Top Collapsible Card: Bibliometric Configuration */}
+                  <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-xl transition-all duration-200">
+                    {/* Header bar / Toggle */}
+                    <div
+                      className="p-4 px-6 flex items-center justify-between cursor-pointer select-none bg-gray-950/70 hover:bg-gray-950 rounded-2xl transition-colors"
+                      onClick={() => setIsBiblioConfigExpanded(!isBiblioConfigExpanded)}
+                    >
+                      <div className="flex items-center space-x-3 flex-wrap gap-y-2">
                         <div className="flex items-center space-x-2">
-                          <button
-                            type="button"
-                            onClick={() => thesaurusInputRef.current?.click()}
-                            className="px-3 py-1.5 bg-gray-950 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
-                            title="Upload CSV or TXT thesaurus mapping"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>Upload File</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setIsEntityMergerOpen(true)}
-                            className="px-3 py-1.5 bg-indigo-900/40 hover:bg-indigo-800 border border-indigo-800/60 text-indigo-300 hover:text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
-                            title="Merge nodes interactively from current network"
-                          >
-                            <GitMerge className="w-3.5 h-3.5" />
-                            <span>Interactive Merger</span>
-                          </button>
-                          <input
-                            type="file"
-                            ref={thesaurusInputRef}
-                            accept=".txt,.csv"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) setThesaurusFile(file);
-                            }}
-                            className="hidden"
-                          />
-                          {thesaurusFile && (
-                            <div className="flex items-center space-x-1.5 text-xs text-indigo-400 font-bold bg-indigo-950/40 border border-indigo-800/60 px-2.5 py-1 rounded-lg">
-                              <span className="truncate max-w-[150px]">{thesaurusFile.name}</span>
-                              <button
-                                type="button"
-                                onClick={() => setThesaurusFile(null)}
-                                className="text-gray-500 hover:text-red-400 ml-1"
-                                title="Remove thesaurus"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {(networkType.startsWith('co-occurrence') || networkType.startsWith('bipartite')) && (
-                        <div className="mt-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowAdvancedPopup(!showAdvancedPopup)}
-                            className="text-xs text-gray-200 hover:text-white font-bold tracking-wide uppercase flex items-center space-x-1"
-                          >
-                            <Settings className="w-4 h-4" />
-                            <span>Advanced Tag Config</span>
-                          </button>
-
-                          {showAdvancedPopup && (
-                            <div className="mt-3 p-4 bg-gray-900 border border-gray-700 rounded-xl space-y-3">
-                              {networkType.startsWith('bipartite') ? (
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Tag 1 (Columns)</label>
-                                    <input
-                                      type="text"
-                                      value={customTag2}
-                                      onChange={(e) => setCustomTag2(e.target.value)}
-                                      placeholder="e.g. MH"
-                                      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Tag 2 (Rows)</label>
-                                    <input
-                                      type="text"
-                                      value={customTag}
-                                      onChange={(e) => setCustomTag(e.target.value)}
-                                      placeholder="e.g. AU"
-                                      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
-                                    />
-                                  </div>
-                                </div>
-                              ) : (
-                                <div>
-                                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Custom Tag (2-Letter Code)</label>
-                                  <input
-                                    type="text"
-                                    value={customTag}
-                                    onChange={(e) => setCustomTag(e.target.value)}
-                                    placeholder="e.g. DE, ID, AU, CR"
-                                    className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none"
-                                  />
-                                </div>
-                              )}
-                              <p className="text-[10px] text-gray-500">
-                                <strong>WoS/Scopus:</strong> <b>DE</b> (Author Keywords), <b>ID</b> (Keywords Plus), <b>AU</b> (Authors), <b>CR</b> (Cited Refs), <b>C1</b> (Institutions), <b>CU</b> (Countries), <b>PY</b> (Year).<br />
-                                <strong>PubMed (MEDLINE):</strong> <b>MH</b> (MeSH Terms), <b>OT</b> (Other Terms/Keywords), <b>AU</b> (Authors), <b>AD</b> (Affiliation), <b>JT</b> (Journal Title), <b>DP</b> (Year).
-                                <br /><button type="button" onClick={() => setShowTagsModal(true)} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[10px] font-bold transition mt-2 inline-block">View full tags list</button>
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="flex flex-col space-y-3 pt-2 pb-2 border-t border-gray-800 mt-4">
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            id="temporal"
-                            checked={temporal}
-                            onChange={(e) => setTemporal(e.target.checked)}
-                            className="w-4 h-4 bg-gray-950 border-gray-800 rounded text-emerald-500 focus:ring-emerald-500 cursor-pointer"
-                          />
-                          <label htmlFor="temporal" className="text-xs text-gray-200 cursor-pointer select-none font-bold uppercase tracking-wide">
-                            Generate Temporal Sequences
-                          </label>
+                          <Sliders className="w-5 h-5 text-indigo-400" />
+                          <h3 className="text-md font-bold text-gray-200">Bibliometric Configuration</h3>
                         </div>
 
-                        {temporal && (
-                          <div className="p-3 bg-gray-950/80 border border-gray-800 rounded-xl space-y-2.5">
-                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">
-                              Subperiod Window Size (Years)
-                            </label>
-                            <div className="grid grid-cols-4 gap-1.5 text-xs">
-                              {[
-                                { val: 1, label: '1 Year', mode: 'PathSOM' },
-                                { val: 2, label: '2 Years', mode: 'PathSOM' },
-                                { val: 3, label: '3 Years', mode: 'PathSOM' },
-                                { val: 5, label: '5 Years', mode: 'Longitudinal' }
-                              ].map(opt => (
-                                <button
-                                  key={opt.val}
-                                  type="button"
-                                  onClick={() => {
-                                    setTemporalWindow(opt.val);
-                                    setTemporalAnalysisMode(opt.val >= 5 ? 'longitudinal' : 'pathsom');
-                                  }}
-                                  className={`py-1.5 rounded-lg font-bold transition flex flex-col items-center justify-center ${
-                                    temporalWindow === opt.val
-                                      ? 'bg-indigo-600 text-white shadow-md'
-                                      : 'bg-gray-900 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                                  }`}
-                                >
-                                  <span>{opt.label}</span>
-                                  <span className="text-[9px] opacity-75 font-normal">{opt.mode}</span>
-                                </button>
-                              ))}
-                            </div>
-
-                            {/* Custom window input */}
-                            <div className="flex items-center space-x-2 pt-1">
-                              <span className="text-[11px] text-gray-500">Custom:</span>
-                              <input
-                                type="number"
-                                min="1"
-                                max="20"
-                                value={temporalWindow}
-                                onChange={(e) => {
-                                  const val = parseInt(e.target.value) || 1;
-                                  setTemporalWindow(val);
-                                  setTemporalAnalysisMode(val >= 5 ? 'longitudinal' : 'pathsom');
-                                }}
-                                className="w-16 bg-gray-900 border border-gray-800 rounded-lg px-2 py-1 text-xs text-white font-mono text-center focus:outline-none"
-                              />
-                              <span className="text-[11px] text-gray-500">years per subperiod</span>
-                            </div>
-
-                            {/* Dynamic explanation badge */}
-                            <div className={`p-2 rounded-lg border text-[11px] leading-relaxed ${
-                              temporalWindow >= 5
-                                ? 'bg-purple-950/40 border-purple-800/60 text-purple-200'
-                                : 'bg-indigo-950/40 border-indigo-800/60 text-indigo-200'
-                            }`}>
-                              {temporalWindow >= 5 ? (
-                                <span>
-                                  🔥 <strong>Longitudinal SOM Mode:</strong> Generates chained evolutionary maps with <em>Warm-Start</em> ($W_t = W_{'{'}t-1{'}'}$) and accelerated fine-tuning (20% iterations).
-                                </span>
-                              ) : (
-                                <span>
-                                  📈 <strong>PathSOM Trajectory Mode:</strong> Multi-period frequency vectors projected onto a single global SOM space.
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={isPreprocessing}
-                        className="relative w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-900 disabled:text-gray-500 text-white rounded-xl font-bold transition flex items-center justify-center space-x-2 mt-4 overflow-hidden"
-                      >
-                        {isPreprocessing ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin z-10" />
-                            <span className="z-10">
-                              {uploadProgress !== null && uploadProgress < 100
-                                ? `Uploading dataset... ${uploadProgress}%`
-                                : 'Analyzing data on server...'}
+                        {/* Summary pills */}
+                        <div className="flex items-center gap-2 flex-wrap text-xs">
+                          {sharedBibFile ? (
+                            <span className="px-2.5 py-0.5 rounded-lg bg-emerald-950/60 border border-emerald-800/80 text-emerald-300 font-medium flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                              Dataset: <strong className="text-white font-mono">{sharedBibFile.name}</strong>
                             </span>
-                            {uploadProgress !== null && uploadProgress < 100 && (
-                              <div
-                                className="absolute left-0 top-0 bottom-0 bg-indigo-500 opacity-35 transition-all duration-200"
-                                style={{ width: `${uploadProgress}%` }}
-                              />
-                            )}
-                          </>
-                        ) : (
-                          <span>Process Bibliometrics</span>
-                        )}
-                      </button>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-lg bg-amber-950/40 border border-amber-800/60 text-amber-300 font-medium">
+                              No file loaded
+                            </span>
+                          )}
+                          <span className="px-2.5 py-0.5 rounded-lg bg-indigo-950/60 border border-indigo-800/80 text-indigo-300 font-medium capitalize">
+                            {networkType.replace(/_/g, ' ')}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-lg bg-gray-800/80 border border-gray-700 text-gray-300 text-[11px] font-mono">
+                            Max: {maxTerms} | Min: {minCooc}
+                          </span>
+                          {temporal && (
+                            <span className="px-2 py-0.5 rounded-lg bg-purple-950/60 border border-purple-800/80 text-purple-300 text-[11px] font-bold">
+                              Temporal: {temporalWindow} yr{temporalWindow > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                      </div>
 
-                      {pendingNetworkCsv && (
+                      <div className="flex items-center space-x-2">
                         <button
                           type="button"
-                          onClick={() => handleTabChange('multidimensional')}
-                          className="w-full py-2 mt-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition flex items-center justify-center space-x-2 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsBiblioConfigExpanded(!isBiblioConfigExpanded);
+                          }}
+                          className="text-xs text-gray-300 hover:text-white px-3 py-1.5 rounded-xl bg-gray-900 border border-gray-700 hover:border-indigo-500 flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
                         >
-                          <Database className="w-3.5 h-3.5" />
-                          <span>Send Data to SOM & Switch Tab</span>
+                          <span className="font-semibold">{isBiblioConfigExpanded ? 'Collapse' : 'Configure'}</span>
+                          <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isBiblioConfigExpanded ? 'transform rotate-180 text-indigo-400' : ''}`} />
                         </button>
-                      )}
-                    </form>
+                      </div>
+                    </div>
+
+                    {/* Collapsible Form Body */}
+                    {isBiblioConfigExpanded && (
+                      <form onSubmit={handlePreprocess} className="p-6 pt-4 border-t border-gray-800/80 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+                          {/* Col 1: Data Source */}
+                          <div className="space-y-3 bg-gray-950/50 p-4 rounded-xl border border-gray-800/80 flex flex-col justify-between">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                                Bibliometric Data Source
+                              </label>
+                              <div className="flex flex-col space-y-2">
+                                <div className="flex items-center space-x-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-md cursor-pointer"
+                                  >
+                                    <Upload className="w-3.5 h-3.5" />
+                                    <span>Import File</span>
+                                  </button>
+                                  <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    accept=".txt,.csv,.tsv,.ris,.json,.map,.net"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        handleFileImport(file);
+                                      }
+                                      e.target.value = '';
+                                    }}
+                                    className="hidden"
+                                  />
+                                </div>
+
+                                {sharedBibFile && (
+                                  <div className="flex items-center space-x-2 bg-emerald-950/40 border border-emerald-800/60 px-3 py-1.5 rounded-lg">
+                                    <span className="text-xs text-emerald-400 font-bold truncate max-w-[200px]" title={sharedBibFile.name}>
+                                      {sharedBibFile.name}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSharedBibFile(null)}
+                                      className="text-gray-500 hover:text-red-400 text-xs ml-auto cursor-pointer"
+                                      title="Clear file"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-gray-500 leading-tight">
+                              Supports: <strong className="text-gray-400">WoS, Scopus, PubMed, Dimensions, Lens, RIS, VOS JSON</strong>.
+                            </p>
+                          </div>
+
+                          {/* Col 2: Network & Counting */}
+                          <div className="space-y-3 bg-gray-950/50 p-4 rounded-xl border border-gray-800/80 flex flex-col justify-between">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Network Type</label>
+                              <select
+                                value={networkType}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setNetworkType(val);
+                                  if (val.startsWith('bipartite')) {
+                                    setShowAdvancedPopup(true);
+                                    setMaxTerms(10);
+                                    setCustomTag2('PY');
+                                    setCustomTag('DE');
+                                  } else {
+                                    setShowAdvancedPopup(false);
+                                  }
+                                }}
+                                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none"
+                              >
+                                {getNetworkTypeOptions().map(grp => (
+                                  <optgroup key={grp.group} label={grp.group} className="bg-gray-900 text-indigo-300 font-bold">
+                                    {grp.options.map(opt => (
+                                      <option key={opt.value} value={opt.value} className="bg-gray-950 text-gray-200 font-normal">
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Counting Method</label>
+                              <select
+                                value={countingMethod}
+                                onChange={(e) => setCountingMethod(e.target.value as 'full' | 'fractional')}
+                                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none"
+                                title="Full Counting counts all co-occurrences equally; Fractional Counting weights by 1/(n-1)"
+                              >
+                                <option value="full">Full Counting</option>
+                                <option value="fractional">Fractional Counting (1/n)</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Col 3: NLP Extraction & Thresholds */}
+                          <div className="space-y-3 bg-gray-950/50 p-4 rounded-xl border border-gray-800/80 flex flex-col justify-between">
+                            {networkType.startsWith('co-occurrence') ? (
+                              <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Term Extraction Source</label>
+                                <select
+                                  value={extractionSource}
+                                  onChange={(e) => setExtractionSource(e.target.value as any)}
+                                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-xs text-indigo-400 font-bold focus:outline-none"
+                                >
+                                  <option value="keywords">Keywords (DE, ID, MeSH)</option>
+                                  <option value="title_abstract">Title & Abstract (NLP Mining & Relevance)</option>
+                                  <option value="title">Title only (NLP)</option>
+                                  <option value="abstract">Abstract only (NLP)</option>
+                                </select>
+                                {extractionSource !== 'keywords' && (
+                                  <div className="mt-2 p-2 bg-gray-950 border border-indigo-500/30 rounded-lg space-y-1">
+                                    <div className="flex justify-between items-center text-[11px]">
+                                      <span className="text-gray-300">VOS Relevance:</span>
+                                      <span className="text-indigo-400 font-bold">Top {Math.round(relevanceRatio * 100)}%</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min="0.2"
+                                      max="1.0"
+                                      step="0.05"
+                                      value={relevanceRatio}
+                                      onChange={(e) => setRelevanceRatio(parseFloat(e.target.value))}
+                                      className="w-full accent-indigo-500 cursor-pointer h-1.5"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Extraction Mode</label>
+                                <p className="text-xs text-gray-500 italic">Direct metadata indexing</p>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Max Nodes</label>
+                                <input
+                                  type="number"
+                                  value={maxTerms}
+                                  onChange={(e) => setMaxTerms(parseInt(e.target.value) || 20)}
+                                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-200 focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Min Weight</label>
+                                <input
+                                  type="number"
+                                  value={minCooc}
+                                  onChange={(e) => setMinCooc(parseInt(e.target.value) || 2)}
+                                  className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-200 focus:outline-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Col 4: Thesaurus & Advanced */}
+                          <div className="space-y-3 bg-gray-950/50 p-4 rounded-xl border border-gray-800/80 flex flex-col justify-between">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">VOS Thesaurus</label>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => thesaurusInputRef.current?.click()}
+                                  className="px-2.5 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white text-xs font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                                  title="Upload CSV or TXT thesaurus mapping"
+                                >
+                                  <Upload className="w-3 h-3" />
+                                  <span>Upload</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEntityMergerOpen(true)}
+                                  className="px-2.5 py-1.5 bg-indigo-900/40 hover:bg-indigo-800 border border-indigo-800/60 text-indigo-300 hover:text-white text-xs font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                                  title="Merge nodes interactively from current network"
+                                >
+                                  <GitMerge className="w-3 h-3" />
+                                  <span>Interactive Merger</span>
+                                </button>
+                                <input
+                                  type="file"
+                                  ref={thesaurusInputRef}
+                                  accept=".txt,.csv"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) setThesaurusFile(file);
+                                  }}
+                                  className="hidden"
+                                />
+                              </div>
+
+                              {thesaurusFile && (
+                                <div className="flex items-center space-x-1.5 text-xs text-indigo-400 font-bold bg-indigo-950/40 border border-indigo-800/60 px-2.5 py-1 rounded-lg mt-2">
+                                  <span className="truncate max-w-[150px]">{thesaurusFile.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setThesaurusFile(null)}
+                                    className="text-gray-500 hover:text-red-400 ml-1 cursor-pointer"
+                                    title="Remove thesaurus"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {(networkType.startsWith('co-occurrence') || networkType.startsWith('bipartite')) && (
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAdvancedPopup(!showAdvancedPopup)}
+                                  className="text-xs text-indigo-400 hover:text-indigo-300 font-bold tracking-wide uppercase flex items-center space-x-1 cursor-pointer"
+                                >
+                                  <Settings className="w-3.5 h-3.5" />
+                                  <span>{showAdvancedPopup ? 'Hide Tag Config' : 'Advanced Tag Config'}</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Advanced Tag Config Details */}
+                        {showAdvancedPopup && (
+                          <div className="p-4 bg-gray-950 border border-gray-800 rounded-xl space-y-3">
+                            {networkType.startsWith('bipartite') ? (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Tag 1 (Columns)</label>
+                                  <select
+                                    value={customTag2}
+                                    onChange={(e) => setCustomTag2(e.target.value)}
+                                    className="w-full bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-gray-200 focus:outline-none cursor-pointer"
+                                  >
+                                    {BIPARTITE_TAG_OPTIONS.map(grp => (
+                                      <optgroup key={grp.group} label={grp.group} className="bg-gray-950 text-indigo-400 font-bold">
+                                        {grp.options.map(opt => (
+                                          <option key={opt.value} value={opt.value} className="bg-gray-900 text-gray-200 font-normal">
+                                            {opt.label}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Tag 2 (Rows)</label>
+                                  <select
+                                    value={customTag}
+                                    onChange={(e) => setCustomTag(e.target.value)}
+                                    className="w-full bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-gray-200 focus:outline-none cursor-pointer"
+                                  >
+                                    {BIPARTITE_TAG_OPTIONS.map(grp => (
+                                      <optgroup key={grp.group} label={grp.group} className="bg-gray-950 text-indigo-400 font-bold">
+                                        {grp.options.map(opt => (
+                                          <option key={opt.value} value={opt.value} className="bg-gray-900 text-gray-200 font-normal">
+                                            {opt.label}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Custom Tag (2-Letter Code)</label>
+                                <input
+                                  type="text"
+                                  value={customTag}
+                                  onChange={(e) => setCustomTag(e.target.value)}
+                                  placeholder="e.g. DE, ID, AU, CR"
+                                  className="w-full bg-gray-900 border border-gray-800 rounded-xl px-4 py-2 text-xs text-gray-200 focus:outline-none max-w-sm"
+                                />
+                              </div>
+                            )}
+                            <p className="text-[10px] text-gray-500">
+                              <strong>WoS/Scopus:</strong> <b>DE</b> (Author Keywords), <b>ID</b> (Keywords Plus), <b>AU</b> (Authors), <b>CR</b> (Cited Refs), <b>C1</b> (Institutions), <b>CU</b> (Countries), <b>PY</b> (Year).<br />
+                              <strong>PubMed (MEDLINE):</strong> <b>MH</b> (MeSH Terms), <b>OT</b> (Other Terms/Keywords), <b>AU</b> (Authors), <b>AD</b> (Affiliation), <b>JT</b> (Journal Title), <b>DP</b> (Year).
+                              <br /><button type="button" onClick={() => setShowTagsModal(true)} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[10px] font-bold transition mt-2 inline-block cursor-pointer">View full tags list</button>
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Temporal Sequences Section */}
+                        <div className="pt-2 border-t border-gray-800/80">
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id="temporal"
+                              checked={temporal}
+                              onChange={(e) => setTemporal(e.target.checked)}
+                              className="w-4 h-4 bg-gray-950 border-gray-800 rounded text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <label htmlFor="temporal" className="text-xs text-gray-200 cursor-pointer select-none font-bold uppercase tracking-wide">
+                              Generate Temporal Sequences
+                            </label>
+                          </div>
+
+                          {temporal && (
+                            <div className="p-3 mt-2 bg-gray-950 border border-gray-800 rounded-xl space-y-2.5">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                                  Subperiod Window Size (Years)
+                                </label>
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-[11px] text-gray-500">Custom:</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    value={temporalWindow}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value) || 1;
+                                      setTemporalWindow(val);
+                                      setTemporalAnalysisMode(val >= 5 ? 'longitudinal' : 'pathsom');
+                                    }}
+                                    className="w-16 bg-gray-900 border border-gray-800 rounded-lg px-2 py-1 text-xs text-white font-mono text-center focus:outline-none"
+                                  />
+                                  <span className="text-[11px] text-gray-500">years per subperiod</span>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-4 gap-2 text-xs">
+                                {[
+                                  { val: 1, label: '1 Year', mode: 'PathSOM' },
+                                  { val: 2, label: '2 Years', mode: 'PathSOM' },
+                                  { val: 3, label: '3 Years', mode: 'PathSOM' },
+                                  { val: 5, label: '5 Years', mode: 'Longitudinal' }
+                                ].map(opt => (
+                                  <button
+                                    key={opt.val}
+                                    type="button"
+                                    onClick={() => {
+                                      setTemporalWindow(opt.val);
+                                      setTemporalAnalysisMode(opt.val >= 5 ? 'longitudinal' : 'pathsom');
+                                    }}
+                                    className={`py-1.5 rounded-lg font-bold transition flex flex-col items-center justify-center cursor-pointer ${
+                                      temporalWindow === opt.val
+                                        ? 'bg-indigo-600 text-white shadow-md'
+                                        : 'bg-gray-900 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                                    }`}
+                                  >
+                                    <span>{opt.label}</span>
+                                    <span className="text-[9px] opacity-75 font-normal">{opt.mode}</span>
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className={`p-2 rounded-lg border text-[11px] leading-relaxed ${
+                                temporalWindow >= 5
+                                  ? 'bg-purple-950/40 border-purple-800/60 text-purple-200'
+                                  : 'bg-indigo-950/40 border-indigo-800/60 text-indigo-200'
+                              }`}>
+                                {temporalWindow >= 5 ? (
+                                  <span>
+                                    🔥 <strong>Longitudinal SOM Mode:</strong> Generates chained evolutionary maps with <em>Warm-Start</em> ($W_t = W_{'{'}t-1{'}'}$) and accelerated fine-tuning (20% iterations).
+                                  </span>
+                                ) : (
+                                  <span>
+                                    📈 <strong>PathSOM Trajectory Mode:</strong> Multi-period frequency vectors projected onto a single global SOM space.
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center space-x-3 pt-2">
+                          <button
+                            type="submit"
+                            disabled={isPreprocessing}
+                            className="relative flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-900 disabled:text-gray-500 text-white rounded-xl font-bold transition flex items-center justify-center space-x-2 overflow-hidden shadow-lg shadow-indigo-950/50 cursor-pointer"
+                          >
+                            {isPreprocessing ? (
+                              <>
+                                <RefreshCw className="w-4 h-4 animate-spin z-10" />
+                                <span className="z-10">
+                                  {uploadProgress !== null && uploadProgress < 100
+                                    ? `Uploading dataset... ${uploadProgress}%`
+                                    : 'Analyzing data on server...'}
+                                </span>
+                                {uploadProgress !== null && uploadProgress < 100 && (
+                                  <div
+                                    className="absolute left-0 top-0 bottom-0 bg-indigo-500 opacity-35 transition-all duration-200"
+                                    style={{ width: `${uploadProgress}%` }}
+                                  />
+                                )}
+                              </>
+                            ) : (
+                              <span>Process Bibliometrics</span>
+                            )}
+                          </button>
+
+                          {pendingNetworkCsv && (
+                            <button
+                              type="button"
+                              onClick={() => handleTabChange('multidimensional')}
+                              className="px-5 py-3 bg-indigo-700/80 hover:bg-indigo-600 text-white rounded-xl font-bold transition flex items-center space-x-2 text-xs cursor-pointer shadow-md"
+                            >
+                              <Database className="w-3.5 h-3.5" />
+                              <span>Send Data to SOM & Switch Tab</span>
+                            </button>
+                          )}
+                        </div>
+                      </form>
+                    )}
                   </div>
 
-                  {/* Interactive Network Graph or Longitudinal SOM */}
-                  <div className="lg:col-span-2 flex flex-col space-y-4">
-                    {cooccurrenceMatricesByPeriod && Object.keys(cooccurrenceMatricesByPeriod).length >= 2 && (
-                      <div className="flex items-center justify-between bg-gray-900/90 border border-gray-800 rounded-2xl p-2 px-3 shadow-lg">
-                        <span className="text-xs font-bold text-gray-300">
-                          Scientific View:
-                        </span>
-                        <div className="flex space-x-1.5 bg-gray-950 p-1 rounded-xl border border-gray-800">
-                          <button
-                            onClick={() => setBiblioMainView('network')}
-                            className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
-                              biblioMainView === 'network'
-                                ? 'bg-indigo-600 text-white shadow-md'
-                                : 'text-gray-400 hover:text-gray-200'
-                            }`}
-                          >
-                            <Share2 className="w-3.5 h-3.5" />
-                            <span>Bibliometric Network</span>
-                          </button>
-                          <button
-                            onClick={() => setBiblioMainView('longitudinal')}
-                            className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
-                              biblioMainView === 'longitudinal'
-                                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
-                                : 'text-gray-400 hover:text-gray-200'
-                            }`}
-                          >
-                            <TrendingUp className="w-3.5 h-3.5" />
-                            <span>Longitudinal SOM Evolution</span>
-                          </button>
-                        </div>
+                  {/* Scientific View Selector (Full width when available) */}
+                  {cooccurrenceMatricesByPeriod && Object.keys(cooccurrenceMatricesByPeriod).length >= 2 && (
+                    <div className="flex items-center justify-between bg-gray-900/90 border border-gray-800 rounded-2xl p-2 px-4 shadow-lg w-full">
+                      <span className="text-xs font-bold text-gray-300">
+                        Scientific View:
+                      </span>
+                      <div className="flex space-x-1.5 bg-gray-950 p-1 rounded-xl border border-gray-800">
+                        <button
+                          onClick={() => setBiblioMainView('network')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                            biblioMainView === 'network'
+                              ? 'bg-indigo-600 text-white shadow-md'
+                              : 'text-gray-400 hover:text-gray-200'
+                          }`}
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                          <span>Bibliometric Network</span>
+                        </button>
+                        <button
+                          onClick={() => setBiblioMainView('longitudinal')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                            biblioMainView === 'longitudinal'
+                              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
+                              : 'text-gray-400 hover:text-gray-200'
+                          }`}
+                        >
+                          <TrendingUp className="w-3.5 h-3.5" />
+                          <span>Longitudinal SOM Evolution</span>
+                        </button>
                       </div>
-                    )}
-
-                    <div className="flex-1">
-                      {biblioMainView === 'longitudinal' && cooccurrenceMatricesByPeriod && Object.keys(cooccurrenceMatricesByPeriod).length >= 2 ? (
-                        <LongitudinalSomViewer />
-                      ) : (
-                        <RedBibliometrica />
-                      )}
                     </div>
+                  )}
+
+                  {/* Main Visualizer Area (100% full width of the large right panel!) */}
+                  <div className="flex-1 w-full min-h-[680px]">
+                    {biblioMainView === 'longitudinal' && cooccurrenceMatricesByPeriod && Object.keys(cooccurrenceMatricesByPeriod).length >= 2 ? (
+                      <LongitudinalSomViewer />
+                    ) : (
+                      <RedBibliometrica />
+                    )}
                   </div>
                 </div>
               )}

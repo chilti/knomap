@@ -7,7 +7,8 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from hardware_detector import detect_hardware
-from bibliometrics_parser import read_and_generate_bibliometrics
+import bibliometrics_parser
+from bibliometrics_parser import read_and_generate_bibliometrics, parse_eda_only
 from som_solver import SOMSolver, run_umap, recommend_training_epochs, compute_weight_drift
 from incites_parser import extract_and_parse_incites, build_incites_inventory, parse_single_unit_from_session
 import torch
@@ -28,6 +29,7 @@ def handle_preprocess(params):
     thesaurus_filepath = params.get("thesaurus_filepath", None)
     relevance_ratio = params.get("relevance_ratio", 0.60)
     temporal_window = int(params.get("temporal_window", params.get("temporalWindow", 1)))
+    include_eda = params.get("include_eda", False)
     
     if not filepath or not os.path.exists(filepath):
         return {"success": False, "error": f"File not found: '{filepath}'"}
@@ -44,12 +46,22 @@ def handle_preprocess(params):
             counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath,
             relevance_ratio=relevance_ratio,
-            temporal_window=temporal_window
+            temporal_window=temporal_window,
+            include_eda=include_eda
         )
         
         return res_dict
     except Exception as e:
         return {"success": False, "error": f"Preprocess error: {str(e)}"}
+
+def handle_preprocess_eda(params):
+    filepath = params.get("filepath", "")
+    if not filepath or not os.path.exists(filepath):
+        return {"success": False, "error": f"File not found: '{filepath}'"}
+    try:
+        return bibliometrics_parser.parse_eda_only(filepath)
+    except Exception as e:
+        return {"success": False, "error": f"Preprocess EDA error: {str(e)}"}
 
 def handle_api_query(params):
     source = params.get("source", "openalex")
@@ -178,10 +190,20 @@ def handle_train(params):
         solver.initialize_weights(data, init_type=init_type)
         
         # Train
+        sigma_param = params.get("sigma")
+        sigma_start = None
+        if sigma_param is not None:
+            try:
+                val = float(sigma_param)
+                if val > 0:
+                    sigma_start = val
+            except (ValueError, TypeError):
+                sigma_start = None
+
         if method == "basic":
-            errors = solver.train_basic(data, iterations, learning_rate_start=learning_rate)
+            errors = solver.train_basic(data, iterations, learning_rate_start=learning_rate, sigma_start=sigma_start)
         else:
-            errors = solver.train_batch(data, iterations)
+            errors = solver.train_batch(data, iterations, sigma_start=sigma_start)
             
         # Get metrics
         umatrix = solver.get_umatrix()
@@ -252,13 +274,55 @@ def handle_train_longitudinal(params):
     if not periods_data:
         return {"success": False, "error": "No periods data provided for longitudinal training."}
 
-    rows = params.get("rows", 10)
-    cols = params.get("cols", 10)
-    base_iterations = params.get("iterations", 100)
-    method = params.get("method", "batch").lower()
+    rows = params.get("rows", 8)
+    cols = params.get("cols", 12)
+    grid_avg = (rows + cols) / 2.0
+    base_iterations = params.get("iterations", 1000)
+    refine_iterations_param = params.get("refine_iterations")
+    if refine_iterations_param is not None and int(refine_iterations_param) > 0:
+        default_refine_iters = int(refine_iterations_param)
+    else:
+        default_refine_iters = 200
+    method = params.get("method", "basic").lower()
     init_type = params.get("init", "pca").lower()
     metric = params.get("metric", "euclidean").lower()
-    learning_rate = params.get("learning_rate", 0.5)
+    learning_rate = float(params.get("learning_rate", 0.9))
+    sigma_param = params.get("sigma")
+    base_sigma = None
+    if sigma_param is not None:
+        try:
+            val = float(sigma_param)
+            if val > 0:
+                base_sigma = val
+        except (ValueError, TypeError):
+            base_sigma = None
+    if base_sigma is None:
+        # Academic standard: one half of grid's average size (1/2 * (rows + cols)/2)
+        base_sigma = 0.5 * grid_avg
+
+    refine_sigma_param = params.get("refine_sigma")
+    refine_sigma = None
+    if refine_sigma_param is not None:
+        try:
+            val = float(refine_sigma_param)
+            if val > 0:
+                refine_sigma = val
+        except (ValueError, TypeError):
+            refine_sigma = None
+    if refine_sigma is None:
+        # Academic standard: one eighth of grid's average size (1/8 * (rows + cols)/2)
+        refine_sigma = 0.125 * grid_avg
+
+    refine_lr_param = params.get("refine_learning_rate")
+    refine_lr = 0.1
+    if refine_lr_param is not None:
+        try:
+            val = float(refine_lr_param)
+            if val > 0:
+                refine_lr = val
+        except (ValueError, TypeError):
+            refine_lr = 0.1
+
     clustering_algorithm = params.get("clustering_algorithm", "dbscan").lower()
     n_clusters = params.get("n_clusters", 4)
     eps = params.get("eps", 0.5)
@@ -289,21 +353,21 @@ def handle_train_longitudinal(params):
                 # Base period: Full training from scratch
                 solver.initialize_weights(data_arr, init_type=init_type)
                 if method == "basic":
-                    errors = solver.train_basic(data_arr, base_iterations, learning_rate_start=learning_rate)
+                    errors = solver.train_basic(data_arr, base_iterations, learning_rate_start=learning_rate, sigma_start=base_sigma)
                 else:
-                    errors = solver.train_batch(data_arr, base_iterations)
+                    errors = solver.train_batch(data_arr, base_iterations, sigma_start=base_sigma)
                 training_phase = "base_full"
                 effective_iters = base_iterations
             else:
-                # Successive periods: Warm-start fine-tuning
+                # Successive periods: Warm-start fine-tuning (smaller sigma and learning rate)
                 solver.weights = prev_weights.clone()
                 solver.grid_dist = torch.tensor(solver.grid_dist_np, dtype=torch.float64, device=solver.device)
                 solver.coords = torch.tensor(solver.coords_np, dtype=torch.float64, device=solver.device)
-                refine_iters = max(10, int(0.20 * base_iterations))
+                refine_iters = default_refine_iters
                 if method == "basic":
-                    errors = solver.train_basic(data_arr, refine_iters, learning_rate_start=0.05, sigma_start=1.0)
+                    errors = solver.train_basic(data_arr, refine_iters, learning_rate_start=refine_lr, sigma_start=refine_sigma)
                 else:
-                    errors = solver.train_batch(data_arr, refine_iters, sigma_start=1.0)
+                    errors = solver.train_batch(data_arr, refine_iters, sigma_start=refine_sigma)
                 training_phase = "warm_start_refine"
                 effective_iters = refine_iters
 
@@ -626,6 +690,9 @@ def main():
     if action == "preprocess":
         res = handle_preprocess(params)
         print(json.dumps(res))
+    elif action == "preprocess_eda":
+        res = handle_preprocess_eda(params)
+        print(json.dumps(res))
     elif action == "incites_preprocess":
         # Fast inventory build (takes ~1-2 seconds)
         result = build_incites_inventory(payload_raw)
@@ -685,6 +752,17 @@ def main():
     elif action == "vos_recluster":
         res = handle_vos_recluster(params)
         print(json.dumps(res))
+    elif action == "parse_longitudinal_archive":
+        archive_path = params.get("archive_path", "")
+        output_file = params.get("output_file", "")
+        from longitudinal_parser import parse_archive
+        res = parse_archive(archive_path)
+        if output_file:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(res, f, ensure_ascii=False)
+            print(json.dumps({"success": res.get("success", False), "periods": res.get("periods", [])}))
+        else:
+            print(json.dumps(res, ensure_ascii=False))
     else:
         print(json.dumps({"success": False, "error": f"Unknown action: {action}"}))
 

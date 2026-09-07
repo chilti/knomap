@@ -17,7 +17,13 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
-  RotateCcw
+  RotateCcw,
+  Table,
+  Share2,
+  Columns,
+  Archive,
+  ArrowRight,
+  Trash2
 } from 'lucide-react';
 import { 
   RadarChart, 
@@ -38,6 +44,7 @@ import { TrainingErrorPanel } from './TrainingErrorPanel';
 import { parseTrajectoryEntity } from '../utils/timeSeries';
 import { SendToAssistantButton } from './SendToAssistantButton';
 import { denormalizeValue } from '../utils/normalization';
+import { LongitudinalSomViewer } from './LongitudinalSomViewer';
 
 export const ExploradorDatos: React.FC = () => {
   const { 
@@ -83,6 +90,7 @@ export const ExploradorDatos: React.FC = () => {
     activeRunId,
     setActiveRunId,
     deleteRun,
+    clearAllRuns,
     renameRun,
     clusterLabels,
     incitesIsUploading,
@@ -93,7 +101,10 @@ export const ExploradorDatos: React.FC = () => {
     componentScaleConfigs,
     globalScaleSource,
     setGlobalScaleSource,
-    resetComponentScaleConfigs
+    resetComponentScaleConfigs,
+    cooccurrenceMatricesByPeriod,
+    isLongitudinalArchiveLoading,
+    loadLongitudinalArchive
   } = useSomStore();
 
   // Alias store names to match local usage in JSX
@@ -105,6 +116,7 @@ export const ExploradorDatos: React.FC = () => {
   const setSomColorScale = setExploSomColorScale;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const archiveInputRef = useRef<HTMLInputElement>(null);
   const [labelIndex, setLabelIndex] = useState(0);
   const [hoveredUmapDot, setHoveredUmapDot] = useState<number | null>(null);
   
@@ -204,9 +216,29 @@ export const ExploradorDatos: React.FC = () => {
   }, [activeRunId]);
 
   // Determine if the current dataset has trajectories (temporal data)
+  // Note: Adjacency / co-occurrence matrices (monothematic or bipartite) are never trajectories.
   const hasTrajectories = useMemo(() => {
+    if (matrixOrigin === 'monothematic' || matrixOrigin === 'bipartite') {
+      return false;
+    }
     return labels.some(label => parseTrajectoryEntity(label).isTemporal);
-  }, [labels]);
+  }, [labels, matrixOrigin]);
+
+  // Tab state for Data Normalization & Scaling
+  type NormTabKey = 'tabular' | 'cooccurrence' | 'bipartite';
+
+  const recommendedNormTab: NormTabKey = useMemo(() => {
+    if (matrixOrigin === 'monothematic') return 'cooccurrence';
+    if (matrixOrigin === 'bipartite') return 'bipartite';
+    return 'tabular';
+  }, [matrixOrigin]);
+
+  const [activeNormTab, setActiveNormTab] = useState<NormTabKey>(recommendedNormTab);
+
+  // Auto-select recommended tab when matrixOrigin or dataset updates
+  useEffect(() => {
+    setActiveNormTab(recommendedNormTab);
+  }, [recommendedNormTab]);
 
   // Derive trajectories from labels
   const availableTrajectories = useMemo(() => {
@@ -486,14 +518,32 @@ export const ExploradorDatos: React.FC = () => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) {
-      readFile(file);
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (['7z', 'zip', 'tar', 'gz', 'tgz'].includes(ext || '')) {
+        loadLongitudinalArchive(file);
+      } else {
+        readFile(file);
+      }
+    }
+  };
+
+  const handleArchiveSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await loadLongitudinalArchive(file);
+      if (archiveInputRef.current) archiveInputRef.current.value = '';
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      readFile(file);
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (['7z', 'zip', 'tar', 'gz', 'tgz'].includes(ext || '')) {
+        loadLongitudinalArchive(file);
+      } else {
+        readFile(file);
+      }
     }
   };
 
@@ -1380,14 +1430,30 @@ export const ExploradorDatos: React.FC = () => {
             <span className="text-[10px] text-gray-500 italic">Click a model to swap dashboard maps instantly</span>
           </div>
 
-          {repeatedUnits.length > 0 && (
-            <div className="flex items-center space-x-1.5 bg-amber-950/40 border border-amber-500/30 text-amber-300 px-2.5 py-1 rounded-full text-[10px] font-medium">
-              <span>💡</span>
-              <span>
-                <strong>{repeatedUnits.join(', ')}</strong> tiene múltiples modelos guardados. Renómbralos para distinguirlos fácilmente.
-              </span>
-            </div>
-          )}
+          <div className="flex items-center space-x-2">
+            {repeatedUnits.length > 0 && (
+              <div className="flex items-center space-x-1.5 bg-amber-950/40 border border-amber-500/30 text-amber-300 px-2.5 py-1 rounded-full text-[10px] font-medium">
+                <span>💡</span>
+                <span>
+                  <strong>{repeatedUnits.join(', ')}</strong> tiene múltiples modelos guardados. Renómbralos para distinguirlos fácilmente.
+                </span>
+              </div>
+            )}
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(`¿Estás seguro de que deseas eliminar todos los experimentos (${savedRuns.length}) guardados?`)) {
+                  clearAllRuns();
+                }
+              }}
+              title="Eliminar todos los experimentos guardados"
+              className="flex items-center space-x-1.5 px-2.5 py-1 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 hover:border-red-600 text-red-300 hover:text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer"
+            >
+              <Trash2 className="w-3 h-3 text-red-400" />
+              <span>Eliminar Todos</span>
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-gray-800">
@@ -1542,6 +1608,22 @@ export const ExploradorDatos: React.FC = () => {
         >
           4. UMAP Projections
         </button>
+        <button
+          onClick={() => setSubTab('longitudinal')}
+          className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all flex items-center space-x-1.5 ${
+            subTab === 'longitudinal'
+              ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 text-white shadow-lg shadow-purple-950'
+              : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+          }`}
+        >
+          <TrendingUp className="w-3.5 h-3.5 text-amber-300" />
+          <span>5. Longitudinal SOM Evolution</span>
+          {cooccurrenceMatricesByPeriod && Object.keys(cooccurrenceMatricesByPeriod).length > 0 && (
+            <span className="ml-1 text-[9px] bg-indigo-950 border border-indigo-700 text-indigo-200 px-1.5 py-0.5 rounded-full font-mono">
+              {Object.keys(cooccurrenceMatricesByPeriod).length}P
+            </span>
+          )}
+        </button>
       </div>
 
       {/* SOM Experiment History Selector Bar */}
@@ -1558,11 +1640,11 @@ export const ExploradorDatos: React.FC = () => {
               onDrop={handleFileDrop}
               className="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-lg flex flex-col md:flex-row items-center justify-between gap-4"
             >
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-4 flex-wrap gap-y-2">
                 {/* Compact upload action button */}
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-2"
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-2 cursor-pointer"
                 >
                   <Upload className="w-4 h-4" />
                   <span>Import CSV Data</span>
@@ -1572,6 +1654,28 @@ export const ExploradorDatos: React.FC = () => {
                   ref={fileInputRef}
                   onChange={handleFileSelect}
                   accept=".csv"
+                  className="hidden"
+                />
+
+                {/* Longitudinal archive upload button (.7z / .zip) */}
+                <button
+                  onClick={() => archiveInputRef.current?.click()}
+                  disabled={isLongitudinalArchiveLoading}
+                  className="px-4 py-2.5 bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center space-x-2 cursor-pointer shadow-md shadow-purple-950/40"
+                  title="Importar archivo comprimido (.7z, .zip, .tar.gz) con matrices de periodos consecutivos"
+                >
+                  {isLongitudinalArchiveLoading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin text-purple-300" />
+                  ) : (
+                    <Archive className="w-4 h-4 text-purple-300" />
+                  )}
+                  <span>{isLongitudinalArchiveLoading ? 'Extrayendo Serie...' : 'Import Longitudinal (.7z / .zip)'}</span>
+                </button>
+                <input
+                  type="file"
+                  ref={archiveInputRef}
+                  onChange={handleArchiveSelect}
+                  accept=".7z,.zip,.tar.gz,.tgz,.tar"
                   className="hidden"
                 />
 
@@ -1608,6 +1712,35 @@ export const ExploradorDatos: React.FC = () => {
               )}
             </div>
 
+            {/* Longitudinal Active Series Card */}
+            {cooccurrenceMatricesByPeriod && Object.keys(cooccurrenceMatricesByPeriod).length >= 2 && (
+              <div className="bg-purple-950/30 border border-purple-800/60 rounded-2xl p-4 flex items-center justify-between shadow-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-purple-300">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>Serie Temporal Multidimensional Cargada:</span>
+                      <span className="text-[10px] bg-purple-900/80 text-purple-200 border border-purple-700 px-2 py-0.5 rounded-full font-mono font-bold">
+                        {Object.keys(cooccurrenceMatricesByPeriod).length} Periodos ({Object.keys(cooccurrenceMatricesByPeriod).sort().join(', ')})
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      Matrices temporales listas para el entrenamiento y modelado evolutivo con Warm-Start Chaining.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSubTab('longitudinal')}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <span>Ir a Mapeo Longitudinal</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Preprocessing Pipeline Container */}
             <div className="flex flex-col space-y-4">
               
@@ -1640,26 +1773,118 @@ export const ExploradorDatos: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="flex flex-col gap-4 border-t border-gray-800 pt-4">
-                    {matrixOrigin === 'csv' && (
+                  {/* Category Tabs Navigation */}
+                  <div className="flex flex-wrap items-center gap-2 border-t border-gray-800 pt-4 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveNormTab('tabular')}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                        activeNormTab === 'tabular'
+                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/60'
+                          : 'bg-gray-950 hover:bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-800 hover:border-gray-700'
+                      }`}
+                    >
+                      <Table className="w-3.5 h-3.5" />
+                      <span>Tabular / Profiles</span>
+                      {recommendedNormTab === 'tabular' && (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                          activeNormTab === 'tabular' 
+                            ? 'bg-indigo-800 text-indigo-100' 
+                            : 'bg-indigo-950 text-indigo-400 border border-indigo-800/60'
+                        }`}>
+                          Auto
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveNormTab('cooccurrence')}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                        activeNormTab === 'cooccurrence'
+                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/60'
+                          : 'bg-gray-950 hover:bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-800 hover:border-gray-700'
+                      }`}
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Symmetric Co-occurrence</span>
+                      {recommendedNormTab === 'cooccurrence' && (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                          activeNormTab === 'cooccurrence' 
+                            ? 'bg-indigo-800 text-indigo-100' 
+                            : 'bg-indigo-950 text-indigo-400 border border-indigo-800/60'
+                        }`}>
+                          Auto
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveNormTab('bipartite')}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                        activeNormTab === 'bipartite'
+                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/60'
+                          : 'bg-gray-950 hover:bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-800 hover:border-gray-700'
+                      }`}
+                    >
+                      <Columns className="w-3.5 h-3.5" />
+                      <span>Bipartite Networks</span>
+                      {recommendedNormTab === 'bipartite' && (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                          activeNormTab === 'bipartite' 
+                            ? 'bg-indigo-800 text-indigo-100' 
+                            : 'bg-indigo-950 text-indigo-400 border border-indigo-800/60'
+                        }`}>
+                          Auto
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Active Tab Methods Container */}
+                  <div className="flex flex-col gap-4">
+                    {activeNormTab === 'tabular' && (
                       <div className="flex-1 space-y-2">
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider">Performance Profiles</label>
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                            Tabular / Performance Profiles Scaling
+                          </label>
+                          {recommendedNormTab === 'tabular' && (
+                            <span className="text-[10px] text-indigo-400 font-semibold">Recommended for generic CSV and profile datasets</span>
+                          )}
+                        </div>
                         <div className="flex space-x-2">
                           <button
+                            type="button"
                             onClick={() => applyNormalization('div_max')}
-                            className="flex-1 px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'div_max'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Division by Max
                           </button>
                           <button
+                            type="button"
                             onClick={() => applyNormalization('min_max')}
-                            className="flex-1 px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'min_max'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Min-Max Scaling
                           </button>
                           <button
+                            type="button"
                             onClick={() => applyNormalization('z_score')}
-                            className="flex-1 px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`flex-1 px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'z_score'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Z-Score (Standardize)
                           </button>
@@ -1667,31 +1892,58 @@ export const ExploradorDatos: React.FC = () => {
                       </div>
                     )}
                     
-                    {matrixOrigin === 'monothematic' && (
+                    {activeNormTab === 'cooccurrence' && (
                       <div className="flex-1 space-y-2">
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider">Symmetric Cooccurrence</label>
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                            Symmetric Co-occurrence Matrix Normalization
+                          </label>
+                          {recommendedNormTab === 'cooccurrence' && (
+                            <span className="text-[10px] text-indigo-400 font-semibold">Recommended for monothematic & co-occurrence adjacency matrices</span>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                           <button
+                            type="button"
                             onClick={() => applyNormalization('cooc_cosine')}
-                            className="px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'cooc_cosine'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Cosine
                           </button>
                           <button
+                            type="button"
                             onClick={() => applyNormalization('cooc_association')}
-                            className="px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'cooc_association'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Association Str.
                           </button>
                           <button
+                            type="button"
                             onClick={() => applyNormalization('cooc_jaccard')}
-                            className="px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'cooc_jaccard'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Jaccard Index
                           </button>
                           <button
+                            type="button"
                             onClick={() => applyNormalization('cooc_inclusion')}
-                            className="px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'cooc_inclusion'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Inclusion Index
                           </button>
@@ -1699,25 +1951,47 @@ export const ExploradorDatos: React.FC = () => {
                       </div>
                     )}
                     
-                    {matrixOrigin === 'bipartite' && (
+                    {activeNormTab === 'bipartite' && (
                       <div className="flex-1 space-y-2">
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider">Bipartite Network Normalization</label>
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                            Bipartite Network Normalization
+                          </label>
+                          {recommendedNormTab === 'bipartite' && (
+                            <span className="text-[10px] text-indigo-400 font-semibold">Recommended for bipartite 2-mode incidence matrices</span>
+                          )}
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                           <button
+                            type="button"
                             onClick={() => applyNormalization('bipartite_row')}
-                            className="px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'bipartite_row'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Row Normalization
                           </button>
                           <button
+                            type="button"
                             onClick={() => applyNormalization('bipartite_col')}
-                            className="px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'bipartite_col'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Column Normalization
                           </button>
                           <button
+                            type="button"
                             onClick={() => applyNormalization('bipartite_sym')}
-                            className="px-3 py-2 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 text-xs font-semibold rounded-xl transition"
+                            className={`px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+                              normalizationInfo?.type === 'bipartite_sym'
+                                ? 'bg-indigo-950/80 border-2 border-indigo-500 text-white font-bold shadow-lg shadow-indigo-950/50'
+                                : 'bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white'
+                            }`}
                           >
                             Symmetric Normalization
                           </button>
@@ -2011,13 +2285,104 @@ export const ExploradorDatos: React.FC = () => {
                       <option value="basic">Basic SOM (Stochastic Iterative)</option>
                     </select>
                     {config.method === 'basic' ? (
-                      <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
-                        <strong className="text-gray-400">Basic SOM</strong> trains sequentially one sample at a time. The <strong>learning rate</strong> decreases <span className="text-indigo-400">linearly</span> over time, while the <strong>neighborhood function (sigma)</strong> shrinks <span className="text-emerald-400">exponentially</span> to converge the map.
-                      </p>
+                      <div className="space-y-2 mt-2">
+                        <p className="text-[10px] text-gray-500 leading-relaxed">
+                          <strong className="text-gray-400">Basic SOM</strong> entrena muestra a muestra de forma estocástica. El <strong>factor de aprendizaje (α)</strong> decrece linealmente y el <strong>tamaño de vecindad (sigma σ)</strong> se contrae exponencialmente.
+                        </p>
+                        <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-800 space-y-2">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] text-gray-300 font-semibold">
+                                  Factor Aprendizaje (α₀)
+                                </label>
+                                <span className="text-[10px] font-mono text-indigo-400 font-bold">
+                                  {config.learningRate ?? 0.5}
+                                </span>
+                              </div>
+                              <input
+                                type="number"
+                                min={0.01}
+                                max={1.0}
+                                step={0.05}
+                                value={config.learningRate ?? 0.5}
+                                onChange={(e) => setConfig({ learningRate: Math.max(0.01, Math.min(1.0, parseFloat(e.target.value) || 0.5)) })}
+                                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 font-mono focus:outline-none focus:border-indigo-500"
+                              />
+                              <span className="text-[9px] text-gray-500 block mt-0.5">Tasa estocástica inicial</span>
+                            </div>
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] text-gray-300 font-semibold">
+                                  Sigma Inicial (σ₀)
+                                </label>
+                                <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                                  {config.sigma ? `${config.sigma}` : `Auto (${(Math.max(config.rows, config.cols) / 2).toFixed(1)})`}
+                                </span>
+                              </div>
+                              <input
+                                type="number"
+                                min={0.1}
+                                max={100}
+                                step={0.5}
+                                value={config.sigma ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                                  setConfig({ sigma: val !== null && !isNaN(val) && val > 0 ? val : null });
+                                }}
+                                placeholder={`Auto (${(Math.max(config.rows, config.cols) / 2).toFixed(1)})`}
+                                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 font-mono focus:outline-none focus:border-indigo-500"
+                              />
+                              <span className="text-[9px] text-gray-500 block mt-0.5">Radio de vecindad</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
-                      <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
-                        <strong className="text-gray-400">Batch SOM</strong> processes all samples simultaneously per epoch. It is much faster and does not require a learning rate, as weights are updated to the exact weighted average of their neighborhood.
-                      </p>
+                      <div className="space-y-2 mt-2">
+                        <p className="text-[10px] text-gray-500 leading-relaxed">
+                          <strong className="text-gray-400">Batch SOM</strong> procesa todas las muestras simultáneamente por época calculando el promedio ponderado exacto en la vecindad.
+                        </p>
+                        <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-800 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs text-gray-300 font-semibold flex items-center gap-1.5">
+                              <span>Sigma Inicial (σ₀)</span>
+                              <span className="text-[10px] text-gray-500 font-normal">Tamaño de vecindad</span>
+                            </label>
+                            <span className="text-[10px] font-mono text-indigo-400 bg-indigo-950/60 border border-indigo-800/50 px-2 py-0.5 rounded font-bold">
+                              {config.sigma ? `${config.sigma}` : `Auto (${(Math.max(config.rows, config.cols) / 2).toFixed(1)})`}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={0.1}
+                              max={100}
+                              step={0.5}
+                              value={config.sigma ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                                setConfig({ sigma: val !== null && !isNaN(val) && val > 0 ? val : null });
+                              }}
+                              placeholder={`Auto (${(Math.max(config.rows, config.cols) / 2).toFixed(1)})`}
+                              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-gray-200 font-mono focus:outline-none focus:border-indigo-500"
+                            />
+                            {config.sigma && (
+                              <button
+                                type="button"
+                                onClick={() => setConfig({ sigma: null })}
+                                className="text-[10px] px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg font-medium transition whitespace-nowrap cursor-pointer"
+                                title="Restablecer a cálculo automático"
+                              >
+                                Auto
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-gray-500 leading-relaxed">
+                            Controla el radio de vecindad de las neuronas. Se contrae exponencialmente hacia 0.1 a lo largo de las épocas.
+                          </p>
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -3050,6 +3415,11 @@ export const ExploradorDatos: React.FC = () => {
                 </div>
               )}
             </div>
+        </div>
+
+        {/* Subtab 5: Longitudinal SOM Evolution */}
+        <div className={subTab === 'longitudinal' ? "space-y-6 min-h-[700px]" : "hidden"}>
+          <LongitudinalSomViewer />
         </div>
       </div>
     </>

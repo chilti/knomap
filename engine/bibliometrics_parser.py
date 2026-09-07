@@ -11,6 +11,11 @@ for _cls in (nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph):
     if not hasattr(_cls, 'node'):
         _cls.node = property(lambda self: self.nodes)
 import pandas as pd
+
+_lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib')
+if _lib_dir not in sys.path:
+    sys.path.insert(0, _lib_dir)
+
 try:
     import metaknowledge as mk
 except ImportError:
@@ -64,17 +69,16 @@ def _generate_time_windows(years_list, window_size=1):
 
 def _is_scopus_csv(filepath):
     """
-    Detect Scopus CSV exports (UTF-8 BOM + 'Authors'/'Title' in header).
+    Detect Scopus CSV exports (with or without UTF-8 BOM, checking header columns).
     Works for both the old (MK-compatible) and new (2023+) export formats.
     """
+    if not str(filepath).lower().endswith('.csv'):
+        return False
     try:
-        with open(filepath, 'rb') as f:
-            if f.read(3) != b'\xef\xbb\xbf':   # UTF-8 BOM
-                return False
-        with open(filepath, 'r', encoding='utf-8-sig') as f:
+        with open(filepath, 'r', encoding='utf-8-sig', errors='ignore') as f:
             header = f.readline()
-            cols = [c.strip().strip('"') for c in header.split(',')]
-            return 'Authors' in cols and 'Title' in cols
+            cols = [c.strip().strip('"').strip() for c in header.split(',')]
+            return ('Authors' in cols and 'Title' in cols) or ('Source title' in cols and 'Authors' in cols)
     except Exception:
         return False
 
@@ -91,6 +95,16 @@ _SCOPUS_TAG_MAP = {
     'DI': 'DOI',
     'TC': 'Cited by',
     'UT': 'EID',
+    'C1': 'Affiliations',
+    'CU': 'Country',
+    'CR': 'References',
+    'WC': 'Subject Area',
+    'SC': 'Subject Area',
+    'FU': 'Funding Details',
+    'DT': 'Document Type',
+    'LA': 'Language of Original Document',
+    'OA': 'Open Access',
+    'PU': 'Publisher',
 }
 
 
@@ -98,7 +112,7 @@ def _process_scopus_csv(filepath, network_type, custom_tag,
                         max_terms, min_cooccurrence, temporal,
                         extraction_source="keywords", counting_method="full",
                         thesaurus_filepath=None, relevance_ratio=0.60,
-                        temporal_window=1):
+                        temporal_window=1, include_eda=False):
     """
     Full pipeline for Scopus CSV files using pandas.
     Supports all VOSviewer network types, units of analysis,
@@ -120,13 +134,15 @@ def _process_scopus_csv(filepath, network_type, custom_tag,
     base_type = network_type.split(':')[0]
     sub_type = network_type.split(':')[1] if ':' in network_type else ''
 
-    # Citation-graph types requiring raw reference lists:
-    if base_type in ('co-citation', 'bib-coupling') and sub_type in ('', 'documents', 'cited_references'):
+    # Check if Scopus References column is available
+    has_scopus_refs = 'References' in df.columns and not df['References'].dropna().empty
+    if base_type in ('co-citation', 'bib-coupling') and not has_scopus_refs:
         return {
             "success": False,
             "error": (
-                f"Network type '{network_type}' requires a Web of Science .txt export. "
-                "Scopus CSV does not contain raw cited reference lists in tabular export."
+                f"Network type '{network_type}' requires cited references. "
+                "The uploaded Scopus CSV does not contain a 'References' column or it is empty. "
+                "Please export from Scopus with the 'References' option selected."
             )
         }
 
@@ -135,6 +151,12 @@ def _process_scopus_csv(filepath, network_type, custom_tag,
         return {"success": False, "error": "No records found in Scopus CSV."}
 
     thesaurus = VosThesaurus(thesaurus_filepath) if thesaurus_filepath else None
+
+    def get_scopus_raw_refs(row):
+        raw = row.get('References', '') or ''
+        if not raw or str(raw).lower() == 'nan':
+            return []
+        return [r.strip() for r in str(raw).split(';') if r.strip()]
 
     # ── Handle NLP Title/Abstract Term Extraction ─────────────────────────────
     if extraction_source in ('title_abstract', 'title', 'abstract') and base_type == 'co-occurrence':
@@ -172,10 +194,11 @@ def _process_scopus_csv(filepath, network_type, custom_tag,
                 raw = get_terms(row, col)
                 return thesaurus.apply_to_list(raw) if thesaurus else raw
         elif sub_type == 'countries':
+            col = 'Affiliations (Countries)'
             def term_getter(row):
-                affils = row.get('Affiliations', '')
+                affils = row.get('Affiliations', '') or ''
                 countries = []
-                for a in affils.split(';'):
+                for a in str(affils).split(';'):
                     parts = a.split(',')
                     if parts:
                         c = parts[-1].strip().lower()
@@ -200,6 +223,7 @@ def _process_scopus_csv(filepath, network_type, custom_tag,
                 raw = get_terms(row, col)
                 return thesaurus.apply_to_list(raw) if thesaurus else raw
         elif sub_type == 'all_keywords':
+            col = 'Author Keywords / Index Keywords'
             def term_getter(row):
                 raw = list(set(get_terms(row, 'Author Keywords') + get_terms(row, 'Index Keywords')))
                 return thesaurus.apply_to_list(raw) if thesaurus else raw
@@ -209,35 +233,95 @@ def _process_scopus_csv(filepath, network_type, custom_tag,
                 raw = get_terms(row, col)
                 return thesaurus.apply_to_list(raw) if thesaurus else raw
 
-    elif base_type in ('citation', 'bib-coupling'):
+    elif base_type == 'co-citation':
+        if sub_type == 'cited_sources':
+            col = 'References (Cited Sources)'
+            def term_getter(row):
+                refs = get_scopus_raw_refs(row)
+                journals = []
+                for r_str in refs:
+                    p = parse_reference_entry(r_str)
+                    if p and p.get('journal'):
+                        journals.append(p['journal'])
+                if thesaurus:
+                    journals = thesaurus.apply_to_list(journals)
+                return list(set(journals))
+        elif sub_type == 'cited_authors':
+            col = 'References (Cited Authors)'
+            def term_getter(row):
+                refs = get_scopus_raw_refs(row)
+                authors = []
+                for r_str in refs:
+                    p = parse_reference_entry(r_str)
+                    if p and p.get('author'):
+                        authors.append(p['author'])
+                if thesaurus:
+                    authors = thesaurus.apply_to_list(authors)
+                return list(set(authors))
+        else:
+            col = 'References (Cited References)'
+            def term_getter(row):
+                raw_refs = get_scopus_raw_refs(row)
+                refs = [normalize_reference_key(r) or r for r in raw_refs]
+                return thesaurus.apply_to_list(refs) if thesaurus else refs
+
+    elif base_type == 'bib-coupling':
         if sub_type == 'sources':
             col = 'Source title'
-            def term_getter(row):
-                raw = get_terms(row, col)
-                return thesaurus.apply_to_list(raw) if thesaurus else raw
+            unit_getter = lambda row: get_terms(row, 'Source title')
         elif sub_type == 'authors':
             col = 'Authors'
-            def term_getter(row):
-                raw = get_terms(row, col)
-                return thesaurus.apply_to_list(raw) if thesaurus else raw
+            unit_getter = lambda row: get_terms(row, 'Authors')
         elif sub_type == 'organizations':
             col = 'Affiliations'
-            def term_getter(row):
-                raw = get_terms(row, col)
-                return thesaurus.apply_to_list(raw) if thesaurus else raw
+            unit_getter = lambda row: get_terms(row, 'Affiliations')
         elif sub_type == 'countries':
-            def term_getter(row):
-                affils = row.get('Affiliations', '')
+            col = 'Affiliations (Countries)'
+            def unit_getter(row):
+                affils = row.get('Affiliations', '') or ''
                 countries = []
-                for a in affils.split(';'):
+                for a in str(affils).split(';'):
                     parts = a.split(',')
                     if parts:
                         c = parts[-1].strip().lower()
                         if c and len(c) > 2: countries.append(c)
-                countries = list(set(countries))
-                return thesaurus.apply_to_list(countries) if thesaurus else countries
+                return list(set(countries))
+        else: # documents
+            col = 'Title'
+            def unit_getter(row):
+                t = str(row.get('Title', 'Unknown')).strip()
+                y = str(row.get('Year', 'N/A')).strip()
+                return [f"{t[:50]} ({y})"] if t else []
+        term_getter = unit_getter
+
+    elif base_type == 'citation':
+        if sub_type == 'sources':
+            col = 'Source title'
+            unit_getter = lambda row: get_terms(row, 'Source title')
+        elif sub_type == 'authors':
+            col = 'Authors'
+            unit_getter = lambda row: get_terms(row, 'Authors')
+        elif sub_type == 'organizations':
+            col = 'Affiliations'
+            unit_getter = lambda row: get_terms(row, 'Affiliations')
+        elif sub_type == 'countries':
+            col = 'Affiliations (Countries)'
+            def unit_getter(row):
+                affils = row.get('Affiliations', '') or ''
+                countries = []
+                for a in str(affils).split(';'):
+                    parts = a.split(',')
+                    if parts:
+                        c = parts[-1].strip().lower()
+                        if c and len(c) > 2: countries.append(c)
+                return list(set(countries))
         else:
-            return {"success": False, "error": f"Network type '{network_type}' requires WoS citation data."}
+            col = 'Title'
+            def unit_getter(row):
+                t = str(row.get('Title', 'Unknown')).strip()
+                y = str(row.get('Year', 'N/A')).strip()
+                return [f"{t[:50]} ({y})"] if t else []
+        term_getter = unit_getter
 
     elif base_type == 'bipartite':
         tag1_wos, tag2_wos = 'AU', 'DE'
@@ -254,11 +338,25 @@ def _process_scopus_csv(filepath, network_type, custom_tag,
             return t1, t2
 
     else:
-        return {"success": False, "error": f"Unknown network type: {network_type}"}
+        col = scopus_col(custom_tag)
+        def term_getter(row):
+            raw = get_terms(row, col)
+            return thesaurus.apply_to_list(raw) if thesaurus else raw
 
     # ── Build graph ───────────────────────────────────────────────────────────
     if base_type == 'bipartite':
         global_graph = _build_bipartite_graph(records, term_getter, tag1_wos, tag2_wos, counting_method=counting_method)
+    elif base_type == 'bib-coupling':
+        global_graph = _build_bib_coupling_graph(records, unit_getter, get_scopus_raw_refs, counting_method=counting_method, thesaurus=thesaurus)
+    elif base_type == 'citation':
+        def doc_id_getter(row):
+            return [str(row.get('DOI', '')).strip(), str(row.get('Title', '')).strip(), str(row.get('EID', '')).strip()]
+        global_graph = _build_direct_citation_graph(records, unit_getter, doc_id_getter, get_scopus_raw_refs, counting_method=counting_method, thesaurus=thesaurus)
+        if len(global_graph) == 0:
+            return {
+                "success": False,
+                "error": f"No direct citation links found between {sub_type or 'documents'} within this Scopus dataset. Try 'Bibliographic Coupling' or 'Co-citation' to analyze citation relations."
+            }
     else:
         global_graph = _build_cooccurrence_graph_from_records(records, term_getter, counting_method=counting_method, thesaurus=thesaurus)
 
@@ -281,7 +379,8 @@ def _process_scopus_csv(filepath, network_type, custom_tag,
         record_year_getter=lambda r: r.get('Year', 'N/A'),
         doc_count=len(records),
         counting_method=counting_method,
-        temporal_window=temporal_window
+        temporal_window=temporal_window,
+        include_eda=include_eda
     )
 
 
@@ -289,7 +388,8 @@ def _build_bipartite_graph(records, term_getter, tag1, tag2, counting_method="fu
     """Build a bipartite networkx graph from records with Full or Fractional Counting."""
     from collections import defaultdict
     pair_freq = defaultdict(float)
-    freq1, freq2 = defaultdict(float)
+    freq1 = defaultdict(float)
+    freq2 = defaultdict(float)
 
     for rec in records:
         terms1, terms2 = term_getter(rec)
@@ -318,6 +418,280 @@ def _build_bipartite_graph(records, term_getter, tag1, tag2, counting_method="fu
         G.add_node(t, count=round(c, 3) if counting_method == "fractional" else int(c), type=tag2)
     for (t1, t2), w in pair_freq.items():
         G.add_edge(t1, t2, weight=round(w, 3) if counting_method == "fractional" else int(w))
+    return G
+
+
+def normalize_reference_key(ref_str):
+    """
+    Normalizes a cited reference string to a canonical matching key.
+    Handles DOI, OpenAlex ID, or normalized cleaned text.
+    """
+    if not ref_str:
+        return ""
+    import re
+    s = str(ref_str).strip()
+    if not s or s.lower() == 'nan':
+        return ""
+    # Check for DOI
+    doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', s)
+    if doi_match:
+        doi_clean = doi_match.group(0).rstrip('.;,)]').lower()
+        return f"doi:{doi_clean}"
+    # Check for OpenAlex ID
+    oa_match = re.search(r'\b[wW]\d{8,11}\b', s)
+    if oa_match:
+        return oa_match.group(0).upper()
+    # Clean whitespace and trailing punctuation
+    return re.sub(r'\s+', ' ', s).strip('.;, ').lower()
+
+
+def parse_wos_cr_entry(entry):
+    """Parses a single Web of Science CR reference line or Citation object into author, year, journal, raw."""
+    if not entry:
+        return None
+    c_author = getattr(entry, 'author', None)
+    c_journal = getattr(entry, 'journal', None)
+    c_year = getattr(entry, 'year', None)
+    raw = str(entry).strip()
+    if not raw or raw.lower() == 'nan':
+        return None
+
+    if c_author and c_journal:
+        return {
+            'author': str(c_author).strip().title(),
+            'year': str(c_year).strip() if c_year else '',
+            'journal': str(c_journal).strip().title(),
+            'raw': raw
+        }
+
+    parts = [p.strip() for p in raw.split(',') if p.strip()]
+    author = parts[0] if len(parts) > 0 else ''
+    year = ''
+    journal = ''
+    if len(parts) > 1:
+        p1 = parts[1].strip()
+        if p1.isdigit() and len(p1) == 4:
+            year = p1
+            if len(parts) > 2:
+                journal = parts[2].strip()
+        else:
+            journal = p1
+    return {
+        'author': author.title() if author else '',
+        'year': year,
+        'journal': journal.title() if journal else '',
+        'raw': raw
+    }
+
+
+def parse_scopus_ref_entry(entry):
+    """Parses a single Scopus reference string into author, year, journal, raw."""
+    import re
+    raw = str(entry).strip()
+    if not raw or raw.lower() == 'nan':
+        return None
+    year_match = re.search(r'\((\d{4})\)', raw)
+    year = year_match.group(1) if year_match else ''
+    author = ''
+    journal = ''
+    if year_match:
+        pre_year = raw[:year_match.start()].strip()
+        post_year = raw[year_match.end():].strip().lstrip(',').lstrip('.').strip()
+        if pre_year:
+            a_parts = pre_year.split(',')
+            if len(a_parts) >= 2:
+                author = f"{a_parts[0].strip()}, {a_parts[1].strip()}"
+            else:
+                author = pre_year
+        if post_year:
+            j_parts = post_year.split(',')
+            if j_parts:
+                candidate_j = j_parts[0].strip()
+                candidate_j = re.sub(r'^(?:in:|\bin\b)\s*', '', candidate_j, flags=re.I).strip()
+                if candidate_j and not candidate_j.isdigit():
+                    journal = candidate_j
+    else:
+        parts = [p.strip() for p in raw.split(',') if p.strip()]
+        if len(parts) >= 3:
+            author = f"{parts[0]}, {parts[1]}"
+            journal = parts[2]
+        elif len(parts) >= 1:
+            author = parts[0]
+
+    return {
+        'author': author.title() if author else '',
+        'year': year,
+        'journal': journal.title() if journal else '',
+        'raw': raw
+    }
+
+
+def parse_reference_entry(entry):
+    """
+    Unified reference parser for WoS, Scopus, OpenAlex, and RIS reference entries.
+    Extracts author, year, and journal robustly.
+    """
+    if not entry:
+        return None
+    raw = str(entry).strip()
+    if not raw or raw.lower() == 'nan':
+        return None
+    import re
+    if hasattr(entry, 'author') and hasattr(entry, 'journal'):
+        return parse_wos_cr_entry(entry)
+    if re.search(r'\(\d{4}\)', raw):
+        res = parse_scopus_ref_entry(raw)
+        if res and (res.get('journal') or res.get('author')):
+            return res
+    res = parse_wos_cr_entry(raw)
+    if res and res.get('journal'):
+        return res
+    return parse_scopus_ref_entry(raw)
+
+
+def _build_bib_coupling_graph(records, unit_getter, ref_getter, counting_method="full", thesaurus=None):
+    """
+    Builds a Bibliographic Coupling graph (one-mode projection of Unit <-> Reference).
+    Two units are coupled if they cite the same references.
+    Supports Full and Fractional counting, thesaurus mapping, and normalized reference grouping.
+    """
+    from collections import defaultdict
+    ref_to_units = defaultdict(list)
+    unit_total_refs = defaultdict(float)
+    unit_doc_counts = defaultdict(int)
+
+    for rec in records:
+        raw_units = unit_getter(rec)
+        if not raw_units:
+            continue
+        if isinstance(raw_units, str):
+            raw_units = [raw_units]
+        if thesaurus:
+            raw_units = thesaurus.apply_to_list(raw_units)
+        units = list({str(u).strip().title() for u in raw_units if str(u).strip() and str(u).strip().lower() != 'nan'})
+        if not units:
+            continue
+
+        raw_refs = ref_getter(rec)
+        if not raw_refs:
+            continue
+        if isinstance(raw_refs, str):
+            raw_refs = [raw_refs]
+        refs = list({normalize_reference_key(r) or str(r).strip() for r in raw_refs if str(r).strip() and str(r).strip().lower() != 'nan'})
+        if not refs:
+            continue
+
+        n_units = len(units)
+        n_refs = len(refs)
+        unit_weight = (1.0 / n_units) if counting_method == "fractional" else 1.0
+
+        for u in units:
+            unit_doc_counts[u] += 1
+            unit_total_refs[u] += n_refs * unit_weight
+            for ref in refs:
+                ref_to_units[ref].append((u, unit_weight, n_refs))
+
+    pair_weights = defaultdict(float)
+    for ref, u_tuples in ref_to_units.items():
+        if len(u_tuples) < 2:
+            continue
+        u_dict = defaultdict(float)
+        for u, uw, nr in u_tuples:
+            u_dict[u] += (uw / nr) if (counting_method == "fractional" and nr > 0) else 1.0
+
+        u_list = list(u_dict.keys())
+        for i in range(len(u_list)):
+            for j in range(i + 1, len(u_list)):
+                u1, u2 = u_list[i], u_list[j]
+                w = (u_dict[u1] * u_dict[u2]) if counting_method == "fractional" else 1.0
+                pair = tuple(sorted([u1, u2]))
+                pair_weights[pair] += w
+
+    G = nx.Graph()
+    for u, c in unit_doc_counts.items():
+        tot_r = unit_total_refs.get(u, c)
+        G.add_node(u, count=round(tot_r, 2) if counting_method == "fractional" else int(c))
+    for (u1, u2), w in pair_weights.items():
+        if w > 0:
+            G.add_edge(u1, u2, weight=round(w, 3) if counting_method == "fractional" else int(round(w)))
+    return G
+
+
+def _build_direct_citation_graph(records, unit_getter, doc_id_getter, ref_id_getter, counting_method="full", thesaurus=None):
+    """
+    Builds a direct citation graph between entities based on which documents cite each other within the corpus.
+    Supports matching by DOI, Work ID, and Author+Year.
+    """
+    from collections import defaultdict
+    doc_to_units = {}
+    unit_citation_counts = defaultdict(int)
+
+    for rec in records:
+        doc_ids = doc_id_getter(rec)
+        if not isinstance(doc_ids, list):
+            doc_ids = [doc_ids]
+        raw_units = unit_getter(rec)
+        if not raw_units:
+            continue
+        if isinstance(raw_units, str):
+            raw_units = [raw_units]
+        if thesaurus:
+            raw_units = thesaurus.apply_to_list(raw_units)
+        units = list({str(u).strip().title() for u in raw_units if str(u).strip() and str(u).strip().lower() != 'nan'})
+        if not units:
+            continue
+
+        for did in doc_ids:
+            if did and str(did).strip():
+                norm_did = normalize_reference_key(did)
+                if norm_did:
+                    doc_to_units[norm_did] = units
+                simple_did = str(did).split('/')[-1].strip().lower()
+                if simple_did:
+                    doc_to_units[simple_did] = units
+
+        for u in units:
+            unit_citation_counts[u] += 1
+
+    pair_weights = defaultdict(float)
+    for rec in records:
+        source_units = unit_getter(rec)
+        if not source_units:
+            continue
+        if isinstance(source_units, str):
+            source_units = [source_units]
+        if thesaurus:
+            source_units = thesaurus.apply_to_list(source_units)
+        source_units = list({str(u).strip().title() for u in source_units if str(u).strip() and str(u).strip().lower() != 'nan'})
+
+        raw_refs = ref_id_getter(rec)
+        if not raw_refs:
+            continue
+        if isinstance(raw_refs, str):
+            raw_refs = [raw_refs]
+
+        for ref in raw_refs:
+            norm_ref = normalize_reference_key(ref)
+            simple_ref = str(ref).split('/')[-1].strip().lower()
+            target_units = None
+            if norm_ref and norm_ref in doc_to_units:
+                target_units = doc_to_units[norm_ref]
+            elif simple_ref and simple_ref in doc_to_units:
+                target_units = doc_to_units[simple_ref]
+
+            if target_units:
+                for su in source_units:
+                    for tu in target_units:
+                        if su != tu:
+                            pair = tuple(sorted([su, tu]))
+                            pair_weights[pair] += (1.0 / (len(source_units) * len(target_units))) if counting_method == "fractional" else 1.0
+
+    G = nx.Graph()
+    for u, c in unit_citation_counts.items():
+        G.add_node(u, count=c)
+    for (u1, u2), w in pair_weights.items():
+        if w > 0:
+            G.add_edge(u1, u2, weight=round(w, 3) if counting_method == "fractional" else int(round(w)))
     return G
 
 
@@ -494,7 +868,7 @@ def _finalize_network(global_graph, records, network_type, custom_tag,
                        max_terms, min_cooccurrence, temporal,
                        term_getter_for_matrix, record_title_getter,
                        record_year_getter, doc_count, counting_method="full",
-                       temporal_window=1):
+                       temporal_window=1, include_eda=False):
     """
     Shared post-processing: filter top nodes, build JSON + CSV matrices.
     Used by Scopus CSV, RIS, Dimensions, OpenAlex and Lens pipelines.
@@ -568,11 +942,14 @@ def _finalize_network(global_graph, records, network_type, custom_tag,
 
     # ── Document-term frequency matrix ────────────────────────────────────────
     frequency_csv = cooccurrence_csv
-    if term_getter_for_matrix and base_type == 'co-occurrence':
+    if term_getter_for_matrix and base_type in ('co-occurrence', 'co-authorship', 'co-citation', 'bib-coupling', 'citation'):
         matrix_data, row_labels = [], []
         for rec in records:
-            doc_terms = set(term_getter_for_matrix(rec))
-            row = [1 if str(n) in doc_terms else 0 for n in sorted_top_nodes]
+            raw_t = term_getter_for_matrix(rec)
+            if isinstance(raw_t, tuple): # bipartite
+                raw_t = raw_t[0] + raw_t[1]
+            doc_terms = {str(t).strip().lower() for t in raw_t if str(t).strip()}
+            row = [1 if str(n).strip().lower() in doc_terms else 0 for n in sorted_top_nodes]
             if any(row):
                 matrix_data.append(row)
                 title = str(record_title_getter(rec))[:50]
@@ -672,13 +1049,14 @@ def _finalize_network(global_graph, records, network_type, custom_tag,
         "temporal_window": temporal_window
     }
     
-    # Add EDA Analysis
-    try:
-        result["eda_report"] = biblio_eda_engine.generate_eda_report(records)
-        result["sankey_data"] = biblio_eda_engine.generate_sankey_data(records)
-        result["term_growth"] = biblio_eda_engine.generate_term_growth(records)
-    except Exception as e:
-        result["eda_report"] = {"success": False, "error": str(e)}
+    # Add EDA Analysis (only if requested)
+    if include_eda:
+        try:
+            result["eda_report"] = biblio_eda_engine.generate_eda_report(records)
+            result["sankey_data"] = biblio_eda_engine.generate_sankey_data(records)
+            result["term_growth"] = biblio_eda_engine.generate_term_growth(records)
+        except Exception as e:
+            result["eda_report"] = {"success": False, "error": str(e)}
     if temporal:
         result["networks_by_year"] = networks_by_year
         result["cooccurrence_matrices_by_period"] = cooccurrence_matrices_by_period
@@ -707,8 +1085,9 @@ def _parse_ris_records(filepath):
     Parse a RIS file into a list of plain dicts.
 
     Returned keys per record:
-      'title', 'year', 'authors' (list), 'keywords' (list),
-      'abstract', 'journal', 'doi', 'doc_type'
+      'title', 'year', 'authors' (list), 'keywords' (list), 'author_keywords' (list),
+      'abstract', 'journal', 'source', 'doi', 'doc_type', 'organizations' (list),
+      'countries' (list), 'references' (list), 'referenced_works' (list)
     """
     records = []
     current = {}
@@ -731,21 +1110,34 @@ def _parse_ris_records(filepath):
 
                 if tag == 'KW':
                     current.setdefault('keywords', []).append(value)
-                elif tag == 'AU':
+                    current.setdefault('author_keywords', []).append(value)
+                elif tag in ('AU', 'A1', 'A2', 'A3'):
                     current.setdefault('authors', []).append(value)
                 elif tag == 'TY':
                     current['doc_type'] = value
                 elif tag in ('TI', 'T1'):
                     current.setdefault('title', value)
                 elif tag in ('PY', 'Y1'):
-                    # Year may look like "2023///" – take first 4 chars
                     current.setdefault('year', str(value)[:4])
                 elif tag in ('JO', 'T2', 'J2', 'JF'):
                     current.setdefault('journal', value)
+                    current.setdefault('source', value)
                 elif tag == 'AB':
                     current.setdefault('abstract', value)
-                elif tag == 'DO':
+                elif tag in ('DO', 'DI'):
                     current.setdefault('doi', value)
+                elif tag in ('AD', 'IN', 'C1'):
+                    current.setdefault('organizations', []).append(value)
+                    parts = [p.strip() for p in value.split(',') if p.strip()]
+                    if len(parts) >= 2:
+                        c_cand = parts[-1].rstrip('.')
+                        if len(c_cand) >= 3 and not any(ch.isdigit() for ch in c_cand):
+                            current.setdefault('countries', []).append(c_cand)
+                elif tag == 'CY':
+                    current.setdefault('countries', []).append(value.strip().rstrip('.'))
+                elif tag in ('CR', 'N1'):
+                    current.setdefault('references', []).append(value)
+                    current.setdefault('referenced_works', []).append(value)
 
     # Flush last record if file doesn't end with ER
     if current:
@@ -800,7 +1192,8 @@ def _process_record_list(
     counting_method="full",
     thesaurus_filepath=None,
     relevance_ratio=0.60,
-    temporal_window=1
+    temporal_window=1,
+    include_eda=False
 ):
     """
     Generic processing pipeline for any list of record dictionaries
@@ -815,6 +1208,76 @@ def _process_record_list(
     # ── Choose term getter / NLP mining ──────────────────────────────────────
     base_type = network_type.split(':')[0]
     sub_type = network_type.split(':')[1] if ':' in network_type else ''
+
+    if base_type == 'bipartite':
+        tag1 = 'PY'
+        tag2 = 'DE'
+        if ',' in custom_tag:
+            parts = [t.strip() for t in custom_tag.split(',', 1)]
+            if len(parts) == 2 and parts[0] and parts[1]:
+                tag1, tag2 = parts
+        elif custom_tag and custom_tag.strip():
+            tag1 = custom_tag.strip()
+
+        def extract_tag_from_rec(r, tag):
+            tag_clean = tag.strip()
+            aliases = {
+                'PY': 'year', 'AU': 'authors', 'DE': 'author_keywords', 'ID': 'concepts', 
+                'SO': 'source', 'C1': 'organizations', 'CU': 'countries', 'FU': 'funders',
+                'TI': 'title', 'AB': 'abstract', 'DI': 'doi', 'CR': 'referenced_works',
+                'Topic': 'topics', 'Subfield': 'subfields', 'Field': 'fields', 'Domain': 'domains',
+                'Concept': 'concepts', 'SDG': 'sdgs', 'OA': 'open_access', 'DT': 'doc_type',
+                'LA': 'language', 'PU': 'publisher', 'WC': 'subfields', 'SC': 'fields'
+            }
+            candidates = [
+                tag_clean, tag_clean.upper(), tag_clean.lower(), tag_clean.capitalize(),
+                aliases.get(tag_clean), aliases.get(tag_clean.upper())
+            ]
+            val = None
+            for c in candidates:
+                if c and c in r and r[c] is not None:
+                    val = r[c]
+                    break
+            if val is None:
+                return []
+            if isinstance(val, list):
+                res = [str(x).strip() for x in val if str(x).strip() and str(x).strip().lower() != 'nan']
+            elif isinstance(val, (int, float)):
+                res = [str(val)]
+            else:
+                val_str = str(val).strip()
+                if not val_str or val_str.lower() == 'nan':
+                    return []
+                res = [v.strip() for v in val_str.split('|') if v.strip() and v.strip().lower() != 'nan'] if '|' in val_str else [val_str]
+            return res
+
+        def bip_term_getter(r):
+            t1 = extract_tag_from_rec(r, tag1)
+            t2 = extract_tag_from_rec(r, tag2)
+            if thesaurus:
+                t1 = thesaurus.apply_to_list(t1)
+                t2 = thesaurus.apply_to_list(t2)
+            return t1, t2
+
+        global_graph = _build_bipartite_graph(records, bip_term_getter, tag1, tag2, counting_method=counting_method)
+
+        if len(global_graph) == 0:
+            return {
+                "success": False,
+                "error": f"No usable connections found for bipartite tags '{tag1}' and '{tag2}'. Try different tags or verify data availability."
+            }
+
+        return _finalize_network(
+            global_graph, records, network_type, custom_tag,
+            max_terms, min_cooccurrence, temporal,
+            term_getter_for_matrix=None,
+            record_title_getter=lambda r: r.get('title', 'Unknown'),
+            record_year_getter=lambda r: str(r.get('year', 'N/A')),
+            doc_count=len(records),
+            counting_method=counting_method,
+            temporal_window=temporal_window,
+            include_eda=include_eda
+        )
 
     if extraction_source in ('title_abstract', 'title', 'abstract') and (base_type == 'co-occurrence' or network_type == 'co-occurrence'):
         # NLP Noun Phrase Mining on Title and/or Abstract
@@ -846,38 +1309,146 @@ def _process_record_list(
             # Lookup by record index if available
             idx = records.index(r) if r in records else -1
             return rec_to_terms.get(idx, [])
+    def get_rec_refs(r):
+        raw_refs = r.get('referenced_works') or r.get('references') or r.get('CR') or []
+        if isinstance(raw_refs, str):
+            raw_refs = [raw_refs]
+        return [str(x).strip() for x in raw_refs if str(x).strip() and str(x).strip().lower() != 'nan']
+
+    if base_type == 'bib-coupling':
+        has_any_refs = any(get_rec_refs(r) for r in records)
+        if not has_any_refs:
+            return {
+                "success": False,
+                "error": f"Network type '{network_type}' requires cited references (referenced_works / references / CR). The uploaded dataset does not contain reference data."
+            }
+        if sub_type == 'sources':
+            unit_getter = lambda r: [str(r.get('source') or r.get('SO') or '').strip()] if (r.get('source') or r.get('SO')) else []
+        elif sub_type == 'authors':
+            unit_getter = lambda r: r.get('authors') or r.get('AU') or []
+        elif sub_type == 'organizations':
+            unit_getter = lambda r: r.get('organizations') or r.get('C1') or []
+        elif sub_type == 'countries':
+            unit_getter = lambda r: r.get('countries') or r.get('CU') or []
+        else: # documents
+            unit_getter = lambda r: [f"{str(r.get('title', 'Unknown'))[:50]} ({r.get('year', 'N/A')})"]
+
+        global_graph = _build_bib_coupling_graph(records, unit_getter, get_rec_refs, counting_method=counting_method, thesaurus=thesaurus)
+        term_getter = unit_getter
+
+    elif base_type == 'citation':
+        def doc_id_getter(r):
+            return [str(r.get('work_id', '')), str(r.get('doi', '')), str(r.get('id', '')), str(r.get('title', ''))]
+        if sub_type == 'sources':
+            unit_getter = lambda r: [str(r.get('source') or r.get('SO') or '').strip()] if (r.get('source') or r.get('SO')) else []
+        elif sub_type == 'authors':
+            unit_getter = lambda r: r.get('authors') or r.get('AU') or []
+        elif sub_type == 'organizations':
+            unit_getter = lambda r: r.get('organizations') or r.get('C1') or []
+        elif sub_type == 'countries':
+            unit_getter = lambda r: r.get('countries') or r.get('CU') or []
+        else: # documents
+            unit_getter = lambda r: [f"{str(r.get('title', 'Unknown'))[:50]} ({r.get('year', 'N/A')})"]
+
+        global_graph = _build_direct_citation_graph(records, unit_getter, doc_id_getter, get_rec_refs, counting_method=counting_method, thesaurus=thesaurus)
+        if len(global_graph) == 0:
+            return {
+                "success": False,
+                "error": f"No direct citation links found between {sub_type or 'documents'} within this dataset. Try 'Bibliographic Coupling' or 'Co-citation' to analyze citation relations."
+            }
+        term_getter = unit_getter
+
+    elif base_type == 'co-citation':
+        has_any_refs = any(get_rec_refs(r) for r in records)
+        if not has_any_refs:
+            return {
+                "success": False,
+                "error": f"Network type '{network_type}' requires cited references (referenced_works / references / CR). The uploaded dataset does not contain reference data."
+            }
+        if sub_type == 'cited_sources':
+            def extract_cited_sources(r):
+                raw_refs = get_rec_refs(r)
+                journals = []
+                for ref in raw_refs:
+                    p = parse_reference_entry(ref)
+                    if p and p.get('journal'):
+                        journals.append(p['journal'])
+                if thesaurus:
+                    journals = thesaurus.apply_to_list(journals)
+                return list(set(journals))
+
+            sample_journals = any(extract_cited_sources(r) for r in records[:50])
+            if not sample_journals:
+                return {
+                    "success": False,
+                    "error": (
+                        f"Network type '{network_type}' requires cited reference strings with journal names. "
+                        "This dataset contains work IDs (e.g. OpenAlex) without journal names in the local file. "
+                        "Please select 'Cited References (CR)' or use a Web of Science / Scopus export with full references."
+                    )
+                }
+            term_getter = extract_cited_sources
+        elif sub_type == 'cited_authors':
+            def extract_cited_authors(r):
+                raw_refs = get_rec_refs(r)
+                authors = []
+                for ref in raw_refs:
+                    p = parse_reference_entry(ref)
+                    if p and p.get('author'):
+                        authors.append(p['author'])
+                if thesaurus:
+                    authors = thesaurus.apply_to_list(authors)
+                return list(set(authors))
+
+            sample_authors = any(extract_cited_authors(r) for r in records[:50])
+            if not sample_authors:
+                return {
+                    "success": False,
+                    "error": (
+                        f"Network type '{network_type}' requires cited reference strings with author names. "
+                        "This dataset contains work IDs (e.g. OpenAlex) without author names in the local file. "
+                        "Please select 'Cited References (CR)' or use a Web of Science / Scopus export with full references."
+                    )
+                }
+            term_getter = extract_cited_authors
+        else: # cited_references
+            def extract_cited_references(r):
+                raw_refs = get_rec_refs(r)
+                refs = []
+                for ref in raw_refs:
+                    norm = normalize_reference_key(ref)
+                    refs.append(norm if norm else str(ref).strip())
+                if thesaurus:
+                    refs = thesaurus.apply_to_list(refs)
+                return refs
+            term_getter = extract_cited_references
+
+        global_graph = _build_cooccurrence_graph_from_records(
+            records, term_getter, counting_method=counting_method, thesaurus=thesaurus
+        )
+
+    elif extraction_source in ('title_abstract', 'title', 'abstract') and (base_type == 'co-occurrence' or network_type == 'co-occurrence'):
+        global_graph = _build_cooccurrence_graph_from_records(
+            records, term_getter, counting_method=counting_method, thesaurus=thesaurus
+        )
     else:
         def term_getter(r):
             terms = []
             if base_type == 'co-authorship':
                 if sub_type == 'organizations':
-                    terms = r.get('organizations') or r.get('C1') or []
+                    terms = r.get('organizations') or r.get('C1') or r.get('institutions') or []
                 elif sub_type == 'countries':
                     terms = r.get('countries') or r.get('CU') or []
                 else:
                     terms = r.get('authors') or r.get('AU') or []
             elif base_type == 'co-occurrence':
                 if sub_type == 'author_keywords':
-                    terms = r.get('author_keywords') or r.get('DE') or []
+                    terms = r.get('author_keywords') or r.get('DE') or r.get('keywords') or []
                 elif sub_type == 'keywords_plus':
-                    terms = r.get('concepts') or r.get('ID') or []
+                    terms = r.get('concepts') or r.get('keywords_plus') or r.get('ID') or r.get('keywords') or []
                 else:
-                    terms = r.get('keywords') or r.get('DE_ID') or []
-            elif base_type in ('citation', 'bib-coupling'):
-                if sub_type == 'sources':
-                    s = r.get('source') or r.get('SO') or ''
-                    terms = [s] if s else []
-                elif sub_type == 'authors':
-                    terms = r.get('authors') or r.get('AU') or []
-                elif sub_type == 'organizations':
-                    terms = r.get('organizations') or r.get('C1') or []
-                elif sub_type == 'countries':
-                    terms = r.get('countries') or r.get('CU') or []
-                else:
-                    t = r.get('title') or r.get('TI') or ''
-                    terms = [t] if t else []
+                    terms = r.get('keywords') or r.get('DE_ID') or list(dict.fromkeys((r.get('author_keywords') or r.get('DE') or []) + (r.get('concepts') or r.get('ID') or [])))
             else:
-                # Custom tag / field
                 tag_candidates = [custom_tag, custom_tag.lower(), custom_tag.upper()]
                 for tc in tag_candidates:
                     if tc in r:
@@ -894,9 +1465,9 @@ def _process_record_list(
                 terms = thesaurus.apply_to_list(terms)
             return [str(t).strip() for t in terms if str(t).strip() and str(t).strip().lower() != 'nan']
 
-    global_graph = _build_cooccurrence_graph_from_records(
-        records, term_getter, counting_method=counting_method, thesaurus=thesaurus
-    )
+        global_graph = _build_cooccurrence_graph_from_records(
+            records, term_getter, counting_method=counting_method, thesaurus=thesaurus
+        )
 
     if len(global_graph) == 0:
         return {
@@ -912,7 +1483,8 @@ def _process_record_list(
         record_year_getter=lambda r: r.get('year', 'N/A'),
         doc_count=len(records),
         counting_method=counting_method,
-        temporal_window=temporal_window
+        temporal_window=temporal_window,
+        include_eda=include_eda
     )
 
 
@@ -920,15 +1492,191 @@ def _process_ris_file(filepath, network_type, custom_tag,
                        max_terms, min_cooccurrence, temporal,
                        extraction_source="keywords", counting_method="full",
                        thesaurus_filepath=None, relevance_ratio=0.60,
-                       temporal_window=1):
+                       temporal_window=1, include_eda=False):
     """Full pipeline for RIS files."""
     records = _parse_ris_records(filepath)
     return _process_record_list(
         records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
         extraction_source=extraction_source, counting_method=counting_method,
         thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-        temporal_window=temporal_window
+        temporal_window=temporal_window,
+        include_eda=include_eda
     )
+
+
+def _is_wos_plaintext(filepath):
+    """
+    Detect Web of Science plain text exports (savedrecs.txt, .ciw, etc.).
+    Checks for WoS header markers (FN Clarivate / FN Thomson / FN ISI) or WoS publication type tags.
+    """
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig', errors='ignore') as f:
+            for _ in range(30):
+                line = f.readline()
+                if not line:
+                    break
+                l_str = line.strip()
+                if l_str.startswith(('FN Thomson', 'FN Clarivate', 'FN ISI', 'VR 1.0')):
+                    return True
+                if l_str.startswith(('PT J', 'PT B', 'PT S', 'PT C', 'PT M')):
+                    return True
+    except Exception:
+        return False
+    return False
+
+
+def _parse_wos_records(filepath):
+    """
+    Parses a Web of Science plain text file into standardized record dicts.
+    Extracts all fields: title, authors, keywords (DE, ID), source, affiliations,
+    countries, organizations, citations, year, references (CR), DOI, work_id, etc.
+    """
+    import re
+    records = []
+    current_tag = None
+    current_lines = []
+    raw_record = {}
+
+    def flush_tag():
+        nonlocal current_tag, current_lines
+        if current_tag and current_lines:
+            raw_record[current_tag] = list(current_lines)
+        current_tag = None
+        current_lines = []
+
+    def flush_record():
+        nonlocal raw_record
+        flush_tag()
+        if not raw_record:
+            return
+
+        title = ' '.join(raw_record.get('TI', [])).strip()
+        source = ' '.join(raw_record.get('SO', [])).strip()
+        abstract = ' '.join(raw_record.get('AB', [])).strip()
+        authors = [a.strip() for a in raw_record.get('AU', []) if a.strip()]
+
+        py_list = raw_record.get('PY', [])
+        year = py_list[0].strip()[:4] if py_list else ''
+        if not year:
+            dp_list = raw_record.get('DP', [])
+            if dp_list:
+                m = re.search(r'\b(19|20)\d{2}\b', dp_list[0])
+                if m:
+                    year = m.group(0)
+
+        tc_list = raw_record.get('TC', [])
+        citations = 0.0
+        if tc_list:
+            try:
+                citations = float(str(tc_list[0]).replace(',', ''))
+            except Exception:
+                citations = 0.0
+
+        de_list = []
+        for line in raw_record.get('DE', []):
+            for k in line.split(';'):
+                if k.strip():
+                    de_list.append(k.strip())
+
+        id_list = []
+        for line in raw_record.get('ID', []):
+            for k in line.split(';'):
+                if k.strip():
+                    id_list.append(k.strip())
+
+        keywords = list(dict.fromkeys(de_list + id_list))
+
+        organizations = []
+        countries = []
+        for c1_line in raw_record.get('C1', []):
+            clean_line = re.sub(r'\[.*?\]', '', c1_line).strip()
+            entries = [e.strip() for e in clean_line.split(';') if e.strip()]
+            for entry in entries:
+                parts = [p.strip() for p in entry.split(',') if p.strip()]
+                if parts:
+                    org = parts[0]
+                    country = parts[-1].rstrip('.')
+                    if org and org not in organizations:
+                        organizations.append(org)
+                    if country and len(country) >= 2 and country not in countries:
+                        countries.append(country)
+
+        for cu_line in raw_record.get('CU', []):
+            c = cu_line.strip().rstrip('.')
+            if c and c not in countries:
+                countries.append(c)
+
+        references = [c.strip() for c in raw_record.get('CR', []) if c.strip()]
+        di_list = raw_record.get('DI', [])
+        doi = di_list[0].strip() if di_list else ''
+        ut_list = raw_record.get('UT', [])
+        work_id = ut_list[0].strip() if ut_list else ''
+        doc_type = ' '.join(raw_record.get('DT', [])).strip()
+        language = ' '.join(raw_record.get('LA', [])).strip()
+
+        rec = {
+            'title': title,
+            'abstract': abstract,
+            'year': year,
+            'citations': citations,
+            'authors': authors,
+            'keywords': keywords,
+            'author_keywords': de_list,
+            'concepts': id_list,
+            'organizations': organizations,
+            'countries': countries,
+            'source': source,
+            'journal': source,
+            'doi': doi,
+            'work_id': work_id,
+            'doc_type': doc_type,
+            'language': language,
+            'referenced_works': references,
+            'references': references,
+            # WoS tags compatibility
+            'TI': title,
+            'AU': authors,
+            'PY': year,
+            'TC': citations,
+            'DE': de_list,
+            'ID': id_list,
+            'SO': source,
+            'C1': organizations,
+            'CU': countries,
+            'AB': abstract,
+            'DI': doi,
+            'CR': references,
+            'UT': work_id,
+            'DT': doc_type
+        }
+        records.append(rec)
+        raw_record = {}
+
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig', errors='ignore') as f:
+            for raw_line in f:
+                line = raw_line.rstrip('\r\n')
+                if not line.strip():
+                    continue
+                if line.strip() == 'ER':
+                    flush_record()
+                    continue
+                if line.strip() == 'EF':
+                    break
+                if len(line) >= 2 and line[:2].isupper() and (len(line) == 2 or line[2] == ' '):
+                    flush_tag()
+                    current_tag = line[:2]
+                    val = line[3:].strip() if len(line) > 3 else ''
+                    if val:
+                        current_lines.append(val)
+                elif line.startswith('   ') or line.startswith('\t'):
+                    val = line.strip()
+                    if val:
+                        current_lines.append(val)
+        flush_record()
+    except Exception:
+        pass
+    return records
 
 
 # =============================================================================
@@ -946,7 +1694,8 @@ def read_and_generate_bibliometrics(
     counting_method="full",
     thesaurus_filepath=None,
     relevance_ratio=0.60,
-    temporal_window=1
+    temporal_window=1,
+    include_eda=False
 ):
     """
     Reads a bibliometrics file and generates a co-occurrence / citation network.
@@ -955,11 +1704,12 @@ def read_and_generate_bibliometrics(
       - Native VOSviewer JSON (.json)
       - Dimensions CSV (.csv)
       - Lens CSV (.csv)
-      - Web of Science plain text (.txt)
+      - OpenAlex CSV (.csv)
+      - OpenAlex JSON / JSONL (.json, .jsonl, .ndjson)
+      - Web of Science plain text (.txt, .ciw)
       - PubMed / Medline plain text (.txt)
-      - ProQuest (.txt)
       - Scopus CSV (.csv)  — including the new 2023+ export format
-      - RIS (.ris)         — co-occurrence and co-authorship
+      - RIS (.ris)         — all network types
     """
 
     # ── Route Native VOSviewer JSON files ─────────────────────────────────────
@@ -973,7 +1723,8 @@ def read_and_generate_bibliometrics(
             records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-            temporal_window=temporal_window
+            temporal_window=temporal_window,
+            include_eda=include_eda
         )
 
     # ── Route Lens.org CSV exports ────────────────────────────────────────────
@@ -983,7 +1734,8 @@ def read_and_generate_bibliometrics(
             records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-            temporal_window=temporal_window
+            temporal_window=temporal_window,
+            include_eda=include_eda
         )
 
     # ── Route OpenAlex CSV exports ────────────────────────────────────────────
@@ -993,7 +1745,8 @@ def read_and_generate_bibliometrics(
             records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-            temporal_window=temporal_window
+            temporal_window=temporal_window,
+            include_eda=include_eda
         )
 
     # ── Route OpenAlex JSON / JSONL exports ───────────────────────────────────
@@ -1003,7 +1756,8 @@ def read_and_generate_bibliometrics(
             records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-            temporal_window=temporal_window
+            temporal_window=temporal_window,
+            include_eda=include_eda
         )
 
     # ── Route RIS files to the dedicated parser ───────────────────────────────
@@ -1012,7 +1766,8 @@ def read_and_generate_bibliometrics(
             filepath, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-            temporal_window=temporal_window
+            temporal_window=temporal_window,
+            include_eda=include_eda
         )
 
     # ── Route Scopus CSV to the pandas-based parser ───────────────────────────
@@ -1021,16 +1776,97 @@ def read_and_generate_bibliometrics(
             filepath, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-            temporal_window=temporal_window
+            temporal_window=temporal_window,
+            include_eda=include_eda
         )
+
+    # ── Route Web of Science Plain Text to the native parser ─────────────────
+    if _is_wos_plaintext(filepath):
+        records = _parse_wos_records(filepath)
+        if records:
+            return _process_record_list(
+                records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
+                extraction_source=extraction_source, counting_method=counting_method,
+                thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
+                temporal_window=temporal_window,
+                include_eda=include_eda
+            )
 
     # ── All other formats go through MetaKnowledge ────────────────────────────
     return _metaknowledge_process(
         filepath, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
         extraction_source=extraction_source, counting_method=counting_method,
         thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-        temporal_window=temporal_window
+        temporal_window=temporal_window,
+        include_eda=include_eda
     )
+
+
+def get_corpus_records(filepath):
+    """
+    Extracts raw bibliographic record dictionaries from any supported file format.
+    """
+    if is_vos_native_file(filepath):
+        return []
+    if is_dimensions_csv(filepath):
+        return parse_dimensions_csv(filepath)
+    if is_lens_csv(filepath):
+        return parse_lens_csv(filepath)
+    if is_openalex_csv(filepath):
+        return parse_openalex_csv(filepath)
+    if is_openalex_json(filepath):
+        return parse_openalex_json(filepath)
+    if _is_ris_file(filepath):
+        return _parse_ris_records(filepath)
+    if _is_scopus_csv(filepath):
+        df = pd.read_csv(filepath, encoding='utf-8-sig', dtype=str, keep_default_na=False)
+        return df.to_dict(orient='records')
+    if _is_wos_plaintext(filepath):
+        return _parse_wos_records(filepath)
+    
+    # MetaKnowledge fallback for PubMed / ProQuest
+    if mk is not None:
+        try:
+            rc = mk.RecordCollection(filepath)
+            return list(rc)
+        except Exception:
+            pass
+    return []
+
+
+def parse_eda_only(filepath):
+    """
+    Fast exploratory data analysis (EDA) extraction for an imported dataset.
+    Generates H/G/M indices, author collaboration metrics, topics word cloud,
+    Sankey flows, and term growth without building co-occurrence graphs.
+    """
+    if not os.path.exists(filepath):
+        return {"success": False, "error": f"File not found: '{filepath}'"}
+
+    records = get_corpus_records(filepath)
+    if not records:
+        return {
+            "success": False,
+            "error": "No records could be extracted from the file for EDA analysis."
+        }
+
+    try:
+        eda_report = biblio_eda_engine.generate_eda_report(records)
+        sankey_data = biblio_eda_engine.generate_sankey_data(records)
+        term_growth = biblio_eda_engine.generate_term_growth(records)
+        return {
+            "success": True,
+            "document_count": len(records),
+            "eda_report": eda_report,
+            "sankey_data": sankey_data,
+            "term_growth": term_growth
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error computing EDA: {str(e)}"
+        }
+
 
 
 def _build_graph_for_rc(RC_subset, network_type, custom_tag, counting_method="full", thesaurus=None, extraction_source="keywords", relevance_ratio=0.60, min_cooccurrence=2):
@@ -1141,36 +1977,82 @@ def _build_graph_for_rc(RC_subset, network_type, custom_tag, counting_method="fu
             return RC_subset.networkOneMode(custom_tag)
 
     elif base_type == 'citation':
-        if sub_type == 'sources':
-            return RC_subset.networkOneMode('SO')
+        if sub_type == 'documents':
+            try:
+                return RC_subset.networkCitation(nodeType='full')
+            except Exception:
+                rc_list = list(RC_subset)
+                def doc_id_getter(r): return [str(r.get('UT', '')), str(r.get('DI', '')), str(r.get('TI', ''))]
+                def ref_id_getter(r): return [str(c) for c in (r.get('CR', []) or [])]
+                unit_getter = lambda r: [f"{str(r.get('TI', 'Unknown'))[:50]} ({r.get('PY', 'N/A')})"]
+                return _build_direct_citation_graph(rc_list, unit_getter, doc_id_getter, ref_id_getter, counting_method=counting_method, thesaurus=thesaurus)
         elif sub_type == 'authors':
-            return RC_subset.networkCitation(nodeType='author')
-        elif sub_type == 'organizations':
-            return RC_subset.networkOneMode('C1')
-        elif sub_type == 'countries':
-            return RC_subset.networkOneMode('CU')
-        else: # documents
-            return RC_subset.networkCitation(nodeType='full')
+            try:
+                return RC_subset.networkCitation(nodeType='author')
+            except Exception:
+                rc_list = list(RC_subset)
+                def doc_id_getter(r): return [str(r.get('UT', '')), str(r.get('DI', '')), str(r.get('TI', ''))]
+                def ref_id_getter(r): return [str(c) for c in (r.get('CR', []) or [])]
+                return _build_direct_citation_graph(rc_list, lambda r: r.get('AU', []) or [], doc_id_getter, ref_id_getter, counting_method=counting_method, thesaurus=thesaurus)
+        else:
+            rc_list = list(RC_subset)
+            def doc_id_getter(r): return [str(r.get('UT', '')), str(r.get('DI', '')), str(r.get('TI', ''))]
+            def ref_id_getter(r): return [str(c) for c in (r.get('CR', []) or [])]
+            if sub_type == 'sources':
+                unit_getter = lambda r: [str(r.get('SO', '')).strip()] if r.get('SO') else []
+            elif sub_type == 'organizations':
+                unit_getter = lambda r: r.get('C1', []) or []
+            elif sub_type == 'countries':
+                unit_getter = lambda r: r.get('CU', []) or []
+            else:
+                unit_getter = lambda r: [f"{str(r.get('TI', 'Unknown'))[:50]} ({r.get('PY', 'N/A')})"]
+            return _build_direct_citation_graph(rc_list, unit_getter, doc_id_getter, ref_id_getter, counting_method=counting_method, thesaurus=thesaurus)
 
     elif base_type == 'bib-coupling':
+        rc_list = list(RC_subset)
+        def ref_getter(r):
+            return [str(c).strip() for c in (r.get('CR', []) or []) if str(c).strip()]
         if sub_type == 'sources':
-            return RC_subset.networkOneMode('SO')
+            unit_getter = lambda r: [str(r.get('SO', '')).strip()] if r.get('SO') else []
         elif sub_type == 'authors':
-            return RC_subset.networkOneMode('AU')
+            unit_getter = lambda r: r.get('AU', []) or []
         elif sub_type == 'organizations':
-            return RC_subset.networkOneMode('C1')
+            unit_getter = lambda r: r.get('C1', []) or []
         elif sub_type == 'countries':
-            return RC_subset.networkOneMode('CU')
+            unit_getter = lambda r: r.get('CU', []) or []
         else: # documents
-            return RC_subset.networkBibCoupling()
+            unit_getter = lambda r: [f"{str(r.get('TI', 'Unknown'))[:50]} ({r.get('PY', 'N/A')})"]
+        return _build_bib_coupling_graph(rc_list, unit_getter, ref_getter, counting_method=counting_method, thesaurus=thesaurus)
 
     elif base_type == 'co-citation':
+        rc_list = list(RC_subset)
         if sub_type == 'cited_sources':
-            return RC_subset.networkCoCitation(nodeType='journal')
+            def term_getter(r):
+                cr = r.get('CR', []) or []
+                journals = []
+                for c in cr:
+                    p = parse_wos_cr_entry(c)
+                    if p and p.get('journal'):
+                        journals.append(p['journal'])
+                return list(set(journals))
+            return _build_cooccurrence_graph_from_records(rc_list, term_getter, counting_method=counting_method, thesaurus=thesaurus)
         elif sub_type == 'cited_authors':
-            return RC_subset.networkCoCitation(nodeType='author')
+            def term_getter(r):
+                cr = r.get('CR', []) or []
+                authors = []
+                for c in cr:
+                    p = parse_wos_cr_entry(c)
+                    if p and p.get('author'):
+                        authors.append(p['author'])
+                return list(set(authors))
+            return _build_cooccurrence_graph_from_records(rc_list, term_getter, counting_method=counting_method, thesaurus=thesaurus)
         else: # cited_references
-            return RC_subset.networkCoCitation(nodeType='full')
+            try:
+                return RC_subset.networkCoCitation(nodeType='full')
+            except Exception:
+                def term_getter(r):
+                    return [str(c).strip() for c in (r.get('CR', []) or []) if str(c).strip()]
+                return _build_cooccurrence_graph_from_records(rc_list, term_getter, counting_method=counting_method, thesaurus=thesaurus)
 
     elif base_type == 'bipartite':
         tag1, tag2 = "AU", "DE"
@@ -1186,7 +2068,7 @@ def _metaknowledge_process(filepath, network_type, custom_tag,
                             max_terms, min_cooccurrence, temporal,
                             extraction_source="keywords", counting_method="full",
                             thesaurus_filepath=None, relevance_ratio=0.60,
-                            temporal_window=1):
+                            temporal_window=1, include_eda=False):
     """MetaKnowledge-based processing supporting all VOSviewer network types and subperiods."""
 
     # 1. Pre-clean the raw text file if date tags are requested
@@ -1540,14 +2422,15 @@ def _metaknowledge_process(filepath, network_type, custom_tag,
         "temporal_window": temporal_window
     }
     
-    # Add EDA Analysis
-    try:
-        recs_list = list(RC)
-        result_dict["eda_report"] = biblio_eda_engine.generate_eda_report(recs_list)
-        result_dict["sankey_data"] = biblio_eda_engine.generate_sankey_data(recs_list)
-        result_dict["term_growth"] = biblio_eda_engine.generate_term_growth(recs_list)
-    except Exception as e:
-        result_dict["eda_report"] = {"success": False, "error": str(e)}
+    # Add EDA Analysis (only if requested)
+    if include_eda:
+        try:
+            recs_list = list(RC)
+            result_dict["eda_report"] = biblio_eda_engine.generate_eda_report(recs_list)
+            result_dict["sankey_data"] = biblio_eda_engine.generate_sankey_data(recs_list)
+            result_dict["term_growth"] = biblio_eda_engine.generate_term_growth(recs_list)
+        except Exception as e:
+            result_dict["eda_report"] = {"success": False, "error": str(e)}
     if temporal:
         result_dict["networks_by_year"] = networks_by_year
         result_dict["cooccurrence_matrices_by_period"] = cooccurrence_matrices_by_period

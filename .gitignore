@@ -7,11 +7,13 @@ frontend/.npm/
 backend/**/bin/
 backend/**/obj/
 backend/**/Properties/launchSettings.json
+backend/publish/
 *.user
 
 # Python / Engine
-engine/__pycache__/
-engine/*.pyc
+__pycache__/
+**/__pycache__/
+*.pyc
 engine/.venv/
 engine/venv/
 engine/temp/

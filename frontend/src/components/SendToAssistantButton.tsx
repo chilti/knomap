@@ -8,7 +8,7 @@ import { getSerializedSvg, convertSvgStringToPngDataUrl } from '../utils/chartEx
 interface SendToAssistantButtonProps {
   title: string;
   badge?: string;
-  viewSource: 'som' | 'incites' | 'networks' | 'semantic' | 'dimreduction' | 'custom';
+  viewSource: 'som' | 'incites' | 'tlachia' | 'networks' | 'semantic' | 'dimreduction' | 'custom';
   chartType: 'hex_map' | 'bubble' | 'trend' | 'bar' | 'radar' | 'scatter' | 'network' | 'table' | 'custom';
   data: any;
   config?: any;

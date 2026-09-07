@@ -335,3 +335,224 @@ export const denormalizeVector = (normVector: number[], normInfo: NormalizationI
   if (!normInfo || !normInfo.type) return [...normVector];
   return normVector.map((val, idx) => denormalizeValue(val, idx, normInfo));
 };
+
+export type LongitudinalNormalizationType =
+  | 'none'
+  | 'min_max'
+  | 'z_score'
+  | 'div_max'
+  | 'cooc_association'
+  | 'cooc_cosine'
+  | 'cooc_jaccard'
+  | 'cooc_inclusion';
+
+export interface MultiperiodNormalizationResult {
+  normalizedPeriodsData: Record<string, { data: number[][]; labels?: string[]; doc_count?: number }>;
+  scalerInfo: {
+    type: LongitudinalNormalizationType;
+    params: any;
+    label: string;
+  };
+}
+
+/**
+ * Normalizes multi-period longitudinal data.
+ * For rectangular performance profiles (entities x indicators):
+ *   Computes GLOBAL intertemporal parameters across ALL periods combined (min, max, mean, std)
+ *   so that values across different years maintain exact absolute scale comparability,
+ *   preserving the validity of synaptic drift (\Delta W) and trajectories.
+ * For square co-occurrence networks (terms x terms):
+ *   Applies co-occurrence similarity normalization per period.
+ */
+export const applyIntertemporalNormalization = (
+  periodsData: Record<string, { data: number[][]; labels?: string[]; doc_count?: number }>,
+  type: LongitudinalNormalizationType = 'none'
+): MultiperiodNormalizationResult => {
+  const pKeys = Object.keys(periodsData).sort();
+  if (pKeys.length === 0 || type === 'none') {
+    return {
+      normalizedPeriodsData: periodsData,
+      scalerInfo: {
+        type: 'none',
+        params: {},
+        label: 'Sin normalizar (Rango natural)'
+      }
+    };
+  }
+
+  // Check if network co-occurrence normalization
+  if (type.startsWith('cooc_')) {
+    const normType = type as NormalizationType;
+    const normalizedPeriodsData: Record<string, any> = {};
+    const labelsMap: Record<string, string> = {
+      cooc_association: 'Fuerza de Asociación (VOSviewer)',
+      cooc_cosine: 'Coseno de Salton',
+      cooc_jaccard: 'Índice de Jaccard',
+      cooc_inclusion: 'Índice de Inclusión'
+    };
+
+    for (const p of pKeys) {
+      const item = periodsData[p];
+      if (!item || !item.data || item.data.length === 0) continue;
+      const res = applyNormalizationToMatrix(item.data, normType);
+      normalizedPeriodsData[p] = {
+        ...item,
+        data: res.normalizedMatrix
+      };
+    }
+
+    return {
+      normalizedPeriodsData,
+      scalerInfo: {
+        type,
+        params: {},
+        label: labelsMap[type] || type
+      }
+    };
+  }
+
+  // Rectangular performance profiles: global intertemporal scaling
+  const samplePeriod = periodsData[pKeys[0]];
+  const cols = samplePeriod?.data?.[0]?.length || 0;
+  if (cols === 0) {
+    return {
+      normalizedPeriodsData: periodsData,
+      scalerInfo: { type: 'none', params: {}, label: 'Sin normalizar' }
+    };
+  }
+
+  if (type === 'min_max') {
+    const minVals = new Array(cols).fill(Number.POSITIVE_INFINITY);
+    const maxVals = new Array(cols).fill(Number.NEGATIVE_INFINITY);
+
+    for (const p of pKeys) {
+      const mat = periodsData[p]?.data || [];
+      for (let r = 0; r < mat.length; r++) {
+        for (let c = 0; c < cols; c++) {
+          const val = mat[r][c];
+          if (val < minVals[c]) minVals[c] = val;
+          if (val > maxVals[c]) maxVals[c] = val;
+        }
+      }
+    }
+
+    const ranges = maxVals.map((max, c) => {
+      const range = max - minVals[c];
+      return range === 0 ? 1 : range;
+    });
+
+    const normalizedPeriodsData: Record<string, any> = {};
+    for (const p of pKeys) {
+      const item = periodsData[p];
+      const mat = item?.data || [];
+      const normMat = mat.map(row => row.map((val, c) => (val - minVals[c]) / ranges[c]));
+      normalizedPeriodsData[p] = {
+        ...item,
+        data: normMat
+      };
+    }
+
+    return {
+      normalizedPeriodsData,
+      scalerInfo: {
+        type: 'min_max',
+        params: { minVals, maxVals, ranges },
+        label: 'Min-Max Global Intertemporal [0, 1]'
+      }
+    };
+  }
+
+  if (type === 'z_score') {
+    let totalCount = 0;
+    const sumVals = new Array(cols).fill(0);
+
+    for (const p of pKeys) {
+      const mat = periodsData[p]?.data || [];
+      for (let r = 0; r < mat.length; r++) {
+        totalCount++;
+        for (let c = 0; c < cols; c++) {
+          sumVals[c] += mat[r][c];
+        }
+      }
+    }
+
+    const safeTotal = totalCount > 0 ? totalCount : 1;
+    const means = sumVals.map(s => s / safeTotal);
+    const sumSqDiffs = new Array(cols).fill(0);
+
+    for (const p of pKeys) {
+      const mat = periodsData[p]?.data || [];
+      for (let r = 0; r < mat.length; r++) {
+        for (let c = 0; c < cols; c++) {
+          sumSqDiffs[c] += Math.pow(mat[r][c] - means[c], 2);
+        }
+      }
+    }
+
+    const stdDevs = sumSqDiffs.map(sq => {
+      const sd = Math.sqrt(sq / safeTotal);
+      return sd === 0 ? 1 : sd;
+    });
+
+    const normalizedPeriodsData: Record<string, any> = {};
+    for (const p of pKeys) {
+      const item = periodsData[p];
+      const mat = item?.data || [];
+      const normMat = mat.map(row => row.map((val, c) => (val - means[c]) / stdDevs[c]));
+      normalizedPeriodsData[p] = {
+        ...item,
+        data: normMat
+      };
+    }
+
+    return {
+      normalizedPeriodsData,
+      scalerInfo: {
+        type: 'z_score',
+        params: { means, stdDevs },
+        label: 'Z-Score Global Intertemporal (μ=0, σ=1)'
+      }
+    };
+  }
+
+  if (type === 'div_max') {
+    const maxVals = new Array(cols).fill(Number.NEGATIVE_INFINITY);
+
+    for (const p of pKeys) {
+      const mat = periodsData[p]?.data || [];
+      for (let r = 0; r < mat.length; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (mat[r][c] > maxVals[c]) maxVals[c] = mat[r][c];
+        }
+      }
+    }
+
+    const safeMaxVals = maxVals.map(m => m === 0 ? 1 : m);
+    const normalizedPeriodsData: Record<string, any> = {};
+
+    for (const p of pKeys) {
+      const item = periodsData[p];
+      const mat = item?.data || [];
+      const normMat = mat.map(row => row.map((val, c) => val / safeMaxVals[c]));
+      normalizedPeriodsData[p] = {
+        ...item,
+        data: normMat
+      };
+    }
+
+    return {
+      normalizedPeriodsData,
+      scalerInfo: {
+        type: 'div_max',
+        params: { maxValues: safeMaxVals },
+        label: 'Dividir por Máximo Global'
+      }
+    };
+  }
+
+  return {
+    normalizedPeriodsData: periodsData,
+    scalerInfo: { type: 'none', params: {}, label: 'Sin normalizar' }
+  };
+};
+

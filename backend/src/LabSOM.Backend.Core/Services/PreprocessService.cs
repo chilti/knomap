@@ -129,6 +129,82 @@ namespace LabSOM.Backend.Core.Services
             }
         }
 
+        public async Task<PreprocessResult> PreprocessEdaWithFileAsync(Microsoft.AspNetCore.Http.IFormFile uploadedFile)
+        {
+            var scriptPath = Path.GetFullPath(Path.Combine(_enginePath, "main_engine.py"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "SinapsisMap");
+            if (!Directory.Exists(tempDir))
+            {
+                Directory.CreateDirectory(tempDir);
+            }
+
+            string ext = Path.GetExtension(uploadedFile.FileName);
+            if (string.IsNullOrEmpty(ext)) ext = ".txt";
+            string sourceDataFile = Path.Combine(tempDir, $"eda_upload_{Guid.NewGuid():N}{ext}");
+            string payloadFile = Path.Combine(tempDir, $"eda_payload_{Guid.NewGuid():N}.json");
+
+            try
+            {
+                using (var stream = new FileStream(sourceDataFile, FileMode.Create))
+                {
+                    await uploadedFile.CopyToAsync(stream);
+                }
+
+                var payload = new { filepath = sourceDataFile };
+                string jsonPayload = JsonSerializer.Serialize(payload);
+                await File.WriteAllTextAsync(payloadFile, jsonPayload);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
+                    Arguments = $"\"{scriptPath}\" preprocess_eda \"{payloadFile}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+
+                string stdout = await process.StandardOutput.ReadToEndAsync();
+                string stderr = await process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+                {
+                    var result = JsonSerializer.Deserialize<PreprocessResult>(stdout, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    if (result != null)
+                    {
+                        return result;
+                    }
+                }
+
+                return new PreprocessResult
+                {
+                    Success = false,
+                    Error = !string.IsNullOrWhiteSpace(stderr) ? stderr : "Failed to compute EDA metrics from Python engine."
+                };
+            }
+            catch (Exception ex)
+            {
+                return new PreprocessResult
+                {
+                    Success = false,
+                    Error = $"Preprocess EDA error: {ex.Message}"
+                };
+            }
+            finally
+            {
+                if (File.Exists(payloadFile)) { try { File.Delete(payloadFile); } catch { } }
+                if (File.Exists(sourceDataFile)) { try { File.Delete(sourceDataFile); } catch { } }
+            }
+        }
+
         public async Task<PreprocessResult> PreprocessApiQueryAsync(ApiQueryRequest request)
         {
             var scriptPath = Path.GetFullPath(Path.Combine(_enginePath, "main_engine.py"));
@@ -259,6 +335,77 @@ namespace LabSOM.Backend.Core.Services
                 if (File.Exists(payloadFile)) { try { File.Delete(payloadFile); } catch { } }
             }
         }
+
+        public async Task<string> ProcessLongitudinalArchiveAsync(Microsoft.AspNetCore.Http.IFormFile uploadedArchive)
+        {
+            var scriptPath = Path.GetFullPath(Path.Combine(_enginePath, "main_engine.py"));
+            string tempDir = Path.Combine(Path.GetTempPath(), "SinapsisMap");
+            if (!Directory.Exists(tempDir))
+            {
+                Directory.CreateDirectory(tempDir);
+            }
+
+            string ext = Path.GetExtension(uploadedArchive.FileName);
+            if (string.IsNullOrEmpty(ext)) ext = ".7z";
+            string archivePath = Path.Combine(tempDir, $"longitudinal_{Guid.NewGuid():N}{ext}");
+            string payloadFile = Path.Combine(tempDir, $"payload_{Guid.NewGuid():N}.json");
+
+            try
+            {
+                using (var stream = new FileStream(archivePath, FileMode.Create))
+                {
+                    await uploadedArchive.CopyToAsync(stream);
+                }
+
+                var payload = new
+                {
+                    archive_path = archivePath
+                };
+                string jsonPayload = JsonSerializer.Serialize(payload);
+                await File.WriteAllTextAsync(payloadFile, jsonPayload);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = PythonUtils.GetPythonExecutablePath(_enginePath),
+                    Arguments = $"\"{scriptPath}\" parse_longitudinal_archive \"{payloadFile}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+
+                string stdout = await process.StandardOutput.ReadToEndAsync();
+                string stderr = await process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
+                {
+                    return stdout;
+                }
+
+                return JsonSerializer.Serialize(new
+                {
+                    success = false,
+                    error = !string.IsNullOrWhiteSpace(stderr) ? stderr : "Failed to extract or parse longitudinal archive in Python engine."
+                });
+            }
+            catch (Exception ex)
+            {
+                return JsonSerializer.Serialize(new
+                {
+                    success = false,
+                    error = $"Archive extraction error: {ex.Message}"
+                });
+            }
+            finally
+            {
+                if (File.Exists(archivePath)) { try { File.Delete(archivePath); } catch { } }
+                if (File.Exists(payloadFile)) { try { File.Delete(payloadFile); } catch { } }
+            }
+        }
     }
 
     // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -364,6 +511,9 @@ namespace LabSOM.Backend.Core.Services
 
         [JsonPropertyName("relevance_ratio")]
         public double Relevance_Ratio { get; set; } = 0.60;
+
+        [JsonPropertyName("include_eda")]
+        public bool Include_Eda { get; set; } = false;
     }
 
     public class PreprocessResult
@@ -403,5 +553,14 @@ namespace LabSOM.Backend.Core.Services
 
         [JsonPropertyName("temporal_window")]
         public int Temporal_Window { get; set; } = 1;
+
+        [JsonPropertyName("eda_report")]
+        public JsonElement? Eda_Report { get; set; }
+
+        [JsonPropertyName("sankey_data")]
+        public JsonElement? Sankey_Data { get; set; }
+
+        [JsonPropertyName("term_growth")]
+        public JsonElement? Term_Growth { get; set; }
     }
 }

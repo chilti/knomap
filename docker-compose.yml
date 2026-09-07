@@ -26,6 +26,7 @@ services:
       - LLM_MODEL=${LLM_MODEL:-default}
     volumes:
       - knomap_data:/app/backend/App_Data
+      - ./engine:/app/engine
     restart: unless-stopped
     deploy:
       resources:

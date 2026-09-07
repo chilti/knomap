@@ -61,7 +61,7 @@ export interface StudyContext {
 }
 
 export interface ChartSnapshot {
-  viewSource: 'som' | 'incites' | 'networks' | 'semantic' | 'dimreduction' | 'custom';
+  viewSource: 'som' | 'incites' | 'tlachia' | 'networks' | 'semantic' | 'dimreduction' | 'custom';
   chartType: 'hex_map' | 'bubble' | 'trend' | 'bar' | 'radar' | 'scatter' | 'network' | 'table' | 'custom';
   title: string;
   subtitle?: string;

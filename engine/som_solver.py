@@ -86,34 +86,45 @@ class SOMSolver:
         else:
             return torch.cdist(X, self.weights, p=2.0)
             
-    def train_basic(self, data, iterations, learning_rate_start=0.5, sigma_start=None):
-        """Sequential/online SOM training with full double precision."""
+    def train_basic(self, data, iterations, learning_rate_start=0.9, sigma_start=None):
+        """Sequential/online SOM training with full double precision and optimized GPU execution."""
         n_samples = data.shape[0]
         if sigma_start is None:
-            sigma_start = max(self.rows, self.cols) / 2.0
+            # Academic standard: one half of grid's average size: 1/2 * (rows + cols) / 2
+            sigma_start = 0.5 * ((self.rows + self.cols) / 2.0)
             
         quantization_errors = []
         X = torch.tensor(data, dtype=torch.float64, device=self.device)
+        is_euclidean = (self.metric == "euclidean")
         
         for t in range(iterations):
             lr = learning_rate_start * (1.0 - t / iterations)
-            sigma = sigma_start * np.exp(-t / iterations)
+            sigma = max(0.1, sigma_start * np.exp(-t / iterations))
+            inv_2_sigma_sq = 1.0 / (2.0 * (sigma ** 2))
             
             indices = torch.randperm(n_samples, device=self.device)
-            error_sum = 0.0
             
             for idx in indices:
                 sample = X[idx].unsqueeze(0) # (1, D)
-                dists = self._compute_distances(sample)
-                bmu = torch.argmin(dists, dim=1)[0]
-                
-                grid_d = self.grid_dist[bmu]
-                h = torch.exp(- (grid_d ** 2) / (2 * (sigma ** 2)))
-                
-                self.weights += lr * h.unsqueeze(1) * (sample - self.weights)
-                error_sum += torch.norm(sample - self.weights[bmu]).item()
-                
-            quantization_errors.append(error_sum / n_samples)
+                if is_euclidean:
+                    diff = sample - self.weights
+                    dists_sq = torch.sum(diff * diff, dim=1)
+                    bmu = torch.argmin(dists_sq)
+                    grid_d = self.grid_dist[bmu]
+                    h = torch.exp(- (grid_d ** 2) * inv_2_sigma_sq)
+                    self.weights += (lr * h).unsqueeze(1) * diff
+                else:
+                    dists = self._compute_distances(sample)
+                    bmu = torch.argmin(dists, dim=1)[0]
+                    grid_d = self.grid_dist[bmu]
+                    h = torch.exp(- (grid_d ** 2) * inv_2_sigma_sq)
+                    self.weights += lr * h.unsqueeze(1) * (sample - self.weights)
+            
+            # Record quantization error without per-sample cuda sync
+            if t % 20 == 0 or t == iterations - 1:
+                with torch.no_grad():
+                    all_dists = self._compute_distances(X)
+                    quantization_errors.append(torch.min(all_dists, dim=1)[0].mean().item())
             
         return quantization_errors
 
@@ -121,7 +132,7 @@ class SOMSolver:
         """Fully vectorized, highly parallel Batch SOM training with double precision on GPU/Multicore."""
         n_samples = data.shape[0]
         if sigma_start is None:
-            sigma_start = max(self.rows, self.cols) / 2.0
+            sigma_start = 0.5 * ((self.rows + self.cols) / 2.0)
             
         quantization_errors = []
         X = torch.tensor(data, dtype=torch.float64, device=self.device)

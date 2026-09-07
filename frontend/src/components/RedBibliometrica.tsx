@@ -34,7 +34,9 @@ export const RedBibliometrica: React.FC = () => {
     setBiblioSelectedYear,
     loadCsvData,
     setActiveTab,
-    vosRecluster
+    vosRecluster,
+    edaReport,
+    isPreprocessing
   } = useSomStore();
 
   const handleSendToSOM = () => {
@@ -237,7 +239,7 @@ export const RedBibliometrica: React.FC = () => {
     };
   }, [network, viewerMode]);
 
-  if (!network && !vosviewerJson) {
+  if (!network && !vosviewerJson && !edaReport && !isPreprocessing) {
     return (
       <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-gray-700 rounded-2xl h-96 text-gray-400 bg-gray-900 bg-opacity-40">
         <Share2 className="w-12 h-12 mb-4 text-gray-500 animate-pulse" />
@@ -482,13 +484,33 @@ export const RedBibliometrica: React.FC = () => {
           {/* View Mode Switcher */}
           <div className="flex bg-gray-950 p-1 rounded-lg border border-gray-800">
             <button
+              onClick={() => setViewerMode('eda')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
+                viewerMode === 'eda' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+              }`}
+              title="Exploratory Data Analysis & Author Metrics"
+            >
+              <BarChart2 className="w-3.5 h-3.5" />
+              <span>EDA Metrics</span>
+            </button>
+            <button
+              onClick={() => setViewerMode('vosviewer')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
+                viewerMode === 'vosviewer' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+              }`}
+              title="Interactive VOSviewer Visualizations (Network, Overlay, Density)"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>VOSviewer Map</span>
+            </button>
+            <button
               onClick={() => setViewerMode('force')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
                 viewerMode === 'force' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
               }`}
               title="Classic 2D Force Graph"
             >
-              <Layers className="w-3.5 h-3.5" />
+              <Eye className="w-3.5 h-3.5" />
               <span>Force Graph</span>
             </button>
             <button
@@ -500,26 +522,6 @@ export const RedBibliometrica: React.FC = () => {
             >
               <Table className="w-3.5 h-3.5" />
               <span>Matrix</span>
-            </button>
-            <button
-              onClick={() => setViewerMode('vosviewer')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
-                viewerMode === 'vosviewer' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
-              }`}
-              title="Interactive VOSviewer Visualizations (Network, Overlay, Density)"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span>VOSviewer Map</span>
-            </button>
-            <button
-              onClick={() => setViewerMode('eda')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
-                viewerMode === 'eda' ? 'bg-indigo-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
-              }`}
-              title="Exploratory Data Analysis & Author Metrics"
-            >
-              <BarChart2 className="w-3.5 h-3.5" />
-              <span>EDA Metrics</span>
             </button>
           </div>
 
@@ -556,24 +558,26 @@ export const RedBibliometrica: React.FC = () => {
             <span>Export Map</span>
           </button>
 
-          <SendToAssistantButton
-            title={`Co-occurrence Bibliometric Network (${selectedYear})`}
-            badge="NETWORKS"
-            viewSource="networks"
-            chartType="network"
-            data={{
-              nodes: nodes.map(n => ({ id: n.id, label: n.label, freq: n.frequency })),
-              links: links.map(l => ({
-                source: typeof l.source === 'object' ? l.source.id : l.source,
-                target: typeof l.target === 'object' ? l.target.id : l.target,
-                weight: l.weight
-              })),
-              vosviewer: currentVosData
-            }}
-            dataContextPrompt={`Co-occurrence Bibliometric Network (Period/Year: ${selectedYear}).\nTotal items: ${totalItemsCount}.\nTotal links: ${totalLinksCount}.\nTotal corpus documents: ${documentCount}.\nTop entities by frequency: ${nodes.slice(0, 20).map(n => `${n.label} (freq: ${n.frequency})`).join(', ')}.`}
-            buttonText="AI Assistant"
-            variant="header"
-          />
+          {(network || vosviewerJson) && (
+            <SendToAssistantButton
+              title={`Co-occurrence Bibliometric Network (${selectedYear})`}
+              badge="NETWORKS"
+              viewSource="networks"
+              chartType="network"
+              data={{
+                nodes: (nodes || []).map(n => ({ id: n.id, label: n.label, freq: n.frequency })),
+                links: (links || []).map(l => ({
+                  source: typeof l.source === 'object' ? l.source.id : l.source,
+                  target: typeof l.target === 'object' ? l.target.id : l.target,
+                  weight: l.weight
+                })),
+                vosviewer: currentVosData
+              }}
+              dataContextPrompt={`Co-occurrence Bibliometric Network (Period/Year: ${selectedYear}).\nTotal items: ${totalItemsCount}.\nTotal links: ${totalLinksCount}.\nTotal corpus documents: ${documentCount || 0}.\nTop entities by frequency: ${(nodes || []).slice(0, 20).map(n => `${n.label} (freq: ${n.frequency})`).join(', ')}.`}
+              buttonText="AI Assistant"
+              variant="header"
+            />
+          )}
 
           {(cooccurrenceCsv || (networksByYear && selectedYear !== 'Global')) && (
             <button
@@ -624,6 +628,14 @@ export const RedBibliometrica: React.FC = () => {
       <div className="flex-1 relative bg-gray-950 rounded-xl overflow-hidden border border-gray-800 flex items-center justify-center min-h-[620px]">
         {viewerMode === 'eda' ? (
           <BiblioEdaReport />
+        ) : (!network && !vosviewerJson) ? (
+          <div className="flex flex-col items-center justify-center p-12 text-gray-400 text-center space-y-3">
+            <Layers className="w-12 h-12 text-gray-600 animate-pulse" />
+            <p className="text-base font-semibold text-gray-200">No network generated yet</p>
+            <p className="text-xs text-gray-500 max-w-md">
+              Configure your network parameters above and click <strong className="text-indigo-400">"Process Bibliometrics"</strong> to build the co-occurrence / citation network.
+            </p>
+          </div>
         ) : viewerMode === 'vosviewer' ? (
           <VosViewerContainer
             data={currentVosData}

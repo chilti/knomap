@@ -15,10 +15,9 @@ def is_dimensions_csv(filepath: str) -> bool:
         return False
     try:
         with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-            # Check first 3 lines (Dimensions sometimes includes metadata headers)
-            for _ in range(3):
+            for _ in range(5):
                 line = f.readline().lower()
-                if 'dimensions' in line or ('publication title' in line and 'times cited' in line) or ('title' in line and 'doi' in line and 'funder' in line):
+                if 'dimensions' in line or ('publication title' in line and ('times cited' in line or 'dimensions' in line)) or 'fields of research (anzsrc' in line:
                     return True
     except Exception:
         pass
@@ -198,78 +197,104 @@ def parse_lens_csv(filepath: str) -> List[Dict[str, Any]]:
 
 def parse_openalex_csv(filepath: str) -> List[Dict[str, Any]]:
     """Parses an OpenAlex CSV export into standardized records with all available fields."""
+    import ast
     records = []
     with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
         reader = csv.DictReader(f)
-        for row in reader:
-            title = (row.get('Title') or '').strip()
+        for raw_row in reader:
+            if not raw_row:
+                continue
+            row = {k.strip(): v for k, v in raw_row.items() if k}
+            lower_row = {k.lower().strip(): v for k, v in row.items()}
+            
+            def get_val(*keys):
+                for k in keys:
+                    if k in row and row[k] is not None:
+                        val = str(row[k]).strip()
+                        if val and val.lower() != 'nan':
+                            return val
+                    lk = k.lower()
+                    if lk in lower_row and lower_row[lk] is not None:
+                        val = str(lower_row[lk]).strip()
+                        if val and val.lower() != 'nan':
+                            return val
+                return ''
+
+            title = get_val('Title', 'display_name', 'title')
             if not title:
                 continue
 
-            abstract = (row.get('Abstract') or '').strip()
+            abstract = get_val('Abstract', 'abstract')
             if abstract == '.':
                 abstract = ''
 
-            year = (row.get('Year') or '').strip()
-            if not year and row.get('Date'):
-                date_val = str(row.get('Date')).strip()
+            year = get_val('Year', 'publication_year', 'Year of publication')
+            if not year:
+                date_val = get_val('Date', 'publication_date')
                 if len(date_val) >= 4:
                     year = date_val[:4]
 
-            citations = 0
-            cit_raw = row.get('Citation count') or row.get('Cited by') or '0'
-            try:
-                citations = float(str(cit_raw).replace(',', ''))
-            except Exception:
-                citations = 0
+            citations = 0.0
+            cit_raw = get_val('Citation count', 'Cited by', 'cited_by_count', 'Citations')
+            if cit_raw:
+                try:
+                    citations = float(cit_raw.replace(',', ''))
+                except Exception:
+                    citations = 0.0
 
-            # Authors (pipe-separated)
-            authors_raw = row.get('Author') or ''
-            authors = [a.strip() for a in str(authors_raw).split('|') if a.strip() and a.strip().lower() != 'nan']
+            def parse_list(raw_str):
+                if not raw_str or raw_str.lower() in ('', 'nan', 'none', '[]'):
+                    return []
+                s = raw_str.strip()
+                if s.startswith('[') and s.endswith(']'):
+                    try:
+                        parsed = ast.literal_eval(s)
+                        if isinstance(parsed, list):
+                            return [str(x).strip() for x in parsed if str(x).strip()]
+                    except Exception:
+                        pass
+                delim = '|' if '|' in s else (';' if ';' in s else ',')
+                return [p.strip() for p in s.split(delim) if p.strip() and p.strip().lower() != 'nan']
 
-            # Keywords & Concepts (pipe-separated)
-            kw_raw = row.get('Keyword') or ''
-            author_keywords = [k.strip() for k in str(kw_raw).split('|') if k.strip() and k.strip().lower() != 'nan']
-
-            concepts_raw = row.get('Concept') or ''
-            concepts = [c.strip() for c in str(concepts_raw).split('|') if c.strip() and c.strip().lower() != 'nan']
-
-            # Combined keywords
+            authors = parse_list(get_val('Author', 'author_names', 'authors', 'Authors'))
+            author_keywords = parse_list(get_val('Keyword', 'keywords', 'Keywords', 'author_keywords'))
+            concepts = parse_list(get_val('Concept', 'concepts', 'Concepts'))
             keywords = list(dict.fromkeys(author_keywords + concepts))
 
-            # Topics / Fields / Subfields
-            topics = []
-            for t_col in ['Topic', 'Subfield', 'Field', 'Domain']:
-                t_val = row.get(t_col) or ''
-                if t_val and str(t_val).strip().lower() != 'nan':
-                    topics.extend([t.strip() for t in str(t_val).split('|') if t.strip()])
-            topics = list(dict.fromkeys(topics))
+            subfields = parse_list(get_val('Subfield', 'subfields', 'subfield_name', 'subfield'))
+            fields = parse_list(get_val('Field', 'fields', 'field_name', 'field'))
+            domains = parse_list(get_val('Domain', 'domains', 'domain_name', 'domain'))
+            topics = parse_list(get_val('Topic', 'topics', 'all_topics', 'primary_topic_id'))
+            if not topics:
+                topics = list(dict.fromkeys(subfields + fields + domains))
 
-            # Institutions / Organizations
-            inst_raw = row.get('Institution') or ''
-            organizations = [i.strip() for i in str(inst_raw).split('|') if i.strip() and i.strip().lower() != 'nan']
+            sdgs = parse_list(get_val('SDG', 'sdgs', 'Sustainable Development Goals', 'Sustainable Development Goal'))
+            organizations = parse_list(get_val('Institution', 'institution_names', 'organizations', 'Affiliations'))
+            countries = parse_list(get_val('Country', 'country_codes', 'all_country_codes', 'countries'))
+            continents = parse_list(get_val('Continent', 'continents'))
+            funders = parse_list(get_val('Funder', 'funder_names', 'funders'))
 
-            # Countries
-            country_raw = row.get('Country') or ''
-            countries = [c.strip() for c in str(country_raw).split('|') if c.strip() and c.strip().lower() != 'nan']
+            source = get_val('Source', 'source_name', 'Any location source', 'Journal', 'Publication Title')
+            doi = get_val('DOI', 'doi')
+            work_id = get_val('Work ID', 'id', 'work_id')
+            if work_id:
+                work_id = work_id.split('/')[-1]
 
-            # Continents
-            continent_raw = row.get('Continent') or ''
-            continents = [c.strip() for c in str(continent_raw).split('|') if c.strip() and c.strip().lower() != 'nan']
+            doc_type = get_val('Type', 'type', 'Document Type', 'Publication Type')
+            language = get_val('Language', 'language')
+            publisher = get_val('Publisher', 'publisher', 'Host Organization')
+            oa_status = get_val('Open access', 'oa_status', 'OA Status', 'Open Access Status')
+            fwci = get_val('FWCI', 'fwci')
 
-            # Funders
-            funder_raw = row.get('Funder') or ''
-            funders = [f.strip() for f in str(funder_raw).split('|') if f.strip() and f.strip().lower() != 'nan']
-
-            # Source / Journal
-            source = (row.get('Source') or row.get('Any location source') or '').strip()
-            if source.lower() == 'nan':
-                source = ''
-
-            # DOI
-            doi = (row.get('DOI') or '').strip()
-            if doi.lower() == 'nan':
-                doi = ''
+            # Referenced works (citations)
+            raw_refs = get_val('referenced_works', 'Referenced works', 'References', 'CR', 'references')
+            referenced_works = []
+            if raw_refs:
+                raw_list = parse_list(raw_refs)
+                for r_item in raw_list:
+                    norm_id = r_item.split('/')[-1].strip().strip('\'"')
+                    if norm_id:
+                        referenced_works.append(norm_id)
 
             rec = {
                 'title': title,
@@ -281,15 +306,24 @@ def parse_openalex_csv(filepath: str) -> List[Dict[str, Any]]:
                 'author_keywords': author_keywords,
                 'concepts': concepts,
                 'topics': topics,
+                'subfields': subfields,
+                'fields': fields,
+                'domains': domains,
+                'sdgs': sdgs,
                 'organizations': organizations,
                 'countries': countries,
                 'continents': continents,
                 'funders': funders,
                 'source': source,
                 'doi': doi,
-                'work_id': (row.get('Work ID') or '').strip(),
-                'open_access': (row.get('Open access') or '').strip(),
-                'fwci': (row.get('FWCI') or '').strip(),
+                'doc_type': doc_type,
+                'language': language,
+                'publisher': publisher,
+                'work_id': work_id,
+                'referenced_works': referenced_works,
+                'references': referenced_works,
+                'open_access': oa_status,
+                'fwci': fwci,
                 # Metaknowledge / WOS tags compatibility
                 'TI': title,
                 'AU': authors,
@@ -303,8 +337,19 @@ def parse_openalex_csv(filepath: str) -> List[Dict[str, Any]]:
                 'FU': funders,
                 'AB': abstract,
                 'DI': doi,
+                'CR': referenced_works,
                 'Topic': topics,
+                'Subfield': subfields,
+                'Field': fields,
+                'Domain': domains,
                 'Concept': concepts,
+                'SDG': sdgs,
+                'OA': [oa_status] if oa_status else [],
+                'DT': [doc_type] if doc_type else [],
+                'LA': [language] if language else [],
+                'PU': [publisher] if publisher else [],
+                'WC': subfields if subfields else fields,
+                'SC': fields if fields else domains,
                 'Continent': continents
             }
             records.append(rec)
@@ -522,15 +567,33 @@ def parse_openalex_json(filepath: str) -> List[Dict[str, Any]]:
             elif isinstance(top, str) and top.strip() and top.strip() not in topics:
                 topics.append(top.strip())
 
-        # Source / Journal
+        # Source / Journal & Publisher
         source = ''
+        publisher = ''
         if item.get('source_name'):
             source = str(item['source_name']).strip()
         elif item.get('source_id'):
             source = str(item['source_id']).strip()
         prim_loc = item.get('primary_location') or {}
         if isinstance(prim_loc, dict):
-            source = prim_loc.get('source', {}).get('display_name', '') or source
+            src_obj = prim_loc.get('source', {}) or {}
+            if isinstance(src_obj, dict):
+                source = src_obj.get('display_name', '') or source
+                publisher = src_obj.get('host_organization_name', '') or ''
+
+        # Sustainable Development Goals (SDG)
+        sdgs = []
+        for sdg in item.get('sustainable_development_goals', []) or []:
+            if isinstance(sdg, dict):
+                s_name = sdg.get('display_name')
+                if s_name and s_name.strip() and s_name.strip() not in sdgs:
+                    sdgs.append(s_name.strip())
+            elif isinstance(sdg, str) and sdg.strip() and sdg.strip() not in sdgs:
+                sdgs.append(sdg.strip())
+
+        # Document Type & Language
+        doc_type = str(item.get('type') or '').strip()
+        language = str(item.get('language') or '').strip()
 
         # Funders
         funders = []
@@ -563,6 +626,10 @@ def parse_openalex_json(filepath: str) -> List[Dict[str, Any]]:
             'subfields': subfields,
             'fields': fields,
             'domains': domains,
+            'sdgs': sdgs,
+            'doc_type': doc_type,
+            'language': language,
+            'publisher': publisher,
             'organizations': organizations,
             'countries': countries,
             'continents': [],
@@ -571,6 +638,7 @@ def parse_openalex_json(filepath: str) -> List[Dict[str, Any]]:
             'doi': doi,
             'work_id': work_id,
             'referenced_works': referenced_works,
+            'references': referenced_works,
             'open_access': oa_status,
             'fwci': fwci,
             # Metaknowledge / WOS tags compatibility
@@ -588,7 +656,17 @@ def parse_openalex_json(filepath: str) -> List[Dict[str, Any]]:
             'DI': doi,
             'CR': referenced_works,
             'Topic': topics,
-            'Concept': concepts
+            'Subfield': subfields,
+            'Field': fields,
+            'Domain': domains,
+            'Concept': concepts,
+            'SDG': sdgs,
+            'OA': [oa_status] if oa_status else [],
+            'DT': [doc_type] if doc_type else [],
+            'LA': [language] if language else [],
+            'PU': [publisher] if publisher else [],
+            'WC': subfields if subfields else fields,
+            'SC': fields if fields else domains
         }
         records.append(rec)
     return records

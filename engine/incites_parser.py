@@ -14,37 +14,54 @@ warnings.filterwarnings("ignore")
 
 def identify_file_type(filename):
     """
-    Returns (unit_type, period) by inspecting the filename.
-    Dynamically extracts unit names for standard or custom InCites export files
-    (e.g., 'Incites Organizations Colab 2021-2025.xlsx' -> unit='Organizations Colab', period='5Years').
+    Returns (unit_type, period) by inspecting the filename or full path.
+    Dynamically extracts unit names for standard InCites files as well as
+    hierarchical TlachIA Metrics packages (01_Matrices, 02_Periodos, 03_Historico, 04_Tendencias).
     """
-    base = os.path.basename(filename)
+    norm_path = filename.replace('\\', '/')
+    base = os.path.basename(norm_path)
     name, ext = os.path.splitext(base)
     if ext.lower() not in ('.csv', '.xlsx', '.xls', '.xlsb'):
         return None, None
 
     clean = re.sub(r'^up_[a-zA-Z0-9]+_', '', name)
 
+    # Ignore manifest, instructions, or global summary workbooks
+    if re.search(r'consolidad|leeme|manifest|inventory|payload', clean, re.IGNORECASE):
+        return None, None
+
+    # Detect folder hints if present (hierarchical TlachIA archive)
+    is_in_perf_folder = '01_Matrices' in norm_path
+    is_in_period_folder = '02_Periodos' in norm_path
+    is_in_whole_folder = '03_Historico' in norm_path
+    is_in_trend_folder = '04_Tendencias' in norm_path
+
     # Determine period
     period = "Whole"
-    if re.search(r'Trend', clean, re.IGNORECASE):
+    if is_in_perf_folder or re.search(r'Performance[\s_]*Matrix', clean, re.IGNORECASE):
+        period = "PerformanceMatrix"
+        clean = re.sub(r'[\s_]*Performance[\s_]*Matrix[\s_]*', ' ', clean, flags=re.IGNORECASE)
+    elif is_in_trend_folder or re.search(r'Trend', clean, re.IGNORECASE):
         period = "Trend"
         clean = re.sub(r'[\s_]*Trend[\s_]*', ' ', clean, flags=re.IGNORECASE)
-    elif re.search(r'\d{4}\s*-\s*\d{4}', clean):
-        period = "5Years"
+    elif is_in_period_folder or re.search(r'\d{4}\s*-\s*\d{4}', clean):
+        m = re.search(r'(\d{4}\s*-\s*\d{4})', clean)
+        period = m.group(1).replace(' ', '') if m else "5Years"
         clean = re.sub(r'[\s_]*\d{4}\s*-\s*\d{4}[\s_]*', ' ', clean)
     elif re.search(r'\b(19|20)\d{2}\b', clean):
         period = "5Years"
         clean = re.sub(r'[\s_]*\b(19|20)\d{2}\b[\s_]*', ' ', clean)
+    elif is_in_whole_folder:
+        period = "Whole"
 
     # Strip leading 'Incites' / 'InCites'
     clean = re.sub(r'^(incites|in_cites)[\s_]*', '', clean, flags=re.IGNORECASE)
 
-    # Handle 'Research Areas' vs specific sub-units (ESI, SDG, Topics, etc.)
-    if re.match(r'^Research[\s_]*Areas[\s_]+(ESI|SDG|Macro|Meso|Micro|WoS)', clean, re.IGNORECASE):
-        clean = re.sub(r'^Research[\s_]*Areas[\s_]+', '', clean, flags=re.IGNORECASE)
-    else:
-        clean = re.sub(r'^Research[\s_]*Areas', 'WoS Categories', clean, flags=re.IGNORECASE)
+    # Handle 'Research Areas' vs specific sub-units (InCites: ESI, SDG, Macro/Meso/Micro; OpenAlex: Domain, Field, Subfield, Topic)
+    if re.match(r'^Research[\s_]*Areas[\s_]+(ESI|SDG|Macro|Meso|Micro|WoS|Domain|Field|Subfield|Topic)', clean, re.IGNORECASE):
+        clean = re.sub(r'^Research[\s_]*Areas[\s_]+', 'Research Areas ', clean, flags=re.IGNORECASE)
+    elif re.match(r'^Research[\s_]*Areas$', clean, re.IGNORECASE):
+        clean = "WoS Categories"
 
     clean = clean.strip()
     clean = re.sub(r'\s+', ' ', clean)
@@ -65,8 +82,8 @@ def identify_file_type(filename):
     elif re.match(r'^Patentometrics$', clean, re.IGNORECASE):
         clean = "Patentometrics"
 
-    if not clean:
-        clean = "Dataset Unit"
+    if not clean or clean.lower() == 'dataset unit':
+        return None, None
 
     return clean, period
 
@@ -355,8 +372,225 @@ def build_sunburst_from_micro_topics(df_micro, df_meso=None, df_macro=None, min_
     }
 
 
+def parse_longitudinal_data(perf_matrix_path=None, consecutive_period_files=None, unit_name=""):
+    """
+    Parses longitudinal multi-period performance data either from a dedicated
+    Performance Matrix Excel file (01_Matrices_Desempeño_Longitudinal) or assembled
+    from consecutive period files (02_Periodos_Consecutivos).
 
-def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, all_units_5y_dfs=None):
+    Returns a structured dictionary with:
+      - periods: sorted list of period tags (e.g. ['1981-1985', ..., '2021-2025'])
+      - indicators: core indicators calculated across periods
+      - delta_indicators: list of inter-period change columns (e.g. ['Δ% Docs', 'Δ FWCI'])
+      - entities: list of entity dicts with values per period and deltas
+      - som_periods_data: format ready for SOM & UMAP:
+          { period: { labels: [...], data: [[...]], compNames: [...] } }
+    """
+    if not perf_matrix_path and not consecutive_period_files:
+        return None
+
+    try:
+        # Case A: Dedicated Performance Matrix Excel file exists
+        if perf_matrix_path and os.path.exists(perf_matrix_path):
+            df = clean_and_read_file(perf_matrix_path)
+            if df is not None and not df.empty:
+                # Find entity name column (first non-numeric column or 'Name')
+                entity_col = 'Name' if 'Name' in df.columns else None
+                if not entity_col:
+                    for col in df.columns:
+                        if df[col].dtype == object and not re.search(r'baseline', str(col), re.IGNORECASE):
+                            entity_col = col
+                            break
+                if not entity_col:
+                    entity_col = df.columns[0]
+
+                # Extract periods from column headers like 'Docs (1981-1985)'
+                periods = []
+                for c in df.columns:
+                    m = re.search(r'\((\d{4}\s*-\s*\d{4})\)', str(c))
+                    if m:
+                        p_tag = m.group(1).replace(' ', '')
+                        if p_tag not in periods:
+                            periods.append(p_tag)
+
+                # Sort periods chronologically
+                def _get_start_yr(p):
+                    try:
+                        return int(str(p).split('-')[0])
+                    except:
+                        return 0
+                periods.sort(key=_get_start_yr)
+
+                if periods:
+                    sample_p = periods[0]
+                    core_metrics = []
+                    for c in df.columns:
+                        if f'({sample_p})' in str(c):
+                            m_name = str(c).replace(f'({sample_p})', '').strip()
+                            core_metrics.append(m_name)
+
+                    delta_cols = [str(c) for c in df.columns if any(sym in str(c) for sym in ['Δ', 'Delta', '->', '→'])]
+
+                    entities = []
+
+                    # Filter out baseline rows
+                    baseline_mask = df[entity_col].astype(str).str.contains(r'Baseline', case=False, na=False)
+                    work_df = df[~baseline_mask].copy()
+
+                    for _, row in work_df.iterrows():
+                        ent_name = str(row[entity_col]).strip()
+                        if not ent_name or ent_name.lower() in ('nan', 'none', ''):
+                            continue
+
+                        ent_entry = {
+                            'entity': ent_name,
+                            'total_docs': float(row.get('Total Documents', 0) if pd.notna(row.get('Total Documents')) else 0.0),
+                            'total_citations': float(row.get('Total Times Cited', 0) if pd.notna(row.get('Total Times Cited')) else 0.0),
+                            'total_fwci': float(row.get('Total FWCI', 0) if pd.notna(row.get('Total FWCI')) else 0.0),
+                            'periods': {},
+                            'deltas': {}
+                        }
+
+                        for p in periods:
+                            p_metrics = {}
+                            for m in core_metrics:
+                                col_name = f'{m} ({p})'
+                                val = float(row.get(col_name, 0) if pd.notna(row.get(col_name)) else 0.0)
+                                p_metrics[m] = val
+                            ent_entry['periods'][p] = p_metrics
+
+                        for d_col in delta_cols:
+                            val = float(row.get(d_col, 0) if pd.notna(row.get(d_col)) else 0.0)
+                            ent_entry['deltas'][d_col] = val
+
+                        entities.append(ent_entry)
+
+                    # Sort entities by total_docs descending
+                    entities.sort(key=lambda x: x.get('total_docs', 0), reverse=True)
+
+                    som_periods_data = {p: {'labels': [], 'data': [], 'compNames': core_metrics} for p in periods}
+                    for ent_entry in entities:
+                        ent_name = ent_entry['entity']
+                        for p in periods:
+                            p_metrics = ent_entry['periods'][p]
+                            row_vec = [p_metrics.get(m, 0.0) for m in core_metrics]
+                            som_periods_data[p]['labels'].append(ent_name)
+                            som_periods_data[p]['data'].append(row_vec)
+
+                    return {
+                        'has_longitudinal': True,
+                        'unit': unit_name,
+                        'periods': periods,
+                        'indicators': core_metrics,
+                        'delta_indicators': delta_cols,
+                        'entities': entities,
+                        'total_entities': len(entities),
+                        'som_periods_data': som_periods_data
+                    }
+
+        # Case B: Fallback - assemble from consecutive period files
+        if consecutive_period_files and len(consecutive_period_files) >= 2:
+            def _get_start_yr(p):
+                try:
+                    return int(str(p).split('-')[0])
+                except:
+                    return 0
+            sorted_periods = sorted(consecutive_period_files.keys(), key=_get_start_yr)
+
+            dfs_by_period = {}
+            for p in sorted_periods:
+                fpath = consecutive_period_files[p]
+                if fpath and os.path.exists(fpath):
+                    d = clean_and_read_file(fpath)
+                    if d is not None and not d.empty:
+                        dfs_by_period[p] = d
+
+            if len(dfs_by_period) >= 2:
+                first_p = sorted_periods[0]
+                first_df = dfs_by_period[first_p]
+                ent_col = first_df.columns[0]
+                num_cols = first_df.select_dtypes(include=[np.number]).columns.tolist()
+
+                # Find common entities with documents
+                all_entities = []
+                for p, d in dfs_by_period.items():
+                    ecol = d.columns[0]
+                    bmask = d[ecol].astype(str).str.contains(r'Baseline', case=False, na=False)
+                    names = d[~bmask][ecol].astype(str).tolist()
+                    all_entities.extend(names)
+
+                from collections import Counter
+                ent_counts = Counter(all_entities)
+                top_entities = [name for name, _ in ent_counts.most_common() if name.strip()]
+
+                core_metrics = [c for c in num_cols if c not in ('Rank', 'Baseline')]
+                som_periods_data = {p: {'labels': [], 'data': [], 'compNames': core_metrics} for p in dfs_by_period.keys()}
+                entities = []
+
+                for ent in top_entities:
+                    ent_entry = {'entity': ent, 'periods': {}, 'deltas': {}}
+                    prev_docs = None
+                    prev_fwci = None
+                    prev_p = None
+
+                    for p in sorted_periods:
+                        d = dfs_by_period.get(p)
+                        if d is None:
+                            continue
+                        ecol = d.columns[0]
+                        ent_row = d[d[ecol].astype(str) == ent]
+                        p_metrics = {}
+                        row_vec = []
+                        for m in core_metrics:
+                            val = float(ent_row[m].iloc[0]) if not ent_row.empty and m in ent_row.columns and pd.notna(ent_row[m].iloc[0]) else 0.0
+                            p_metrics[m] = val
+                            row_vec.append(val)
+
+                        ent_entry['periods'][p] = p_metrics
+                        som_periods_data[p]['labels'].append(ent)
+                        som_periods_data[p]['data'].append(row_vec)
+
+                        curr_docs = p_metrics.get('Documents', p_metrics.get('Docs', 0))
+                        curr_fwci = p_metrics.get('Field-Weighted Citation Impact (FWCI)', p_metrics.get('FWCI', 0))
+
+                        if prev_p is not None:
+                            d_label = f'Δ% Docs ({prev_p} → {p})'
+                            d_val = ((curr_docs - prev_docs) / prev_docs * 100.0) if prev_docs and prev_docs > 0 else 0.0
+                            ent_entry['deltas'][d_label] = round(d_val, 2)
+
+                            d_fwci_label = f'Δ FWCI ({prev_p} → {p})'
+                            d_fwci_val = curr_fwci - (prev_fwci or 0)
+                            ent_entry['deltas'][d_fwci_label] = round(d_fwci_val, 2)
+
+                        prev_docs = curr_docs
+                        prev_fwci = curr_fwci
+                        prev_p = p
+
+                    entities.append(ent_entry)
+
+                delta_indicators = []
+                for i in range(len(sorted_periods) - 1):
+                    p1, p2 = sorted_periods[i], sorted_periods[i+1]
+                    delta_indicators.append(f'Δ% Docs ({p1} → {p2})')
+                    delta_indicators.append(f'Δ FWCI ({p1} → {p2})')
+
+                return {
+                    'has_longitudinal': True,
+                    'unit': unit_name,
+                    'periods': sorted_periods,
+                    'indicators': core_metrics,
+                    'delta_indicators': delta_indicators,
+                    'entities': entities,
+                    'total_entities': len(entities),
+                    'som_periods_data': som_periods_data
+                }
+    except Exception as err:
+        warnings.warn(f'Error parsing longitudinal data for {unit_name}: {err}')
+
+    return None
+
+
+def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, all_units_5y_dfs=None, perf_matrix_path=None, consecutive_period_files=None):
 
     """
     all_units_dfs: optional dict {unit_name: df} so Micro Topics can look up
@@ -698,6 +932,13 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
                     min_docs=0
                 )
 
+    # ── Longitudinal Analysis Processing ──────────────────────────────
+    result["longitudinal"] = parse_longitudinal_data(
+        perf_matrix_path=perf_matrix_path,
+        consecutive_period_files=consecutive_period_files,
+        unit_name=unit_name
+    )
+
     return result
 
 
@@ -764,8 +1005,11 @@ def extract_baseline_data_from_dfs(df_whole, df_5years, df_trend, whole_path, pa
 
 
 def build_incites_inventory(payload_path):
-    with open(payload_path, 'r', encoding='utf-8') as f:
-        payload = json.load(f)
+    if isinstance(payload_path, str) and (payload_path.endswith('.zip') or not payload_path.endswith('.json')):
+        payload = {"files": [payload_path]}
+    else:
+        with open(payload_path, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
 
     file_paths = payload.get("files", [])
     session_dir = tempfile.mkdtemp(prefix="incites_session_")
@@ -784,12 +1028,46 @@ def build_incites_inventory(payload_path):
             extracted_files.append(target)
 
     units = {}
+    is_tlachia_pkg = any(
+        '01_Matrices' in ef or '02_Periodos' in ef or '03_Historico' in ef or os.path.basename(ef).lower() == 'manifest.json'
+        for ef in extracted_files
+    )
+
     for ef in extracted_files:
         unit, period = identify_file_type(ef)
         if unit:
             if unit not in units:
-                units[unit] = {"Whole": None, "5Years": None, "Trend": None}
-            units[unit][period] = ef
+                units[unit] = {
+                    "Whole": None,
+                    "5Years": None,
+                    "Trend": None,
+                    "PerformanceMatrix": None,
+                    "ConsecutivePeriods": {}
+                }
+            if period == "Whole":
+                units[unit]["Whole"] = ef
+            elif period == "Trend":
+                units[unit]["Trend"] = ef
+            elif period == "PerformanceMatrix":
+                units[unit]["PerformanceMatrix"] = ef
+            elif period == "5Years":
+                units[unit]["5Years"] = ef
+                units[unit]["ConsecutivePeriods"]["5Years"] = ef
+            else:
+                # Specific period tag e.g. "1981-1985"
+                units[unit]["ConsecutivePeriods"][period] = ef
+
+    # If consecutive periods exist, assign the most recent period to 5Years
+    for u, f_dict in units.items():
+        if f_dict.get("ConsecutivePeriods"):
+            def _get_yr(p):
+                m = re.search(r'(\d{4})', str(p))
+                return int(m.group(1)) if m else 0
+            sorted_p = sorted(f_dict["ConsecutivePeriods"].keys(), key=_get_yr)
+            if sorted_p:
+                latest_p = sorted_p[-1]
+                if not f_dict.get("5Years") or is_tlachia_pkg:
+                    f_dict["5Years"] = f_dict["ConsecutivePeriods"][latest_p]
 
     baseline_sources = {}
     for unit_name, files in units.items():
@@ -810,6 +1088,16 @@ def build_incites_inventory(payload_path):
             break
     if not default_source and baseline_sources:
         default_source = list(baseline_sources.keys())[0]
+
+    # Check for manifest.json
+    manifest_data = None
+    manifest_files = [f for f in extracted_files if os.path.basename(f).lower() == 'manifest.json']
+    if manifest_files:
+        try:
+            with open(manifest_files[0], 'r', encoding='utf-8') as mf:
+                manifest_data = json.load(mf)
+        except Exception:
+            pass
 
     # Auto-detect and parse OpenAlex JSON if present in the package
     json_work_files = [f for f in extracted_files if f.endswith('.json') and not f.endswith('inventory.json') and not f.endswith('payload.json')]
@@ -840,6 +1128,7 @@ def build_incites_inventory(payload_path):
     inventory_map = {
         "session_dir": session_dir,
         "units": units,
+        "manifest": manifest_data,
         "openalex_data": openalex_json_data
     }
     with open(os.path.join(session_dir, "inventory.json"), 'w', encoding='utf-8') as f:
@@ -853,6 +1142,7 @@ def build_incites_inventory(payload_path):
             "default_source": default_source,
             "sources": baseline_sources
         },
+        "manifest": manifest_data,
         "openalex_data": openalex_json_data
     }
 
@@ -882,7 +1172,12 @@ def parse_single_unit_from_session(session_dir, unit_name):
     df_5years = clean_and_read_file(files["5Years"]) if files.get("5Years") else None
     df_trend = clean_and_read_file(files["Trend"]) if files.get("Trend") else None
 
-    parsed = process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=all_whole_dfs, all_units_5y_dfs=all_5y_dfs)
+    parsed = process_unit(
+        unit_name, df_whole, df_5years, df_trend,
+        all_units_dfs=all_whole_dfs, all_units_5y_dfs=all_5y_dfs,
+        perf_matrix_path=files.get("PerformanceMatrix"),
+        consecutive_period_files=files.get("ConsecutivePeriods", {})
+    )
     return {
         "success": True,
         "unit_name": unit_name,
