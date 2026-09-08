@@ -121,7 +121,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
     const [longiPositiveGrowthOnly, setLongiPositiveGrowthOnly] = useState<boolean>(false);
     const [longiEntityLimit, setLongiEntityLimit] = useState<number | 'all' | 'custom'>(25);
     const [selectedLongiEntities, setSelectedLongiEntities] = useState<string[]>([]);
-    const [isLongitudinalEntitiesExpanded, setIsLongitudinalEntitiesExpanded] = useState<boolean>(true);
+    const [isLongitudinalEntitiesExpanded, setIsLongitudinalEntitiesExpanded] = useState<boolean>(false);
     const [longiEntitySearch, setLongiEntitySearch] = useState<string>('');
     const [longiTableSearch, setLongiTableSearch] = useState<string>('');
 
@@ -362,7 +362,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
 
     const [temporalEntityLimit, setTemporalEntityLimit] = useState<number | 'all' | 'custom'>(5);
     const [temporalSelectedEntities, setTemporalSelectedEntities] = useState<string[]>([]);
-    const [isTemporalEntitiesExpanded, setIsTemporalEntitiesExpanded] = useState<boolean>(true);
+    const [isTemporalEntitiesExpanded, setIsTemporalEntitiesExpanded] = useState<boolean>(false);
 
     useEffect(() => {
         if (evoUniqueEntities.length === 0 || temporalEntityLimit === 'custom') return;
