@@ -724,13 +724,14 @@ export const useSomStore = create<SOMState>((set, get) => ({
         incitesIsUploading: false
       });
 
-      // If OpenAlex JSON production is present, sync to Biblio Networks and Semantic Biblio
+      // If OpenAlex JSON production is present, sync to Biblio Networks, SOM, and Semantic Biblio
       if (data.openalex_data && data.openalex_data.has_json) {
         const oa = data.openalex_data;
         set({
           documentCount: oa.document_count || 0,
           termCounts: oa.term_counts || {},
           network: oa.network || null,
+          vosviewerJson: oa.vosviewer_json || null,
           networksByYear: oa.networks_by_year || null,
           cooccurrenceCsv: oa.cooccurrence_csv || null,
           semanticRecords: oa.semantic_records || null,
@@ -741,6 +742,17 @@ export const useSomStore = create<SOMState>((set, get) => ({
           semanticClusters: null,
           semanticClusterAssignment: null
         });
+
+        if (oa.cooccurrence_csv) {
+          if (get().dataMatrix && get().dataMatrix.length > 0) {
+            set({
+              pendingNetworkCsv: oa.cooccurrence_csv,
+              pendingNetworkOrigin: 'monothematic'
+            });
+          } else {
+            get().loadCsvData(oa.cooccurrence_csv, 0, [], 'monothematic');
+          }
+        }
       }
 
       // Background pre-fetch all unit tabs so saved projects are 100% self-contained
@@ -842,7 +854,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
         tlachiaIsUploading: false
       });
 
-      // If OpenAlex JSON production is present, automatically load into Biblio Networks and Semantic Biblio
+      // If OpenAlex JSON production is present, automatically load into Biblio Networks, SOM, and Semantic Biblio
       if (data.openalex_data && data.openalex_data.has_json) {
         const oa = data.openalex_data;
         set({
@@ -850,6 +862,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
           documentCount: oa.document_count || 0,
           termCounts: oa.term_counts || {},
           network: oa.network || null,
+          vosviewerJson: oa.vosviewer_json || null,
           networksByYear: oa.networks_by_year || null,
           cooccurrenceCsv: oa.cooccurrence_csv || null,
           // Semantic Biblio
@@ -861,6 +874,18 @@ export const useSomStore = create<SOMState>((set, get) => ({
           semanticClusters: null,
           semanticClusterAssignment: null
         });
+
+        // Also if cooccurrenceCsv is present, make it available for SOM training
+        if (oa.cooccurrence_csv) {
+          if (get().dataMatrix && get().dataMatrix.length > 0) {
+            set({
+              pendingNetworkCsv: oa.cooccurrence_csv,
+              pendingNetworkOrigin: 'monothematic'
+            });
+          } else {
+            get().loadCsvData(oa.cooccurrence_csv, 0, [], 'monothematic');
+          }
+        }
       }
 
       // Background pre-fetch all unit tabs
@@ -2198,12 +2223,22 @@ export const useSomStore = create<SOMState>((set, get) => ({
       incitesUnitNames: state.incitesUnitNames,
       incitesUnitCache: state.incitesUnitCache,
       incitesActiveUnit: state.incitesActiveUnit,
-      tlachiaUnitNames: state.tlachiaUnitNames,
-      tlachiaUnitCache: state.tlachiaUnitCache,
-      tlachiaActiveUnit: state.tlachiaActiveUnit,
       incitesSidebarTab: state.incitesSidebarTab,
       incitesBaseline: state.incitesBaseline,
       incitesSelectedBaselineSource: state.incitesSelectedBaselineSource,
+
+      // TlachIA Metrics Explorer State
+      tlachiaUnitNames: state.tlachiaUnitNames,
+      tlachiaUnitCache: state.tlachiaUnitCache,
+      tlachiaActiveUnit: state.tlachiaActiveUnit,
+      tlachiaSidebarTab: state.tlachiaSidebarTab,
+      tlachiaBaseline: state.tlachiaBaseline,
+      tlachiaSelectedBaselineSource: state.tlachiaSelectedBaselineSource,
+      tlachiaLimitTop50: state.tlachiaLimitTop50,
+      tlachiaFilterIndicator: state.tlachiaFilterIndicator,
+      tlachiaFilterMinValue: state.tlachiaFilterMinValue,
+      tlachiaIsFilterActive: state.tlachiaIsFilterActive,
+      tlachiaLlmCache: state.tlachiaLlmCache,
 
       // Dimensionality Reduction State
       dimData: state.dimData,
@@ -2244,6 +2279,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
   exportProject: async () => {
     await get().ensureAllIncitesUnitsCached();
+    await get().ensureAllTlachiaUnitsCached();
     const projectData = get().getProjectPayload();
     const jsonString = JSON.stringify(projectData);
     const blob = new Blob([jsonString], { type: 'application/json' });
@@ -2261,7 +2297,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   importProject: (fileContent: string) => {
     try {
       const projectData = JSON.parse(fileContent);
-      if (projectData.version || projectData.config || projectData.incitesUnitNames || projectData.result || projectData.dataMatrix) {
+      if (projectData.version || projectData.config || projectData.incitesUnitNames || projectData.tlachiaUnitNames || projectData.result || projectData.dataMatrix) {
         set({
           activeTab: projectData.activeTab || get().activeTab,
           fileName: projectData.fileName ?? null,
@@ -2322,6 +2358,19 @@ export const useSomStore = create<SOMState>((set, get) => ({
           incitesSidebarTab: projectData.incitesSidebarTab || 'profiles',
           incitesBaseline: projectData.incitesBaseline || null,
           incitesSelectedBaselineSource: projectData.incitesSelectedBaselineSource || null,
+
+          // TlachIA Metrics Explorer State
+          tlachiaUnitNames: projectData.tlachiaUnitNames || null,
+          tlachiaUnitCache: projectData.tlachiaUnitCache || {},
+          tlachiaActiveUnit: projectData.tlachiaActiveUnit || null,
+          tlachiaSidebarTab: projectData.tlachiaSidebarTab || 'profiles',
+          tlachiaBaseline: projectData.tlachiaBaseline || null,
+          tlachiaSelectedBaselineSource: projectData.tlachiaSelectedBaselineSource || null,
+          tlachiaLimitTop50: projectData.tlachiaLimitTop50 ?? true,
+          tlachiaFilterIndicator: projectData.tlachiaFilterIndicator || '',
+          tlachiaFilterMinValue: projectData.tlachiaFilterMinValue || '',
+          tlachiaIsFilterActive: projectData.tlachiaIsFilterActive || false,
+          tlachiaLlmCache: projectData.tlachiaLlmCache || {},
 
           // Dimensionality Reduction State
           dimData: projectData.dimData || null,

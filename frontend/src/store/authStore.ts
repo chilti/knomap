@@ -177,8 +177,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // If projectId is explicitly provided (including null), respect it. Only fallback if omitted (undefined).
     const targetProjectId = projectId !== undefined ? (projectId || undefined) : (useSomStore.getState().cloudProjectId || undefined);
 
-    // Ensure all InCites unit tabs are pre-cached before saving to cloud
+    // Ensure all InCites and TlachIA unit tabs are pre-cached before saving to cloud
     await useSomStore.getState().ensureAllIncitesUnitsCached();
+    await useSomStore.getState().ensureAllTlachiaUnitsCached();
 
     // Get current complete state payload from somStore
     const payload = useSomStore.getState().getProjectPayload();
@@ -228,7 +229,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       const projectData = await response.json();
-      if (projectData && (projectData.version || projectData.config || projectData.incitesUnitNames || projectData.result || projectData.dataMatrix)) {
+      if (projectData && (projectData.version || projectData.config || projectData.incitesUnitNames || projectData.tlachiaUnitNames || projectData.result || projectData.dataMatrix)) {
         useSomStore.getState().importProject(JSON.stringify(projectData));
         useSomStore.setState({
           cloudProjectId: projectId,

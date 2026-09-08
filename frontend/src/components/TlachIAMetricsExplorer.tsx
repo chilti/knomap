@@ -3419,6 +3419,7 @@ export const TlachIAMetricsExplorer: React.FC = () => {
         tlachiaActiveUnit: activeUnit, 
         tlachiaIsUploading: isUploading,
         tlachiaBaseline: baselineData,
+        semanticRecords,
         uploadTlachIAFiles,
         setTlachiaState 
     } = useSomStore();
@@ -3499,6 +3500,12 @@ export const TlachIAMetricsExplorer: React.FC = () => {
                     <p className="text-sm text-gray-400 mt-1">Explore and process OpenAlex TlachIA bibliometric indicators</p>
                 </div>
                 <div className="flex items-center space-x-4">
+                    {semanticRecords && semanticRecords.length > 0 && (
+                        <div className="px-3 py-1.5 bg-emerald-950/70 border border-emerald-700/80 text-emerald-300 text-xs font-semibold rounded-xl flex items-center space-x-2 shadow-sm animate-fade-in">
+                            <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            <span><strong>OpenAlex Works:</strong> {semanticRecords.length.toLocaleString()} trabajos vinculados</span>
+                        </div>
+                    )}
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={isUploading}

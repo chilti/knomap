@@ -843,11 +843,77 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
         except Exception:
             pass
 
+    # Detectar y procesar automáticamente producción científica de OpenAlex JSON si está presente en el paquete
+    openalex_json_data = None
+    json_work_files = [
+        f for f in extracted_files
+        if f.lower().endswith(('.json', '.jsonl', '.ndjson'))
+        and not os.path.basename(f).lower().endswith('manifest.json')
+        and not f.endswith('inventory.json')
+        and not f.endswith('payload.json')
+    ]
+
+    if json_work_files:
+        # Priorizar archivo que contenga openalex_works o openalex
+        json_work_files.sort(
+            key=lambda x: 0 if 'openalex_works' in os.path.basename(x).lower() else (1 if 'openalex' in os.path.basename(x).lower() else 2)
+        )
+        json_file_path = json_work_files[0]
+        try:
+            from vos_parsers import is_openalex_json, parse_openalex_json
+            if is_openalex_json(json_file_path) or 'openalex_works' in os.path.basename(json_file_path).lower():
+                from bibliometrics_parser import _process_record_list
+                # 1. Parsear los registros de OpenAlex una sola vez
+                raw_records = parse_openalex_json(json_file_path)
+
+                # 2. Generar red bibliométrica y matriz de co-ocurrencia
+                biblio_res = _process_record_list(
+                    raw_records,
+                    network_type='co-occurrence',
+                    custom_tag='DE',
+                    max_terms=100,
+                    min_cooccurrence=2,
+                    temporal=False,
+                    extraction_source='keywords',
+                    counting_method='full'
+                )
+
+                # 3. Preparar registros normalizados para Semantic Biblio
+                from semantic_engine import clean_text
+                semantic_recs = []
+                for idx, r in enumerate(raw_records):
+                    semantic_recs.append({
+                        'id': r.get('doi') or r.get('work_id') or r.get('id') or f"ID_{idx+1}",
+                        'title': clean_text(r.get('title') or ''),
+                        'abstract': clean_text(r.get('abstract') or ''),
+                        'keywords': [clean_text(k) for k in r.get('keywords', []) if k],
+                        'authors': [clean_text(a) for a in r.get('authors', []) if a],
+                        'year': str(r.get('year') or ''),
+                        'citations': r.get('citations', 0),
+                        'source': clean_text(r.get('source') or ''),
+                        'doi': clean_text(r.get('doi') or '')
+                    })
+
+                openalex_json_data = {
+                    'has_json': True,
+                    'json_file_name': os.path.basename(json_file_path),
+                    'document_count': biblio_res.get('document_count', len(semantic_recs)),
+                    'network': biblio_res.get('network'),
+                    'vosviewer_json': biblio_res.get('vosviewer_json'),
+                    'networks_by_year': biblio_res.get('networks_by_year'),
+                    'cooccurrence_csv': biblio_res.get('cooccurrence_csv'),
+                    'term_counts': biblio_res.get('term_counts', {}),
+                    'semantic_records': semantic_recs
+                }
+        except Exception as err:
+            warnings.warn(f'Error procesando archivo OpenAlex JSON en paquete TlachIA: {err}')
+
     # Guardar mapa de inventario en el directorio de sesión
     inventory_map = {
         "session_dir": session_dir,
         "units": units,
-        "manifest": manifest_data
+        "manifest": manifest_data,
+        "openalex_data": openalex_json_data
     }
     with open(os.path.join(session_dir, "inventory.json"), 'w', encoding='utf-8') as f:
         json.dump(inventory_map, f, ensure_ascii=False)
@@ -856,7 +922,8 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
         "success": True,
         "session_dir": session_dir,
         "unit_names": sorted(list(units.keys())),
-        "manifest": manifest_data
+        "manifest": manifest_data,
+        "openalex_data": openalex_json_data
     }
 
 

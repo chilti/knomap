@@ -1103,7 +1103,17 @@ def build_incites_inventory(payload_path):
             pass
 
     # Auto-detect and parse OpenAlex JSON if present in the package
-    json_work_files = [f for f in extracted_files if f.endswith('.json') and not f.endswith('inventory.json') and not f.endswith('payload.json')]
+    json_work_files = [
+        f for f in extracted_files 
+        if f.endswith('.json') 
+        and not f.endswith('inventory.json') 
+        and not f.endswith('payload.json') 
+        and not os.path.basename(f).lower().endswith('manifest.json')
+    ]
+    if json_work_files:
+        json_work_files.sort(
+            key=lambda x: 0 if 'openalex_works' in os.path.basename(x).lower() else (1 if 'openalex' in os.path.basename(x).lower() else 2)
+        )
     openalex_json_data = None
     if json_work_files:
         json_file_path = json_work_files[0]
@@ -1120,6 +1130,7 @@ def build_incites_inventory(payload_path):
                     'json_file_name': os.path.basename(json_file_path),
                     'document_count': biblio_res.get('document_count', len(semantic_res.get('records', []))),
                     'network': biblio_res.get('network'),
+                    'vosviewer_json': biblio_res.get('vosviewer_json'),
                     'networks_by_year': biblio_res.get('networks_by_year'),
                     'cooccurrence_csv': biblio_res.get('cooccurrence_csv'),
                     'term_counts': biblio_res.get('term_counts', {}),
