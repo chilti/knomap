@@ -21,8 +21,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; C# Photino Application files
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Configuration template for LLM and Environment
+Source: ".env.example"; DestDir: "{app}"; Flags: ignoreversion
 ; Python Engine scripts
-Source: "engine\*"; DestDir: "{app}\engine"; Excludes: "__pycache__\, .venv\, venv\, temp\"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "engine\*"; DestDir: "{app}\engine"; Excludes: "__pycache__\, .venv\, venv\, temp\, test_output.json, test_*.json, temp_test.json, *.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\knoMap"; Filename: "{app}\knoMap.exe"
