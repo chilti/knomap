@@ -40,8 +40,8 @@ CANONICAL_TLACHIA_ENTITIES = {
     'publication_sources': 'Publication Sources',
     'sources': 'Publication Sources',
     'journals': 'Publication Sources',
-    'countries': 'Countries',
-    'locations': 'Countries',
+    'countries': 'Locations',
+    'locations': 'Locations',
     'sectortypes': 'Sector Types',
     'sector_types': 'Sector Types',
     'sectors': 'Sector Types',
@@ -194,7 +194,6 @@ def identify_tlachia_file(filepath: str) -> Tuple[Optional[str], Optional[str]]:
       - "01_Matrices_Desempeño_Longitudinal/Organizations Performance Matrix.csv" -> ("Organizations", "PerformanceMatrix")
       - "02_Periodos_Consecutivos/Organizations 2017-2026.csv" -> ("Organizations", "2017-2026")
       - "02_Periodos_Consecutivos/Corpus Periodos Consecutivos.csv" -> ("Corpus", "ConsecutivePeriods")
-      - "01_Matrices_Desempeño_Longitudinal/Matriz_Desempeño_Longitudinal_Consolidada.csv" -> ("Consolidated Performance Matrix", "PerformanceMatrix")
     """
     norm_path = filepath.replace('\\', '/')
     base = os.path.basename(norm_path)
@@ -210,40 +209,49 @@ def identify_tlachia_file(filepath: str) -> Tuple[Optional[str], Optional[str]]:
     if clean.lower() in ('manifest', 'inventory', 'payload') or clean.lower().startswith(('leeme', 'readme')):
         return None, None
 
+    # Omitir archivos consolidados generales que no pertenecen a una entidad analítica particular
+    if re.search(r'Matriz[_\s]+Desempe[nñ]o[_\s]+Longitudinal[_\s]+Consolidada', clean, re.IGNORECASE):
+        return None, None
+
     # Detectar categoría por carpeta jerárquica
     is_in_perf = '01_Matrices' in norm_path
     is_in_period = '02_Periodos' in norm_path
     is_in_whole = '03_Historico' in norm_path
     is_in_trend = '04_Tendencias' in norm_path
 
-    # Casos especiales consolidados
-    if re.search(r'Matriz[_\s]+Desempe[nñ]o[_\s]+Longitudinal[_\s]+Consolidada', clean, re.IGNORECASE):
-        return "Consolidated Performance Matrix", "PerformanceMatrix"
-
-    if re.search(r'Periodos[_\s]+Consecutivos', clean, re.IGNORECASE):
-        unit_core = re.sub(r'[\s_]*Periodos[\s_]+Consecutivos[\s_]*', '', clean, flags=re.IGNORECASE).strip()
+    # Casos especiales de periodos consecutivos para el corpus
+    if re.search(r'(?:Periodos|consecutive)[_\s]+(?:Consecutivos|periods)', clean, re.IGNORECASE):
+        unit_core = re.sub(r'[\s_]*(?:Periodos|consecutive)[\s_]+(?:Consecutivos|periods)[\s_]*', '', clean, flags=re.IGNORECASE).strip()
         unit_core = unit_core if unit_core else "Corpus"
-        return unit_core, "ConsecutivePeriods"
+        key_core = unit_core.lower().replace(' ', '').replace('_', '')
+        canonical_core = CANONICAL_TLACHIA_ENTITIES.get(key_core, unit_core)
+        return canonical_core, "ConsecutivePeriods"
 
     period = "Whole"
 
-    # Determinar periodo / ventana temporal
+    # Determinar categoría / periodo
     if is_in_perf or re.search(r'Performance[\s_]*Matrix', clean, re.IGNORECASE):
         period = "PerformanceMatrix"
         clean = re.sub(r'[\s_]*Performance[\s_]*Matrix[\s_]*', ' ', clean, flags=re.IGNORECASE)
-    elif is_in_trend or re.search(r'\bTrend\b', clean, re.IGNORECASE):
+    elif is_in_trend or re.search(r'(?:^|[\s_])Trend(?:$|[\s_])', clean, re.IGNORECASE):
         period = "Trend"
         clean = re.sub(r'[\s_]*Trend[\s_]*', ' ', clean, flags=re.IGNORECASE)
-    elif re.search(r'\b((?:19|20)\d{2}\s*[-_]\s*(?:19|20)\d{2})\b', clean):
-        m = re.search(r'\b((?:19|20)\d{2})\s*[-_]\s*((?:19|20)\d{2})\b', clean)
+    elif re.search(r'(?:^|[\s_])(?:recent|reciente|5years)(?:$|[\s_])', clean, re.IGNORECASE):
+        period = "5Years"
+        clean = re.sub(r'[\s_]*(?:recent|reciente|5years)[\s_]*', ' ', clean, flags=re.IGNORECASE)
+    elif re.search(r'(?:^|[\s_])(?:full|completo|whole)(?:$|[\s_])', clean, re.IGNORECASE):
+        period = "Whole"
+        clean = re.sub(r'[\s_]*(?:full|completo|whole)[\s_]*', ' ', clean, flags=re.IGNORECASE)
+    elif re.search(r'(?:^|[\s_])((?:19|20)\d{2})[-_]((?:19|20)\d{2})(?:$|[\s_])', clean):
+        m = re.search(r'(?:^|[\s_])((?:19|20)\d{2})[-_]((?:19|20)\d{2})(?:$|[\s_])', clean)
         period = f"{m.group(1)}-{m.group(2)}"
-        clean = re.sub(r'[\s_]*\b(?:19|20)\d{2}\s*[-_]\s*(?:19|20)\d{2}\b[\s_]*', ' ', clean)
+        clean = re.sub(r'[\s_]*(?:19|20)\d{2}[-_](?:19|20)\d{2}[\s_]*', ' ', clean)
     elif is_in_period:
         period = "Period"
     elif is_in_whole:
         period = "Whole"
 
-    clean = clean.strip()
+    clean = clean.replace('_', ' ').strip()
     clean = re.sub(r'\s+', ' ', clean)
 
     # Normalización contra catálogo canónico
@@ -258,48 +266,59 @@ def identify_tlachia_file(filepath: str) -> Tuple[Optional[str], Optional[str]]:
 
 def parse_longitudinal_data(perf_matrix_path: Optional[str] = None,
                             consecutive_period_files: Optional[Dict[str, str]] = None,
-                            unit_name: str = "") -> Optional[Dict[str, Any]]:
+                            unit_name: str = "",
+                            df_whole: Optional[pd.DataFrame] = None) -> Optional[Dict[str, Any]]:
     """
     Parsea matrices de desempeño longitudinal con tasas de cambio interperiódicas
-    (Δ% Documentos, Δ FWCI, H-Index, etc.) y genera matrices listas para SOM intertemporal.
+    (Δ% Documentos, Δ FWCI, H-Index, etc.) y genera matrices listas para la metodología
+    longitudinal del SOM (entrenamiento encadenado con Warm-Start intertemporal).
     """
     if not perf_matrix_path and not consecutive_period_files:
         return None
 
     try:
-        # Caso A: Archivo dedicado Performance Matrix
-        if perf_matrix_path and os.path.exists(perf_matrix_path):
-            df = read_tlachia_file(perf_matrix_path)
-            if df is not None and not df.empty:
-                entity_col = 'Name' if 'Name' in df.columns else df.columns[0]
+        # 1. Carga de archivos de periodos consecutivos válidos (descartando archivos vacíos <= 10 bytes)
+        period_dfs = {}
+        if consecutive_period_files:
+            sorted_period_keys = sorted(
+                [k for k in consecutive_period_files.keys() if k not in ("Summary", "5Years", "Period")],
+                key=lambda x: int(str(x).split('-')[0]) if '-' in str(x) else 0
+            )
+            for p in sorted_period_keys:
+                fpath = consecutive_period_files[p]
+                if fpath and os.path.exists(fpath) and os.path.getsize(fpath) > 10:
+                    p_df = read_tlachia_file(fpath)
+                    if p_df is not None and not p_df.empty and len(p_df) > 0:
+                        period_dfs[p] = p_df
 
-                # Extraer periodos de cabeceras como 'Docs (2017-2026)' o 'FWCI (2017-2026)'
+        # Si no hay periodos consecutivos en archivos individuales, intentar extraer desde Performance Matrix
+        if not period_dfs and perf_matrix_path and os.path.exists(perf_matrix_path):
+            df_perf = read_tlachia_file(perf_matrix_path)
+            if df_perf is not None and not df_perf.empty:
+                entity_col = 'Name' if 'Name' in df_perf.columns else df_perf.columns[0]
                 periods = []
-                for c in df.columns:
+                for c in df_perf.columns:
                     m = re.search(r'\((\d{4}\s*-\s*\d{4})\)', str(c))
                     if m:
                         p_tag = m.group(1).replace(' ', '')
                         if p_tag not in periods:
                             periods.append(p_tag)
-
                 periods.sort(key=lambda x: int(x.split('-')[0]) if '-' in str(x) else 0)
 
                 if periods:
                     sample_p = periods[0]
                     core_metrics = []
-                    for c in df.columns:
+                    for c in df_perf.columns:
                         if f'({sample_p})' in str(c):
                             m_name = str(c).replace(f'({sample_p})', '').strip()
                             core_metrics.append(m_name)
 
-                    delta_cols = [str(c) for c in df.columns if any(sym in str(c) for sym in ['Δ', 'Delta', '->', '→'])]
-
+                    delta_cols = [str(c) for c in df_perf.columns if any(sym in str(c) for sym in ['Δ', 'Delta', '->', '→'])]
                     entities = []
-                    for _, row in df.iterrows():
+                    for _, row in df_perf.iterrows():
                         ent_name = str(row[entity_col]).strip()
                         if not ent_name or ent_name.lower() in ('nan', 'none', ''):
                             continue
-
                         ent_entry = {
                             'entity': ent_name,
                             'total_docs': float(clean_val(row.get('Total Documents', 0))),
@@ -308,41 +327,42 @@ def parse_longitudinal_data(perf_matrix_path: Optional[str] = None,
                             'periods': {},
                             'deltas': {}
                         }
-
                         for p in periods:
                             p_dict = {}
                             for m in core_metrics:
                                 col_name = f"{m} ({p})"
                                 if col_name in row:
                                     p_dict[m] = clean_val(row[col_name])
+                            p_dict['Docs'] = p_dict.get('Docs', p_dict.get('Documents', 0.0))
+                            p_dict['FWCI'] = p_dict.get('FWCI', p_dict.get('Field-Weighted Citation Impact (FWCI)', 0.0))
                             ent_entry['periods'][p] = p_dict
 
                         for d in delta_cols:
                             ent_entry['deltas'][d] = clean_val(row[d])
-
                         entities.append(ent_entry)
 
-                    # Estructura preparada para el Mapeo Longitudinal SOM y UMAP
+                    cohort_labels = [e['entity'] for e in entities[:1500]]
                     som_periods_data = {}
                     for p in periods:
-                        p_labels = []
                         p_data = []
-                        for ent in entities:
+                        for ent in entities[:1500]:
                             p_vals = ent['periods'].get(p, {})
-                            if p_vals:
-                                vec = [clean_val(p_vals.get(m, 0.0)) for m in core_metrics]
-                                if sum(abs(v) for v in vec) > 0:
-                                    p_labels.append(ent['entity'])
-                                    p_data.append(vec)
-
-                        if p_labels:
-                            som_periods_data[p] = {
-                                "labels": p_labels,
-                                "data": p_data,
-                                "compNames": core_metrics
-                            }
+                            vec = [clean_val(p_vals.get(m, 0.0)) for m in core_metrics]
+                            p_data.append(vec)
+                        m_span = re.search(r'(\d{4})[-_](\d{4})', p)
+                        som_periods_data[p] = {
+                            "labels": cohort_labels,
+                            "data": p_data,
+                            "compNames": core_metrics,
+                            "doc_count": len(cohort_labels),
+                            "start_year": int(m_span.group(1)) if m_span else 0,
+                            "end_year": int(m_span.group(2)) if m_span else 0
+                        }
 
                     return {
+                        "has_longitudinal": True,
+                        "unit": unit_name,
+                        "total_entities": len(entities),
                         "periods": periods,
                         "indicators": core_metrics,
                         "delta_indicators": delta_cols,
@@ -350,78 +370,163 @@ def parse_longitudinal_data(perf_matrix_path: Optional[str] = None,
                         "som_periods_data": som_periods_data
                     }
 
-        # Caso B: Ensamblar desde múltiples archivos de periodos consecutivos
-        if consecutive_period_files:
-            sorted_periods = sorted(
-                consecutive_period_files.keys(),
-                key=lambda x: int(str(x).split('-')[0]) if '-' in str(x) else 0
-            )
+        # 2. Ingesta canónica y estructuración desde 02_Periodos_Consecutivos
+        if not period_dfs:
+            return None
 
-            period_dfs = {}
-            for p in sorted_periods:
-                fpath = consecutive_period_files[p]
-                if fpath and os.path.exists(fpath):
-                    p_df = read_tlachia_file(fpath)
-                    if p_df is not None and not p_df.empty:
-                        period_dfs[p] = p_df
+        active_periods = sorted(
+            period_dfs.keys(),
+            key=lambda x: int(str(x).split('-')[0]) if '-' in str(x) else 0
+        )
+        if not active_periods:
+            return None
 
-            if period_dfs:
-                active_periods = list(period_dfs.keys())
-                first_df = period_dfs[active_periods[0]]
-                entity_col = 'Name' if 'Name' in first_df.columns else first_df.columns[0]
-                numeric_cols = [c for c in first_df.select_dtypes(include=[np.number]).columns if c.lower() != 'rank']
+        # Identificar columnas en el DataFrame más completo (usualmente el más reciente)
+        latest_df = period_dfs[active_periods[-1]]
+        entity_col = 'Name' if 'Name' in latest_df.columns else latest_df.columns[0]
+        numeric_cols = [c for c in latest_df.select_dtypes(include=[np.number]).columns if c.lower() != 'rank']
 
-                all_entities = set()
-                for pdf in period_dfs.values():
-                    all_entities.update(pdf[entity_col].dropna().astype(str).str.strip().tolist())
+        # Indexar cada periodo por nombre de entidad para acceso O(1) ultra rápido
+        indexed_periods = {}
+        for p in active_periods:
+            pdf = period_dfs[p].copy()
+            cleaned_names = pdf[entity_col].dropna().astype(str).str.strip()
+            pdf['__ent_key'] = cleaned_names
+            pdf = pdf.drop_duplicates(subset=['__ent_key']).set_index('__ent_key')
+            indexed_periods[p] = pdf
 
-                # Index each period DataFrame by entity name for O(1) fast lookup
-                indexed_periods = {}
-                for p in active_periods:
-                    pdf = period_dfs[p]
-                    cleaned_names = pdf[entity_col].dropna().astype(str).str.strip()
-                    temp_df = pdf.copy()
-                    temp_df['__ent_key'] = cleaned_names
-                    temp_df = temp_df.drop_duplicates(subset=['__ent_key']).set_index('__ent_key')
-                    indexed_periods[p] = temp_df
+        # Calcular totales históricos de cada entidad para ranking
+        entity_totals = {}
+        entity_citations = {}
+        entity_fwcis = {}
 
-                entities = []
-                for ent_name in sorted(all_entities)[:1500]:
-                    ent_entry = {'entity': ent_name, 'periods': {}, 'deltas': {}}
-                    for p in active_periods:
-                        pdf_idx = indexed_periods[p]
-                        if ent_name in pdf_idx.index:
-                            row = pdf_idx.loc[ent_name]
-                            ent_entry['periods'][p] = {m: clean_val(row.get(m, 0.0)) for m in numeric_cols}
-                        else:
-                            ent_entry['periods'][p] = {m: 0.0 for m in numeric_cols}
-                    entities.append(ent_entry)
+        if df_whole is not None and not df_whole.empty:
+            w_ent_col = 'Name' if 'Name' in df_whole.columns else df_whole.columns[0]
+            w_doc_col = next((c for c in df_whole.columns if c.lower() in ('documents', 'web of science documents')), None)
+            w_cite_col = next((c for c in df_whole.columns if c.lower() in ('times cited', 'citations')), None)
+            w_fwci_col = next((c for c in df_whole.columns if 'fwci' in c.lower()), None)
+            for _, r in df_whole.iterrows():
+                ename = str(r[w_ent_col]).strip()
+                if ename and ename.lower() not in ('nan', 'none', ''):
+                    if w_doc_col and pd.notna(r.get(w_doc_col)):
+                        entity_totals[ename] = clean_val(r[w_doc_col])
+                    if w_cite_col and pd.notna(r.get(w_cite_col)):
+                        entity_citations[ename] = clean_val(r[w_cite_col])
+                    if w_fwci_col and pd.notna(r.get(w_fwci_col)):
+                        entity_fwcis[ename] = clean_val(r[w_fwci_col])
 
-                som_periods_data = {}
-                for p in active_periods:
-                    p_labels = []
-                    p_data = []
-                    for ent in entities:
-                        p_vals = ent['periods'].get(p, {})
-                        vec = [clean_val(p_vals.get(m, 0.0)) for m in numeric_cols]
-                        if sum(abs(v) for v in vec) > 0:
-                            p_labels.append(ent['entity'])
-                            p_data.append(vec)
+        # Complementar o sumar totales desde los periodos si faltan
+        for p, pdf in period_dfs.items():
+            d_col = next((c for c in pdf.columns if c.lower() in ('documents', 'web of science documents')), None)
+            c_col = next((c for c in pdf.columns if c.lower() in ('times cited', 'citations')), None)
+            for _, r in pdf.iterrows():
+                ename = str(r[entity_col]).strip()
+                if not ename or ename.lower() in ('nan', 'none', ''):
+                    continue
+                if ename not in entity_totals and d_col:
+                    entity_totals[ename] = entity_totals.get(ename, 0.0) + clean_val(r[d_col])
+                if ename not in entity_citations and c_col:
+                    entity_citations[ename] = entity_citations.get(ename, 0.0) + clean_val(r[c_col])
 
-                    if p_labels:
-                        som_periods_data[p] = {
-                            "labels": p_labels,
-                            "data": p_data,
-                            "compNames": numeric_cols
-                        }
+        # Ordenar entidades por volumen de documentos
+        sorted_entities = sorted(entity_totals.keys(), key=lambda x: entity_totals.get(x, 0.0), reverse=True)
+        cohort_entities = sorted_entities[:1500] if len(sorted_entities) > 1500 else sorted_entities
 
-                return {
-                    "periods": active_periods,
-                    "indicators": numeric_cols,
-                    "delta_indicators": [],
-                    "entities": entities,
-                    "som_periods_data": som_periods_data
-                }
+        # Construir nombres de indicadores de cambio interperiódico (Deltas)
+        delta_indicators = []
+        for i in range(len(active_periods) - 1):
+            p_prev = active_periods[i]
+            p_curr = active_periods[i + 1]
+            delta_indicators.append(f"Δ% Docs ({p_prev} → {p_curr})")
+            delta_indicators.append(f"Δ FWCI ({p_prev} → {p_curr})")
+
+        # Ensamblar registros individuales de entidades
+        entities = []
+        doc_metric_name = next((c for c in numeric_cols if c.lower() in ('documents', 'web of science documents')), 'Documents')
+        fwci_metric_name = next((c for c in numeric_cols if 'fwci' in c.lower()), 'Field-Weighted Citation Impact (FWCI)')
+
+        for ent_name in cohort_entities:
+            ent_entry = {
+                'entity': ent_name,
+                'total_docs': float(entity_totals.get(ent_name, 0.0)),
+                'total_citations': float(entity_citations.get(ent_name, 0.0)),
+                'total_fwci': float(entity_fwcis.get(ent_name, 0.0)),
+                'periods': {},
+                'deltas': {}
+            }
+
+            for p in active_periods:
+                pdf_idx = indexed_periods[p]
+                if ent_name in pdf_idx.index:
+                    row = pdf_idx.loc[ent_name]
+                    p_dict = {m: clean_val(row.get(m, 0.0)) for m in numeric_cols}
+                else:
+                    p_dict = {m: 0.0 for m in numeric_cols}
+
+                # Alias de acceso rápido para visualizaciones
+                p_dict['Docs'] = p_dict.get(doc_metric_name, 0.0)
+                p_dict['Documents'] = p_dict.get(doc_metric_name, 0.0)
+                p_dict['FWCI'] = p_dict.get(fwci_metric_name, 0.0)
+                p_dict['Field-Weighted Citation Impact (FWCI)'] = p_dict.get(fwci_metric_name, 0.0)
+                ent_entry['periods'][p] = p_dict
+
+            # Calcular deltas interperiódicos dinámicos
+            for i in range(len(active_periods) - 1):
+                p_prev = active_periods[i]
+                p_curr = active_periods[i + 1]
+                v_prev = ent_entry['periods'][p_prev].get('Docs', 0.0)
+                v_curr = ent_entry['periods'][p_curr].get('Docs', 0.0)
+                if v_prev > 0:
+                    d_docs = round(((v_curr - v_prev) / v_prev) * 100.0, 2)
+                elif v_curr > 0:
+                    d_docs = 100.0
+                else:
+                    d_docs = 0.0
+
+                f_prev = ent_entry['periods'][p_prev].get('FWCI', 0.0)
+                f_curr = ent_entry['periods'][p_curr].get('FWCI', 0.0)
+                d_fwci = round(f_curr - f_prev, 2)
+
+                ent_entry['deltas'][f"Δ% Docs ({p_prev} → {p_curr})"] = d_docs
+                ent_entry['deltas'][f"Δ FWCI ({p_prev} → {p_curr})"] = d_fwci
+
+            entities.append(ent_entry)
+
+        # 3. Construir matrices homogéneas [N x D] para el Entrenamiento Encadenado SOM (Warm-Start)
+        som_periods_data = {}
+        cohort_labels = [e['entity'] for e in entities]
+
+        for p in active_periods:
+            matrix_data = []
+            for e in entities:
+                p_vals = e['periods'].get(p, {})
+                vec = [clean_val(p_vals.get(m, 0.0)) for m in numeric_cols]
+                matrix_data.append(vec)
+
+            m_span = re.search(r'(\d{4})[-_](\d{4})', p)
+            start_yr = int(m_span.group(1)) if m_span else 0
+            end_yr = int(m_span.group(2)) if m_span else 0
+            period_doc_count = int(sum(e['periods'][p].get('Docs', 0.0) for e in entities))
+
+            som_periods_data[p] = {
+                "labels": cohort_labels,
+                "data": matrix_data,
+                "compNames": numeric_cols,
+                "doc_count": period_doc_count,
+                "start_year": start_yr,
+                "end_year": end_yr
+            }
+
+        return {
+            "has_longitudinal": True,
+            "unit": unit_name,
+            "total_entities": len(entities),
+            "periods": active_periods,
+            "indicators": numeric_cols,
+            "delta_indicators": delta_indicators,
+            "entities": entities,
+            "som_periods_data": som_periods_data
+        }
 
     except Exception as e:
         warnings.warn(f"Error procesando datos longitudinales para {unit_name}: {e}")
@@ -651,7 +756,8 @@ def process_tlachia_unit(unit_name: str,
     result["longitudinal"] = parse_longitudinal_data(
         perf_matrix_path=perf_matrix_path,
         consecutive_period_files=consecutive_period_files,
-        unit_name=unit_name
+        unit_name=unit_name,
+        df_whole=df_whole
     )
 
     return result
@@ -701,21 +807,26 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
                     "PerformanceMatrix": None,
                     "ConsecutivePeriods": {}
                 }
+            is_csv = ef.lower().endswith(('.csv', '.xlsx', '.xls'))
             if period == "Whole":
-                units[unit]["Whole"] = ef
+                if not units[unit]["Whole"] or is_csv:
+                    units[unit]["Whole"] = ef
             elif period == "Trend":
-                units[unit]["Trend"] = ef
+                if not units[unit]["Trend"] or is_csv:
+                    units[unit]["Trend"] = ef
             elif period == "PerformanceMatrix":
-                units[unit]["PerformanceMatrix"] = ef
+                if not units[unit]["PerformanceMatrix"] or is_csv:
+                    units[unit]["PerformanceMatrix"] = ef
             elif period == "ConsecutivePeriods":
                 units[unit]["ConsecutivePeriods"]["Summary"] = ef
             elif period:
-                units[unit]["ConsecutivePeriods"][period] = ef
+                if period not in units[unit]["ConsecutivePeriods"] or is_csv:
+                    units[unit]["ConsecutivePeriods"][period] = ef
 
     # Asignar el periodo más reciente a 5Years si no está explícito
     for u, f_dict in units.items():
         if f_dict.get("ConsecutivePeriods"):
-            period_keys = [k for k in f_dict["ConsecutivePeriods"].keys() if k != "Summary"]
+            period_keys = [k for k in f_dict["ConsecutivePeriods"].keys() if k not in ("Summary", "5Years", "Period")]
             if period_keys:
                 sorted_p = sorted(period_keys, key=lambda x: int(str(x).split('-')[0]) if '-' in str(x) else 0)
                 latest_p = sorted_p[-1]
