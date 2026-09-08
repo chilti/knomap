@@ -693,6 +693,35 @@ def main():
     elif action == "preprocess_eda":
         res = handle_preprocess_eda(params)
         print(json.dumps(res))
+    elif action == "tlachia_preprocess":
+        from tlachia_parser import build_tlachia_inventory
+        result = build_tlachia_inventory(payload_raw)
+        output_file = params.get("output_file", "")
+        if output_file:
+            import warnings; warnings.filterwarnings("ignore")
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(result, f, ensure_ascii=False)
+            print(json.dumps({
+                "success": result.get("success", True),
+                "unit_names": result.get("unit_names", []),
+                "session_dir": result.get("session_dir"),
+                "manifest": result.get("manifest")
+            }))
+        else:
+            print(json.dumps(result))
+    elif action == "tlachia_parse_unit":
+        from tlachia_parser import parse_single_unit_from_session as tlachia_parse_unit
+        session_dir = params.get("session_dir", "")
+        unit_name = params.get("unit_name", "")
+        res = tlachia_parse_unit(session_dir, unit_name)
+        output_file = params.get("output_file", "")
+        if output_file:
+            import warnings; warnings.filterwarnings("ignore")
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(res, f, ensure_ascii=False)
+            print(json.dumps({"success": res.get("success", True), "unit_name": unit_name}))
+        else:
+            print(json.dumps(res))
     elif action == "incites_preprocess":
         # Fast inventory build (takes ~1-2 seconds)
         result = build_incites_inventory(payload_raw)

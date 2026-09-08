@@ -125,20 +125,27 @@ def _parse_tabular_file(file_path: str) -> Tuple[List[str], List[str], List[List
 
         # Identify which column contains entity/row label
         label_col_idx = 0
+        found_explicit = False
         for idx, col_name in enumerate(header):
-            c_low = col_name.lower()
+            c_low = col_name.lower().strip()
             if any(k in c_low for k in ["university", "universidad", "entity", "institution", "institucion", "name", "nombre", "label"]):
                 label_col_idx = idx
+                found_explicit = True
                 break
-            if "rank" in c_low or "id" in c_low:
-                label_col_idx = idx
-                break
+        if not found_explicit:
+            for idx, col_name in enumerate(header):
+                c_low = col_name.lower().strip()
+                if "rank" in c_low or "id" in c_low:
+                    label_col_idx = idx
+                    break
 
         # Determine numeric feature columns
         feature_indices = []
         feature_names = []
         for idx, col_name in enumerate(header):
             if idx == label_col_idx:
+                continue
+            if col_name.strip().lower() in ("rank", "id", "identifier", "#"):
                 continue
             # Test if at least some rows have numeric values in this column
             numeric_count = 0

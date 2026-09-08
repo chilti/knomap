@@ -1032,6 +1032,9 @@ def build_incites_inventory(payload_path):
         '01_Matrices' in ef or '02_Periodos' in ef or '03_Historico' in ef or os.path.basename(ef).lower() == 'manifest.json'
         for ef in extracted_files
     )
+    if is_tlachia_pkg:
+        from tlachia_parser import build_tlachia_inventory
+        return build_tlachia_inventory({"files": file_paths})
 
     for ef in extracted_files:
         unit, period = identify_file_type(ef)
@@ -1154,6 +1157,11 @@ def parse_single_unit_from_session(session_dir, unit_name):
 
     with open(inventory_file, 'r', encoding='utf-8') as f:
         inventory_map = json.load(f)
+
+    # Delegar directamente a tlachia_parser si es una sesión de TlachIA Metrics
+    if "tlachia" in session_dir.lower() or "manifest" in inventory_map:
+        from tlachia_parser import parse_single_unit_from_session as tlachia_parse_unit
+        return tlachia_parse_unit(session_dir, unit_name)
 
     units = inventory_map.get("units", {})
     if unit_name not in units:
