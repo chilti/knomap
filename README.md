@@ -167,7 +167,15 @@ Independent **dimensionality reduction** module.
 ## 👥 Developed by
 
 - **Non-Linear Dynamics Laboratory** — Department of Mathematics, Faculty of Sciences, UNAM
-- **Dr. José Luis Jiménez Andrade**
-- **Dr. Humberto Andrés Carrillo Calvet**
+- **Dr. José Luis Jiménez Andrade** (Facultad de Ciencias & C3, UNAM)
+- **Dr. Humberto Andrés Carrillo Calvet** (Facultad de Ciencias & C3, UNAM)
 
 🔗 [www.dynamics.unam.mx](https://www.dynamics.unam.mx/)
+
+---
+
+## 🙏 Acknowledgments / Agradecimientos
+
+We express our special recognition and gratitude to **Romel Calero Ramos** for the architecture, deployment, and maintenance of the high-performance **ClickHouse** analytical database and server infrastructure at the **Center for Complexity Sciences (C3, UNAM)**, which powers the large-scale data querying and processing of this platform.
+
+*Nuestro especial reconocimiento y agradecimiento a **Romel Calero Ramos**, por el diseño, despliegue y administración de la infraestructura de servidores y base de datos analítica masiva en **ClickHouse** en el **Centro de Ciencias de la Complejidad (C3, UNAM)**, pilar fundamental para el procesamiento y consulta a gran escala de los datos de este proyecto.*
