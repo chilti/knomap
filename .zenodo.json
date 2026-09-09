@@ -1,0 +1,32 @@
+{
+  "title": "knoMap: Advanced Analytical Platform for Multidimensional Data and Bibliometric Science Mapping",
+  "description": "knoMap is an advanced analytical desktop and web platform developed at UNAM (Mexico). It enables researchers to explore, process, and visualize multidimensional data, bibliometric networks, and institutional indicators through Self-Organizing Maps (SOM), semantic manifold learning (UMAP), and topological clustering.",
+  "creators": [
+    {
+      "name": "Jiménez Andrade, José Luis",
+      "affiliation": "Facultad de Ciencias y Centro de Ciencias de la Complejidad (C3), Universidad Nacional Autónoma de México (UNAM)",
+      "orcid": "0000-0003-3453-7159"
+    },
+    {
+      "name": "Carrillo Calvet, Humberto Andrés",
+      "affiliation": "Facultad de Ciencias y Centro de Ciencias de la Complejidad (C3), Universidad Nacional Autónoma de México (UNAM)",
+      "orcid": "0000-0003-3659-6769"
+    }
+  ],
+  "keywords": [
+    "knoMap",
+    "Self-Organizing Maps",
+    "SOM",
+    "UMAP",
+    "bibliometrics",
+    "scientometrics",
+    "science mapping",
+    "data visualization",
+    "topological data analysis",
+    "UNAM",
+    "C3"
+  ],
+  "license": "MIT",
+  "upload_type": "software",
+  "access_right": "open"
+}
