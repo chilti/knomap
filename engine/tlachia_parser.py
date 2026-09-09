@@ -213,6 +213,10 @@ def identify_tlachia_file(filepath: str) -> Tuple[Optional[str], Optional[str]]:
     if re.search(r'Matriz[_\s]+Desempe[nñ]o[_\s]+Longitudinal[_\s]+Consolidada', clean, re.IGNORECASE):
         return None, None
 
+    # Omitir archivos de obras completas y tablas de datos en 05_Tablas_Parquet_y_Datos (se procesan por separado)
+    if '05_tablas' in norm_path.lower() or 'openalex_works' in clean.lower() or clean.lower().endswith('_works') or clean.lower().endswith(' works'):
+        return None, None
+
     # Detectar categoría por carpeta jerárquica
     is_in_perf = '01_Matrices' in norm_path
     is_in_period = '02_Periodos' in norm_path
@@ -843,30 +847,38 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
         except Exception:
             pass
 
-    # Detectar y procesar automáticamente producción científica de OpenAlex JSON si está presente en el paquete
+    # Detectar y procesar automáticamente producción científica de OpenAlex (CSV o JSON) si está presente en el paquete
     openalex_json_data = None
-    json_work_files = [
+    works_files = [
         f for f in extracted_files
-        if f.lower().endswith(('.json', '.jsonl', '.ndjson'))
-        and not os.path.basename(f).lower().endswith('manifest.json')
-        and not f.endswith('inventory.json')
-        and not f.endswith('payload.json')
+        if (
+            f.lower().endswith(('_openalex_works.csv', '_works.csv')) or
+            (f.lower().endswith(('.json', '.jsonl', '.ndjson'))
+             and not os.path.basename(f).lower().endswith('manifest.json')
+             and not f.endswith('inventory.json')
+             and not f.endswith('payload.json'))
+        )
     ]
 
-    if json_work_files:
-        # Priorizar archivo que contenga openalex_works o openalex
-        json_work_files.sort(
-            key=lambda x: 0 if 'openalex_works' in os.path.basename(x).lower() else (1 if 'openalex' in os.path.basename(x).lower() else 2)
+    if works_files:
+        # Priorizar archivo CSV de obras o archivo que contenga openalex_works
+        works_files.sort(
+            key=lambda x: 0 if x.lower().endswith('.csv') and 'works' in os.path.basename(x).lower()
+            else (1 if 'openalex_works' in os.path.basename(x).lower() else 2)
         )
-        json_file_path = json_work_files[0]
+        works_file_path = works_files[0]
         try:
-            from vos_parsers import is_openalex_json, parse_openalex_json
-            if is_openalex_json(json_file_path) or 'openalex_works' in os.path.basename(json_file_path).lower():
-                from bibliometrics_parser import _process_record_list
-                # 1. Parsear los registros de OpenAlex una sola vez
-                raw_records = parse_openalex_json(json_file_path)
+            from vos_parsers import is_openalex_json, parse_openalex_json, is_openalex_csv, parse_openalex_csv
+            if works_file_path.lower().endswith('.csv') and (is_openalex_csv(works_file_path) or 'works' in os.path.basename(works_file_path).lower()):
+                raw_records = parse_openalex_csv(works_file_path)
+            elif is_openalex_json(works_file_path) or 'openalex_works' in os.path.basename(works_file_path).lower():
+                raw_records = parse_openalex_json(works_file_path)
+            else:
+                raw_records = []
 
-                # 2. Generar red bibliométrica y matriz de co-ocurrencia
+            if raw_records:
+                from bibliometrics_parser import _process_record_list
+                # 1. Generar red bibliométrica y matriz de co-ocurrencia
                 biblio_res = _process_record_list(
                     raw_records,
                     network_type='co-occurrence',
@@ -878,7 +890,7 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
                     counting_method='full'
                 )
 
-                # 3. Preparar registros normalizados para Semantic Biblio
+                # 2. Preparar registros normalizados para Semantic Biblio
                 from semantic_engine import clean_text
                 semantic_recs = []
                 for idx, r in enumerate(raw_records):
@@ -896,7 +908,7 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
 
                 openalex_json_data = {
                     'has_json': True,
-                    'json_file_name': os.path.basename(json_file_path),
+                    'json_file_name': os.path.basename(works_file_path),
                     'document_count': biblio_res.get('document_count', len(semantic_recs)),
                     'network': biblio_res.get('network'),
                     'vosviewer_json': biblio_res.get('vosviewer_json'),
@@ -906,7 +918,7 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
                     'semantic_records': semantic_recs
                 }
         except Exception as err:
-            warnings.warn(f'Error procesando archivo OpenAlex JSON en paquete TlachIA: {err}')
+            warnings.warn(f'Error procesando obras de OpenAlex en paquete TlachIA: {err}')
 
     # Guardar mapa de inventario en el directorio de sesión
     inventory_map = {
