@@ -1,4 +1,4 @@
-
+{
   "title": "knoMap: Advanced Analytical Platform for Multidimensional Data and Bibliometric Science Mapping",
   "description": "knoMap is an advanced analytical desktop and web platform developed at UNAM (Mexico). It enables researchers to explore, process, and visualize multidimensional data, bibliometric networks, and institutional indicators through Self-Organizing Maps (SOM), semantic manifold learning (UMAP), and topological clustering. Standalone precompiled desktop packages for Windows, Linux, and macOS (Intel and Apple Silicon) are included in the Output/ directory.",
   "creators": [
