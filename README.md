@@ -1,4 +1,7 @@
-# knoMap — knoMap
+# knoMap
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22693920.svg)](https://doi.org/10.5281/zenodo.22693920)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **knoMap** (also known as **knoMap**) is an advanced analytical desktop and web platform developed by the Non-Linear Dynamics Laboratory at UNAM (Mexico). It enables researchers to explore, process, and visualize multidimensional data, bibliometric networks, and institutional indicators through Self-Organizing Maps (SOM), semantic analysis, and dimensionality reduction.
 
@@ -171,6 +174,30 @@ Independent **dimensionality reduction** module.
 - **Dr. Humberto Andrés Carrillo Calvet** (Facultad de Ciencias & C3, UNAM)
 
 🔗 [www.dynamics.unam.mx](https://www.dynamics.unam.mx/)
+
+---
+
+## 📖 How to Cite / Cómo Citar
+
+If you use **knoMap** in your research, science mapping projects, or software workflows, please cite this platform using the following official reference:
+
+### APA:
+> Jiménez Andrade, J. L., & Carrillo Calvet, H. A. (2026). *knoMap: Advanced Analytical Platform for Multidimensional Data and Bibliometric Science Mapping* (Version v1.0.0) [Computer software]. Zenodo. [https://doi.org/10.5281/zenodo.22693920](https://doi.org/10.5281/zenodo.22693920)
+
+### BibTeX:
+```bibtex
+@software{jimenez_andrade_2026_22693920,
+  author       = {Jiménez Andrade, José Luis and
+                  Carrillo Calvet, Humberto Andrés},
+  title        = {knoMap: Advanced Analytical Platform for Multidimensional Data and Bibliometric Science Mapping},
+  month        = sep,
+  year         = 2026,
+  publisher    = {Zenodo},
+  version      = {v1.0.0},
+  doi          = {10.5281/zenodo.22693920},
+  url          = {https://doi.org/10.5281/zenodo.22693920}
+}
+```
 
 ---
 
