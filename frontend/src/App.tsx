@@ -8,6 +8,7 @@ import { InCitesExplorer } from './components/InCitesExplorer';
 import { TlachIAMetricsExplorer } from './components/TlachIAMetricsExplorer';
 import { AiAssistantTab } from './components/AiAssistantTab';
 import { LongitudinalSomViewer } from './components/LongitudinalSomViewer';
+import { HelpTab } from './components/HelpTab';
 import { useAiStore } from './store/aiStore';
 import { useAuthStore } from './store/authStore';
 import { LoginScreen } from './components/LoginScreen';
@@ -17,7 +18,7 @@ import { ProjectsDrawer } from './components/ProjectsDrawer';
 import { LlmConfigModal } from './components/LlmConfigModal';
 import { VosApiModal } from './components/vos/VosApiModal';
 import { EntityMergerModal } from './components/EntityMergerModal';
-import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield, Bot, Key, TrendingUp, GitMerge } from 'lucide-react';
+import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield, Bot, Key, TrendingUp, GitMerge, HelpCircle } from 'lucide-react';
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
 
@@ -83,7 +84,8 @@ export default function App() {
     setTemporalWindow,
     cooccurrenceMatricesByPeriod,
     setTemporalAnalysisMode,
-    setBiblioActiveView
+    setBiblioActiveView,
+    setHelpSection
   } = useSomStore();
 
   const { llmConfig, openLlmConfigModal } = useAiStore();
@@ -270,7 +272,7 @@ export default function App() {
     return <LoginScreen />;
   }
 
-  const handleTabChange = (newTab: 'multidimensional' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'tlachia_metrics' | 'asistente') => {
+  const handleTabChange = (newTab: 'multidimensional' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'tlachia_metrics' | 'asistente' | 'ayuda') => {
     const state = useSomStore.getState();
     if (newTab === 'multidimensional' && state.activeTab === 'bibliometrics') {
       if (state.pendingNetworkCsv) {
@@ -564,6 +566,25 @@ export default function App() {
                     </div>
                   )}
                 </button>
+
+                {/* 5. Help & Documentation */}
+                <button
+                  onClick={() => handleTabChange('ayuda')}
+                  title={isSidebarCollapsed ? "Help & Documentation" : undefined}
+                  className={`flex items-center ${isSidebarCollapsed ? 'justify-center px-0 py-3' : 'justify-between px-4 py-3'
+                    } rounded-xl text-sm font-semibold transition-all ${activeTab === 'ayuda'
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-950/60'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                    }`}
+                >
+                  <span className="flex items-center">
+                    <HelpCircle className={`w-4 h-4 ${isSidebarCollapsed ? '' : 'mr-3'} ${activeTab === 'ayuda' ? 'text-white' : 'text-emerald-400'}`} />
+                    {!isSidebarCollapsed && <span>Help & Guides</span>}
+                  </span>
+                  {!isSidebarCollapsed && (
+                    <ArrowRight className="w-3.5 h-3.5 opacity-50" />
+                  )}
+                </button>
               </nav>
             </div>
 
@@ -663,6 +684,7 @@ export default function App() {
                   {activeTab === 'incites' && 'InCites Explorer'}
                   {activeTab === 'tlachia_metrics' && 'TlachIA Metrics Explorer'}
                   {activeTab === 'asistente' && 'Sinapsis AI Assistant'}
+                  {activeTab === 'ayuda' && 'Help & Documentation Center'}
                 </h2>
                 <p className="text-xs text-gray-400">
                   {activeTab === 'multidimensional' && 'Train and project multi-feature vectors using Self-Organizing Maps.'}
@@ -673,10 +695,34 @@ export default function App() {
                   {activeTab === 'incites' && 'Analyze institutional and country metrics across InCites units.'}
                   {activeTab === 'tlachia_metrics' && 'Analyze OpenAlex multidimensional indicators, Diamond Open Access, APC economics, and taxonomy trees.'}
                   {activeTab === 'asistente' && 'Interpret quantitative visualizations, formulate hypotheses, and compile interactive reports with the local model.'}
+                  {activeTab === 'ayuda' && 'Technical guidelines for preparing and naming Clarivate InCites datasets, TlachIA Metrics packages, and SOM workflows.'}
                 </p>
               </div>
 
               <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                {activeTab !== 'ayuda' && (
+                  <button
+                    onClick={() => {
+                      const sectionMap: Record<string, 'incites' | 'tlachia' | 'multidimensional' | 'dimreduction' | 'bibliometrics' | 'semantic' | 'asistente' | 'general'> = {
+                        multidimensional: 'multidimensional',
+                        dimreduction: 'dimreduction',
+                        bibliometrics: 'bibliometrics',
+                        semantic_bibliometrics: 'semantic',
+                        incites: 'incites',
+                        tlachia_metrics: 'tlachia',
+                        asistente: 'asistente'
+                      };
+                      setHelpSection(sectionMap[activeTab] || 'general');
+                      setActiveTab('ayuda');
+                    }}
+                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-950/80 to-teal-950/80 hover:from-emerald-900/90 hover:to-teal-900/90 text-emerald-300 hover:text-white text-xs font-bold rounded-xl border border-emerald-500/40 transition flex items-center space-x-1.5 shadow-md shadow-emerald-950/40 cursor-pointer"
+                    title="View help guide for current module"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Module Guide</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => {
                     if (window.confirm("Are you sure you want to close the current project and reset the workspace?")) {
@@ -815,6 +861,11 @@ export default function App() {
               {/* Tab 6: Asistente IA */}
               {activeTab === 'asistente' && (
                 <AiAssistantTab />
+              )}
+
+              {/* Tab 7: Help & Documentation */}
+              {activeTab === 'ayuda' && (
+                <HelpTab />
               )}
 
               {/* Tab 3: Bibliometrics Preprocessor */}

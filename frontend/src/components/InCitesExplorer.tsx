@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download, Database, TrendingUp, Filter, Check } from 'lucide-react';
+import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download, Database, TrendingUp, Filter, Check, HelpCircle } from 'lucide-react';
 import { useSomStore, getApiUrl } from '../store/somStore';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
@@ -2758,7 +2758,9 @@ export const InCitesExplorer: React.FC = () => {
         incitesIsUploading: isUploading,
         incitesBaseline: baselineData,
         uploadInCitesFiles,
-        setIncitesState 
+        setIncitesState,
+        setActiveTab,
+        setHelpSection
     } = useSomStore();
 
     // Helper setters to keep code similar
@@ -2836,11 +2838,22 @@ export const InCitesExplorer: React.FC = () => {
                     <h2 className="text-2xl font-bold text-white tracking-tight">InCites Data</h2>
                     <p className="text-sm text-gray-400 mt-1">Explore and process Clarivate InCites bibliometric indicators</p>
                 </div>
-                <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-3">
+                    <button
+                        onClick={() => {
+                            setHelpSection('incites');
+                            setActiveTab('ayuda');
+                        }}
+                        className="px-3.5 py-2 bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 hover:text-white text-xs font-bold rounded-xl border border-indigo-500/30 transition flex items-center space-x-2 shadow-sm cursor-pointer"
+                        title="View file naming and download guidelines for Clarivate InCites"
+                    >
+                        <HelpCircle className="w-4 h-4 text-indigo-400" />
+                        <span>InCites File Guide</span>
+                    </button>
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={isUploading}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-indigo-900/50 transition flex items-center space-x-2 disabled:opacity-50"
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-indigo-900/50 transition flex items-center space-x-2 disabled:opacity-50 cursor-pointer"
                     >
                         {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                         <span>{isUploading ? 'Processing...' : 'Upload ZIP / Excel'}</span>
@@ -2864,11 +2877,33 @@ export const InCitesExplorer: React.FC = () => {
                         <>
                             <p className="text-gray-300 font-semibold text-base mb-1">No recognized InCites units found</p>
                             <p className="text-xs text-gray-500 max-w-md">
-                                Please ensure uploaded files follow standard InCites naming (e.g. <span className="text-indigo-400">Incites Locations.csv</span>, <span className="text-indigo-400">Incites Research Areas.xlsx</span>) or upload a ZIP archive containing InCites exports.
+                                Please ensure uploaded files follow standard InCites naming (e.g. <span className="text-indigo-400">Incites Locations.xlsx</span>, <span className="text-indigo-400">Incites Organizations 2019-2023.xlsx</span>, <span className="text-indigo-400">Incites Organizations Trend.xlsx</span>) or upload a ZIP archive containing InCites exports.
                             </p>
+                            <button
+                                onClick={() => {
+                                    setHelpSection('incites');
+                                    setActiveTab('ayuda');
+                                }}
+                                className="mt-3 inline-flex items-center space-x-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium underline cursor-pointer"
+                            >
+                                <HelpCircle className="w-3.5 h-3.5" />
+                                <span>Check InCites export & file naming guide (Full period, 5 years & Trend)</span>
+                            </button>
                         </>
                     ) : (
-                        <p>Upload InCites CSV/Excel files or a ZIP file to get started.</p>
+                        <>
+                            <p className="text-gray-400 text-sm mb-1">Upload InCites CSV/Excel files or a ZIP file to get started.</p>
+                            <button
+                                onClick={() => {
+                                    setHelpSection('incites');
+                                    setActiveTab('ayuda');
+                                }}
+                                className="mt-2 inline-flex items-center space-x-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium underline cursor-pointer"
+                            >
+                                <HelpCircle className="w-3.5 h-3.5" />
+                                <span>How to export and name InCites files (Whole, 5Years & Trend)</span>
+                            </button>
+                        </>
                     )}
                 </div>
             )}

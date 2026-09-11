@@ -149,9 +149,9 @@ interface SOMState {
   isTraining: boolean;
   isGeneratingUmap: boolean;
   isPreprocessing: boolean;
-  uploadProgress: number | null;
-  activeTab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'tlachia_metrics' | 'asistente';
-  
+  activeTab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'tlachia_metrics' | 'asistente' | 'ayuda';
+  helpSection: 'incites' | 'tlachia' | 'multidimensional' | 'dimreduction' | 'bibliometrics' | 'semantic' | 'asistente' | 'general';
+  setHelpSection: (section: 'incites' | 'tlachia' | 'multidimensional' | 'dimreduction' | 'bibliometrics' | 'semantic' | 'asistente' | 'general') => void;
   // Experiment History (Multi-Training Runs)
   savedRuns: SomRun[];
   activeRunId: string | null;
@@ -397,7 +397,7 @@ interface SOMState {
   
   // Setters & Actions
   setConfig: (config: Partial<SOMConfig>) => void;
-  setActiveTab: (tab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'tlachia_metrics' | 'asistente') => void;
+  setActiveTab: (tab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'tlachia_metrics' | 'asistente' | 'ayuda') => void;
   fetchSystemStatus: () => Promise<void>;
   loadCsvData: (csvText: string, labelColIndex?: number, ignoreCols?: number[], origin?: 'csv' | 'monothematic' | 'bipartite', fileName?: string, provenance?: DataProvenance) => void;
   applyNormalization: (type: NormalizationType) => void;
@@ -535,6 +535,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
   isPreprocessing: false,
   uploadProgress: null,
   activeTab: 'multidimensional',
+  helpSection: 'incites',
+  setHelpSection: (section) => set({ helpSection: section }),
   cloudProjectId: null,
   cloudProjectTitle: null,
   

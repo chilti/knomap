@@ -77,3 +77,11 @@ Este plan define la arquitectura e implementación para trasladar el conjunto de
 - Cargar archivos InCites en la nueva pestaña **InCites (La Maquinita)**.
 - Verificar que los gráficos interactivos (MDS, Sunburst, Cuartiles, Violines, Series de tiempo ECMA) se rendericen correctamente.
 - Probar el botón **"Entrenar en SOM"** y verificar que la matriz pase automáticamente al módulo de entrenamiento de redes SOM y genere los mapas hexagonales.
+
+---
+
+## Extensiones Futuras y Roadmap (TODO)
+
+- **Analítica de Revistas, Países Editoriales y Filtro de Hiperautoría:**  
+  Para la especificación técnica completa de la ingesta de *Publication Sources*, distribución por países editoriales, endogamia nacional vs. internacionalización, y el motor de filtrado de megacolaboraciones (≤100 autores), consultar:  
+  [todo_incites_editorial_and_sensitivity.md](file:///c:/Users/jlja/Documents/Proyectos/knomap/docs/todo_incites_editorial_and_sensitivity.md).
