@@ -1,19 +1,14 @@
 import React, { useState } from 'react';
 import {
-  HelpCircle,
   BarChart2,
   Database,
   Layers,
   FileText,
   Copy,
   Check,
-  ArrowRight,
   FolderArchive,
   Calendar,
-  TrendingUp,
   AlertCircle,
-  CheckCircle2,
-  ExternalLink,
   Sparkles,
   BookOpen,
   Compass,
@@ -24,8 +19,6 @@ import {
   Cpu,
   Save,
   Grid,
-  Zap,
-  Terminal,
   Activity
 } from 'lucide-react';
 import { useSomStore } from '../store/somStore';
@@ -656,7 +649,7 @@ export const HelpTab: React.FC = () => {
                 <li><strong className="text-white">Lotka&apos;s Law</strong>: Inverse square law of author scientific productivity.</li>
                 <li><strong className="text-white">Bradford&apos;s Law</strong>: Core and peripheral journal dispersion zones.</li>
                 <li><strong className="text-white">Zipf&apos;s Law</strong>: Term frequency-rank power law.</li>
-                <li><strong className="text-white">Price&apos;s Law</strong>: Half of all papers produced by $\sqrt{N}$ elite authors.</li>
+                <li><strong className="text-white">Price&apos;s Law</strong>: Half of all papers produced by {"$\\sqrt{N}$"} elite authors.</li>
               </ul>
             </div>
           </div>

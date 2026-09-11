@@ -149,6 +149,7 @@ interface SOMState {
   isTraining: boolean;
   isGeneratingUmap: boolean;
   isPreprocessing: boolean;
+  uploadProgress: number | null;
   activeTab: 'multidimensional' | 'temporal' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'tlachia_metrics' | 'asistente' | 'ayuda';
   helpSection: 'incites' | 'tlachia' | 'multidimensional' | 'dimreduction' | 'bibliometrics' | 'semantic' | 'asistente' | 'general';
   setHelpSection: (section: 'incites' | 'tlachia' | 'multidimensional' | 'dimreduction' | 'bibliometrics' | 'semantic' | 'asistente' | 'general') => void;
