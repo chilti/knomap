@@ -14,7 +14,10 @@ for p in [ENGINE_DIR, ENGINE_LIB]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except (ImportError, ModuleNotFoundError):
+    from mcp.server.mcpserver import MCPServer as FastMCP
 
 import main_engine
 from hardware_detector import detect_hardware

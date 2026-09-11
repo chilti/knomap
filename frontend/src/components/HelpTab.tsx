@@ -45,78 +45,79 @@ export const HelpTab: React.FC = () => {
   ] as const;
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 text-gray-200 overflow-y-auto pr-2 space-y-8">
-      {/* 1. Header Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-gray-900 via-indigo-950/60 to-gray-900 border border-indigo-500/20 p-8 shadow-2xl">
-        <div className="absolute -right-10 -top-10 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute right-40 -bottom-20 w-64 h-64 bg-cyan-600/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div className="max-w-3xl space-y-2">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold uppercase tracking-wider">
-              <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Complete System Documentation & Guidelines</span>
-            </div>
-            <h1 className="text-3xl font-extrabold text-white tracking-tight">
-              <span className="bg-gradient-to-r from-indigo-400 via-cyan-300 to-teal-300 bg-clip-text text-transparent">KnoMap</span> Knowledge Base
-            </h1>
-            <p className="text-sm text-gray-300 leading-relaxed">
-              Explore in-depth technical manuals, file naming rules, methodological foundations, and analytical workflows across all KnoMap modules: from <strong>Clarivate InCites</strong> and <strong>TlachIA OpenAlex</strong> to <strong>Self-Organizing Maps (SOM)</strong>, <strong>Manifold Learning</strong>, and the <strong>Sinapsis AI Assistant</strong>.
+    <div className="flex flex-col h-full bg-gray-950 text-gray-200 overflow-y-auto pr-2 space-y-6">
+      {/* 1. Module Documentation Header & Quick Links */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-900 border border-gray-800 rounded-2xl p-4 px-5 shadow-sm gap-3 shrink-0">
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 bg-indigo-600/20 border border-indigo-500/30 rounded-xl text-indigo-400 shrink-0">
+            <BookOpen className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-white leading-none">
+              System Documentation & Technical Guidelines
+            </h3>
+            <p className="text-xs text-gray-400 mt-1">
+              Select any analytical module below to inspect file naming rules, schemas, and methodological workflows.
             </p>
           </div>
+        </div>
 
-          {/* Quick Access to Explorers */}
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              onClick={() => setActiveTab('incites')}
-              className="px-3.5 py-2 bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-950/80 transition flex items-center space-x-1.5 border border-indigo-400/30 cursor-pointer"
-            >
-              <BarChart2 className="w-3.5 h-3.5 text-indigo-200" />
-              <span>InCites Explorer</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('tlachia_metrics')}
-              className="px-3.5 py-2 bg-cyan-700/80 hover:bg-cyan-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-950/80 transition flex items-center space-x-1.5 border border-cyan-400/30 cursor-pointer"
-            >
-              <Database className="w-3.5 h-3.5 text-cyan-200" />
-              <span>TlachIA Metrics</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('multidimensional')}
-              className="px-3.5 py-2 bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-amber-950/80 transition flex items-center space-x-1.5 border border-amber-400/30 cursor-pointer"
-            >
-              <Grid className="w-3.5 h-3.5 text-amber-200" />
-              <span>SOM Explorer</span>
-            </button>
-          </div>
+        {/* Quick Module Jump Buttons */}
+        <div className="flex items-center space-x-2 shrink-0">
+          <button
+            onClick={() => setActiveTab('incites')}
+            className="px-3 py-1.5 bg-gray-950 hover:bg-indigo-600 text-gray-300 hover:text-white text-xs font-bold rounded-xl border border-gray-800 transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+            title="Open InCites Explorer"
+          >
+            <BarChart2 className="w-3.5 h-3.5 text-indigo-400" />
+            <span>InCites</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('tlachia_metrics')}
+            className="px-3 py-1.5 bg-gray-950 hover:bg-cyan-600 text-gray-300 hover:text-white text-xs font-bold rounded-xl border border-gray-800 transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+            title="Open TlachIA Metrics"
+          >
+            <Database className="w-3.5 h-3.5 text-cyan-400" />
+            <span>TlachIA</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('multidimensional')}
+            className="px-3 py-1.5 bg-gray-950 hover:bg-amber-600 text-gray-300 hover:text-white text-xs font-bold rounded-xl border border-gray-800 transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+            title="Open SOM Explorer"
+          >
+            <Grid className="w-3.5 h-3.5 text-amber-400" />
+            <span>SOM</span>
+          </button>
         </div>
       </div>
 
       {/* 2. Navigation Pills Selector */}
-      <div className="flex items-center space-x-2 border-b border-gray-800 pb-3 overflow-x-auto">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = helpSection === item.key;
-          return (
-            <button
-              key={item.key}
-              onClick={() => setHelpSection(item.key as any)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 whitespace-nowrap cursor-pointer shrink-0 ${
-                isActive
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-950/60 border border-indigo-400/40'
-                  : 'bg-gray-900/80 text-gray-400 hover:bg-gray-800 hover:text-gray-200 border border-gray-800'
-              }`}
-            >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : item.color}`} />
-              <span>{item.label}</span>
-              <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${
-                isActive ? 'bg-indigo-950 text-indigo-200 border border-indigo-400/30' : 'bg-gray-950 text-gray-500 border border-gray-800'
-              }`}>
-                {item.badge}
-              </span>
-            </button>
-          );
-        })}
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-2 shadow-sm shrink-0">
+        <div className="flex items-center space-x-2 overflow-x-auto p-1">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = helpSection === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => setHelpSection(item.key as any)}
+                className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 whitespace-nowrap cursor-pointer shrink-0 border ${
+                  isActive
+                    ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-950/60'
+                    : 'bg-gray-950 text-gray-400 hover:bg-gray-800 hover:text-gray-200 border-gray-800'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : item.color}`} />
+                <span>{item.label}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                  isActive ? 'bg-indigo-900 text-indigo-100 border border-indigo-400/40' : 'bg-gray-900 text-gray-500 border border-gray-800'
+                }`}>
+                  {item.badge}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* ────────────────────────────────────────────────────────────────────────── */}

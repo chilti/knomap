@@ -258,7 +258,7 @@ DIRECTIVAS CRÍTICAS:
 """
 
 def load_modular_skills() -> str:
-    """Dynamically loads and consolidates all SKILL.md files from engine/skills or .agents/skills."""
+    """Dynamically loads concise summaries of available modular skills from engine/skills or .agents/skills."""
     skills_dirs = [
         os.path.join(os.path.dirname(__file__), "skills"),
         os.path.join(os.path.dirname(__file__), "..", ".agents", "skills")
@@ -279,19 +279,22 @@ def load_modular_skills() -> str:
                         seen_skills.add(entry)
                         try:
                             with open(skill_md_path, "r", encoding="utf-8") as f:
-                                content = f.read()
-                                if content.startswith("---"):
-                                    parts = content.split("---", 2)
-                                    if len(parts) >= 3:
-                                        content = parts[2].strip()
-                                loaded_skills.append(f"### Skill Especializado: {entry}\n{content}")
+                                desc = None
+                                for line in f:
+                                    if line.lower().startswith("description:"):
+                                        desc = line.split(":", 1)[1].strip()
+                                        break
+                                if desc:
+                                    loaded_skills.append(f"- **{entry}**: {desc}")
+                                else:
+                                    loaded_skills.append(f"- **{entry}**")
                         except Exception:
                             pass
         except Exception:
             pass
 
     if loaded_skills:
-        return "\n\n=== SKILLS METODOLÓGICOS CARGADOS DESDE DISCO (engine/skills/) ===\n\n" + "\n\n---\n\n".join(loaded_skills)
+        return "\n\n=== CAPACIDADES Y SKILLS METODOLÓGICOS DISPONIBLES ===\n" + "\n".join(loaded_skills) + "\n"
     return ""
 
 def build_system_prompt(project_context: Optional[Dict[str, Any]] = None) -> str:
@@ -545,18 +548,42 @@ class AgentBridge:
                     err_detail = e.read().decode("utf-8")
                 except Exception:
                     pass
-                msg = f"HTTP {e.code}: {e.reason}"
-                if e.code == 401:
-                    msg += " -> Se requiere una API Key válida. Haz clic en el botón 'API & Model' en la barra superior para configurarla o selecciona tu proveedor local."
-                elif err_detail:
-                    msg += f" - {err_detail}"
-                return {
-                    "success": False,
-                    "agent_engine": "native_fallback_error",
-                    "error": f"Error de comunicación con el LLM ({msg})",
-                    "steps": session_context["steps"],
-                    "artifacts": session_context["artifacts"]
-                }
+
+                # Fallback: if LLM server (e.g. LM Studio) rejects tools/grammar constraints, retry as direct chat
+                resp_data = None
+                if "Cannot combine structured output constraints" in err_detail or "tools" in err_detail.lower():
+                    try:
+                        payload_no_tools = {
+                            "model": model,
+                            "messages": messages,
+                            "temperature": 0.3
+                        }
+                        req_no_tools = urllib.request.Request(
+                            url,
+                            data=json.dumps(payload_no_tools).encode("utf-8"),
+                            headers={
+                                "Content-Type": "application/json",
+                                "Authorization": f"Bearer {api_key}" if api_key else ""
+                            }
+                        )
+                        with urllib.request.urlopen(req_no_tools, timeout=120) as resp_retry:
+                            resp_data = json.loads(resp_retry.read().decode("utf-8"))
+                    except Exception as retry_err:
+                        err_detail += f" [Retry error: {retry_err}]"
+
+                if resp_data is None:
+                    msg = f"HTTP {e.code}: {e.reason}"
+                    if e.code == 401:
+                        msg += " -> Se requiere una API Key válida. Haz clic en el botón 'API & Model' en la barra superior para configurarla o selecciona tu proveedor local."
+                    elif err_detail:
+                        msg += f" - {err_detail}"
+                    return {
+                        "success": False,
+                        "agent_engine": "native_fallback_error",
+                        "error": f"Error de comunicación con el LLM ({msg})",
+                        "steps": session_context["steps"],
+                        "artifacts": session_context["artifacts"]
+                    }
             except Exception as e:
                 return {
                     "success": False,
