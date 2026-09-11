@@ -149,6 +149,9 @@ export default function App() {
     }
   };
 
+  // Main dashboard scroll container ref
+  const mainContentRef = useRef<HTMLElement>(null);
+
   // Collapsible sidebar state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -281,7 +284,16 @@ export default function App() {
       }
     }
     setActiveTab(newTab);
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
   };
+
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+  }, [activeTab]);
 
   const handlePreprocess = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -836,7 +848,7 @@ export default function App() {
             </header>
 
             {/* 3. Render Dashboard Tabs */}
-            <section className={`flex-1 min-h-0 ${activeTab === 'asistente' ? 'p-0 overflow-hidden h-full' : 'p-8 overflow-auto'}`}>
+            <section ref={mainContentRef} className={`flex-1 min-h-0 ${activeTab === 'asistente' ? 'p-0 overflow-hidden h-full' : 'p-8 overflow-auto'}`}>
               {/* Tab 1: Dataset & SOM config */}
               {activeTab === 'multidimensional' && <ExploradorDatos />}
 

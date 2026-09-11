@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   BarChart2,
   Database,
@@ -26,6 +26,13 @@ import { useSomStore } from '../store/somStore';
 export const HelpTab: React.FC = () => {
   const { helpSection, setHelpSection, setActiveTab } = useSomStore();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+  }, [helpSection]);
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -45,7 +52,7 @@ export const HelpTab: React.FC = () => {
   ] as const;
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 text-gray-200 overflow-y-auto pr-2 space-y-6">
+    <div ref={containerRef} className="flex flex-col h-full bg-gray-950 text-gray-200 overflow-y-auto pr-2 space-y-6">
       {/* 1. Module Documentation Header & Quick Links */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gray-900 border border-gray-800 rounded-2xl p-4 px-5 shadow-sm gap-3 shrink-0">
         <div className="flex items-center space-x-3">
