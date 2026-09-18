@@ -576,27 +576,12 @@ def extract_profile_data(df: Optional[pd.DataFrame]) -> Tuple[List[Dict[str, Any
     ent_df = ent_df.head(1500)
     cols = numeric_cols
 
-    q1_col = next((c for c in ent_df.columns if re.search(r'top\s*10%|q1', str(c), re.IGNORECASE)), None)
-    q2_col = next((c for c in ent_df.columns if re.search(r'top\s*1%|q2', str(c), re.IGNORECASE)), None)
-
     for _, row in ent_df.iterrows():
         entity_name = str(row[entity_col]).strip()
         profile_row = {"entity": entity_name}
         for col_name in cols:
             profile_row[col_name] = clean_val(row[col_name])
         prof.append(profile_row)
-
-        if q1_col:
-            q1_val = clean_val(row[q1_col])
-            q2_val = clean_val(row[q2_col]) if q2_col else 0.0
-            if q1_val > 0 or q2_val > 0:
-                quart.append({
-                    "entity": entity_name,
-                    "Q1": q1_val,
-                    "Q2": q2_val,
-                    "Q3": 0.0,
-                    "Q4": 0.0
-                })
 
     return prof, quart, cols, ent_df
 

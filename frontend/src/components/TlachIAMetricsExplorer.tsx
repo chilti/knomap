@@ -401,7 +401,6 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
 
     const hasRecentData = unit.profile_5years && unit.profile_5years.length > 0;
     const activeProfile = useRecent && hasRecentData ? unit.profile_5years : unit.profile;
-    const activeQuartiles = useRecent && hasRecentData && unit.quartiles_5years ? unit.quartiles_5years : unit.quartiles;
     const activeSunburst = useRecent && hasRecentData && unit.sunburst_5years ? unit.sunburst_5years : unit.sunburst;
 
     const barData1 = useMemo(() => {
@@ -436,10 +435,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
             .sort((a: any, b: any) => b.value - a.value);
     }, [activeProfile, barInd2, selectedChartEntities]);
 
-    const quartileChartData = useMemo(() => {
-        if (!activeQuartiles) return [];
-        return activeQuartiles.filter((q: any) => selectedChartEntities.includes(q.entity));
-    }, [activeQuartiles, selectedChartEntities]);
+
 
     const matchingFilterCount = useMemo(() => {
         if (!activeProfile || !filterIndicator) return 0;
@@ -524,59 +520,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
         setActiveTab('multidimensional');
     };
 
-    const handleTrainSOMQuartiles = () => {
-        if (!unit || !activeQuartiles || activeQuartiles.length === 0) {
-            alert("No quartile data available to train SOM.");
-            return;
-        }
 
-        // 1. Filter entities from activeQuartiles using the active threshold filter on activeProfile
-        let candidateRows = [...activeQuartiles];
-        const thresholdNum = parseFloat(String(filterMinValue));
-        if (isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0 && activeProfile) {
-            const matchingEntities = new Set(
-                activeProfile
-                    .filter((r: any) => parseVal(r[filterIndicator]) >= thresholdNum)
-                    .map((r: any) => String(r.entity))
-            );
-            candidateRows = candidateRows.filter((q: any) => matchingEntities.has(String(q.entity)));
-        }
-
-        if (candidateRows.length === 0) {
-            alert(`No entities match the filter criteria (${filterIndicator} >= ${filterMinValue}).`);
-            return;
-        }
-
-        // 2. Apply Max 50 limit if enabled
-        const finalRows = limitTop50 ? candidateRows.slice(0, 50) : candidateRows;
-
-        let csvContent = "Entity,Q1,Q2,Q3,Q4\n";
-        finalRows.forEach((row: any) => {
-            const rowData = [
-                `"${row.entity}"`,
-                parseVal(row.Q1),
-                parseVal(row.Q2),
-                parseVal(row.Q3),
-                parseVal(row.Q4)
-            ];
-            csvContent += rowData.join(",") + "\n";
-        });
-
-        const filterDescription = isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0
-            ? `Filtered (${filterIndicator} >= ${thresholdNum})`
-            : 'All entities';
-
-        loadCsvData(csvContent, 0, [], 'csv', `${unitName}_Quartiles`, {
-            originType: 'tlachia',
-            unitName: unitName,
-            subView: `Quartiles Q1-Q4 (${finalRows.length} entities)`,
-            indicatorsCount: 4,
-            indicatorsList: ['Q1', 'Q2', 'Q3', 'Q4'],
-            smoothingInfo: `${filterDescription} | ${limitTop50 ? 'Max 50' : 'Unbounded'}`
-        });
-        setConfig({ method: 'batch', init: 'pca' });
-        setActiveTab('multidimensional');
-    };
 
     const bubbleChartData = useMemo(() => {
         if (!activeProfile || !bubbleIndX || !bubbleIndY || !bubbleIndSize || !bubbleIndColor) {
@@ -1015,7 +959,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                         Use 2021-2025 Data
                                     </label>
                                     <p className="text-[10px] text-gray-500">
-                                        {hasRecentData ? 'Applies to Profile, Quartiles, and Sunburst.' : 'No 2021-2025 file uploaded.'}
+                                        {hasRecentData ? 'Applies to Profile and Sunburst.' : 'No 2021-2025 file uploaded.'}
                                     </p>
                                 </div>
                             </div>
@@ -2657,121 +2601,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                 </div>
                             )}
 
-                            {/* Quartiles Chart */}
-                            {quartileChartData && quartileChartData.length > 0 ? (
-                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col">
-                                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                                        <div>
-                                            <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2 flex-wrap gap-1">
-                                                <span>Quartile Distribution (Q1–Q4)</span>
-                                                <span className="text-gray-500 font-normal text-xs">({quartileChartData.length} entities)</span>
-                                                {isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0 && (
-                                                    <span className="px-2 py-0.5 bg-indigo-950/80 border border-cyan-500/60 text-cyan-300 text-[10px] font-bold rounded-lg flex items-center space-x-1">
-                                                        <Filter className="w-2.5 h-2.5" />
-                                                        <span className="truncate max-w-[150px]">{filterIndicator} ≥ {filterMinValue}</span>
-                                                    </span>
-                                                )}
-                                            </h3>
-                                        </div>
-                                        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
-                                            <ExportButtons
-                                                containerId="chart-quartile-distribution"
-                                                filename="quartile_distribution"
-                                                chartTitle={`Quartile Distribution (Q1-Q4): ${unitName}`}
-                                                chartType="bar"
-                                                chartData={quartileChartData}
-                                                dataPrompt={`Impact Quartile Distribution (Q1-Q4) for "${unitName}" unit.\n` +
-                                                    `Total entities: ${quartileChartData.length}.\n` +
-                                                    `Percentage breakdown across quartiles (Q1: Top 25%, Q2: 25-50%, Q3: 50-75%, Q4: 75-100%):\n` +
-                                                    quartileChartData.slice(0, 30).map((q: any) =>
-                                                        `- ${q.entity}: Q1=${q.Q1?.toFixed(1) || 0}%, Q2=${q.Q2?.toFixed(1) || 0}%, Q3=${q.Q3?.toFixed(1) || 0}%, Q4=${q.Q4?.toFixed(1) || 0}%`
-                                                    ).join('\n')
-                                                }
-                                            />
 
-                                            {/* Filter Trigger Button */}
-                                            <button
-                                                type="button"
-                                                onClick={() => setIsFilterModalOpen(true)}
-                                                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center space-x-1.5 cursor-pointer ${
-                                                    isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0
-                                                        ? 'bg-indigo-900/60 text-cyan-300 border-cyan-500/80 shadow-md shadow-indigo-950'
-                                                        : 'bg-gray-950 hover:bg-gray-800 text-gray-300 border-gray-800 hover:border-gray-700'
-                                                }`}
-                                                title="Filter entities by minimum threshold on any indicator"
-                                            >
-                                                <Filter className="w-3.5 h-3.5" />
-                                                <span>{isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0 ? `Filter: ≥ ${filterMinValue}` : 'Filter Units'}</span>
-                                            </button>
-
-                                            {/* Limit Top 50 Checkbox */}
-                                            <label 
-                                                className="flex items-center space-x-1.5 text-xs text-gray-300 cursor-pointer select-none bg-gray-950 px-2.5 py-1.5 rounded-xl border border-gray-800 hover:border-gray-700" 
-                                                title="Send at most 50 entities to Train SOM (Default: Active)"
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={limitTop50}
-                                                    onChange={(e) => setTlachiaState({ tlachiaLimitTop50: e.target.checked })}
-                                                    className="w-3.5 h-3.5 bg-gray-950 border-gray-700 rounded text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-900 cursor-pointer"
-                                                />
-                                                <span className="font-semibold text-gray-200 text-[11px]">Max 50</span>
-                                            </label>
-
-                                            <button
-                                                type="button"
-                                                onClick={handleTrainSOMQuartiles}
-                                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-900/30 transition-all flex items-center space-x-1.5 cursor-pointer shrink-0"
-                                                title={`Train SOM with Q1-Q4 (${limitTop50 ? 'up to 50' : 'all'} filtered entities)`}
-                                            >
-                                                <Activity className="w-3.5 h-3.5" />
-                                                <span>Train SOM</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="w-full overflow-y-auto custom-scrollbar h-[420px] bg-white rounded-xl" id="chart-quartile-distribution">
-                                        <div style={{ height: dynamicChartHeight }}>
-                                            <ResponsiveContainer width="100%" height={dynamicChartHeight} minHeight={300} key={`qchart_${sidebarTab}_${dynamicChartHeight}`}>
-                                                <BarChart data={quartileChartData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                                                <XAxis type="number" domain={[0, 100]} stroke="#64748b" tick={{ fontSize: 10, fill: '#1e293b', fontWeight: 500 }} unit="%" />
-                                                <YAxis dataKey="entity" type="category" width={160} stroke="#64748b" tick={{ fontSize: 9, fill: '#1e293b', fontWeight: 500 }} interval={0} />
-                                                <RechartsTooltip
-                                                    content={({ active, payload, label }) => {
-                                                        if (!active || !payload || !payload.length) return null;
-                                                        return (
-                                                            <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-xl shadow-xl text-xs space-y-1">
-                                                                <p className="font-bold text-gray-200 border-b border-gray-800 pb-1 mb-1">{label}</p>
-                                                                {payload.map((entry: any, i: number) => (
-                                                                    <div key={i} className="flex items-center justify-between space-x-4">
-                                                                        <span className="font-medium" style={{ color: entry.fill }}>
-                                                                            {entry.name}:
-                                                                        </span>
-                                                                        <span className="font-bold text-gray-200 ml-2">
-                                                                            {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}%
-                                                                        </span>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        );
-                                                    }}
-                                                />
-                                                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px', color: '#1e293b' }} />
-                                                <Bar dataKey="Q1" name="Q1 (Top 25%)" stackId="q" fill="#6366f1" radius={[0, 0, 0, 0]} />
-                                                <Bar dataKey="Q2" name="Q2 (25%-50%)" stackId="q" fill="#34d399" radius={[0, 0, 0, 0]} />
-                                                <Bar dataKey="Q3" name="Q3 (50%-75%)" stackId="q" fill="#fbbf24" radius={[0, 0, 0, 0]} />
-                                                <Bar dataKey="Q4" name="Q4 (75%-100%)" stackId="q" fill="#f87171" radius={[0, 4, 4, 0]} />
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-40 flex flex-col justify-center items-center text-center">
-                                    <h3 className="text-sm font-bold text-gray-300 mb-1">Quartile Distribution (Q1–Q4)</h3>
-                                    <p className="text-xs text-gray-500 max-w-md">Esta unidad de análisis no contiene datos de distribución por cuartiles en los archivos cargados.</p>
-                                </div>
-                            )}
 
                             {/* ── Indicator Bar Charts Pair (Ordered Largest Top to Smallest Bottom) ── */}
                             {activeProfile && activeProfile.length > 0 && unit.indicators && unit.indicators.length > 0 && (
