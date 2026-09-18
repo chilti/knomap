@@ -146,7 +146,11 @@ Explorer for institutional indicators exported from **Clarivate InCites** or ins
 - **Export to SOM:** Select a subset of indicators and train a SOM neural network directly on the entities of the active unit.
 
 ### 🔵 Data & SOM (Self-Organizing Maps)
-The core neural engine for training, calibrating, and exploring **Kohonen Self-Organizing Maps (SOM)**.
+The core neural engine for data ingestion, variable selection, neural training, and exploring **Kohonen Self-Organizing Maps (SOM)**.
+
+<p align="center">
+  <img src="image/CargarDatos.png" alt="Data Loading, Variable Selection & Normalization" width="90%" />
+</p>
 
 <p align="center">
   <img src="image/EntrenarSOM.png" alt="SOM Neural Network Training & Parameter Tuning" width="90%" />
