@@ -3,7 +3,11 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22693920.svg)](https://doi.org/10.5281/zenodo.22693920)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**knoMap** (also known as **knoMap**) is an advanced analytical desktop and web platform developed by the Non-Linear Dynamics Laboratory at UNAM (Mexico). It enables researchers to explore, process, and visualize multidimensional data, bibliometric networks, and institutional indicators through Self-Organizing Maps (SOM), semantic analysis, and dimensionality reduction.
+**knoMap** is an advanced analytical desktop and web platform developed by the Non-Linear Dynamics Laboratory at UNAM (Mexico). It enables researchers to explore, process, and visualize multidimensional data, bibliometric networks, and institutional indicators through Self-Organizing Maps (SOM), semantic analysis, and dimensionality reduction.
+
+<p align="center">
+  <img src="image/MapasSOM.png" alt="knoMap Interactive Self-Organizing Maps" width="95%" />
+</p>
 
 ---
 
@@ -23,19 +27,24 @@ The backend acts as an orchestrator: it serves the React interface as static fil
 
 ## 💻 Installation (Desktop Version)
 
-The desktop version **does not require installing Python, Node.js, or .NET** separately. Everything is bundled in the installer.
+The desktop version **does not require installing Python, Node.js, or .NET** separately. Everything is pre-packaged and bundled ready to run.
 
-### Windows
-Download and run `knoMap_Installer_Lite.exe` from the **Releases** section of this repository and follow the installation wizard.
+> 📥 **Official Release Assets & Downloads:**  
+> All standalone desktop binaries and installers are available at:  
+> **👉 [https://github.com/chilti/knomap/releases/tag/v1.0.0](https://github.com/chilti/knomap/releases/tag/v1.0.0)**
 
-### macOS (Intel and Apple Silicon)
-1. Download `knoMap_Mac_Intel.zip` or `knoMap_Mac_Silicon.zip`.
-2. Unzip and drag `knoMap.app` to your Applications folder.
+| Operating System | Package | Direct Download Link |
+|---|---|---|
+| 🪟 **Windows** (x64) | Standalone Installer | [Download `knoMap_Installer_Lite.exe`](https://github.com/chilti/knomap/releases/tag/v1.0.0) |
+| 🍏 **macOS** (Apple Silicon M1/M2/M3) | Portable App Bundle (`.zip`) | [Download `knoMap_Mac_Silicon.zip`](https://github.com/chilti/knomap/releases/tag/v1.0.0) |
+| 🍏 **macOS** (Intel x64) | Portable App Bundle (`.zip`) | [Download `knoMap_Mac_Intel.zip`](https://github.com/chilti/knomap/releases/tag/v1.0.0) |
+| 🐧 **Linux** (x64) | Standalone Binary (`.zip`) | [Download `knoMap_Linux.zip`](https://github.com/chilti/knomap/releases/tag/v1.0.0) |
 
-> ⚠️ If macOS blocks the app (Gatekeeper security), refer to `INSTRUCCIONES_MAC.txt` included in the ZIP.
+### Quick Start by OS
 
-### Linux
-Download `knoMap_Linux.zip`, extract the contents, and run the main binary.
+- **Windows:** Download and execute `knoMap_Installer_Lite.exe` and follow the guided setup wizard.
+- **macOS:** Download the respective ZIP for your processor, unzip, and move `knoMap.app` to your `/Applications` folder. *(If macOS Gatekeeper prevents opening, check `INSTRUCCIONES_MAC.txt` included in the package).*
+- **Linux:** Download `knoMap_Linux.zip`, extract the files, ensure execution permissions (`chmod +x knoMap`), and launch the binary.
 
 ---
 
@@ -109,15 +118,23 @@ The compiled artifact is automatically copied to `backend/src/knoMap.Backend.Cor
 
 ## ⚙️ Modules and Features
 
-### 🔵 Bibliometrics
-Processing of files exported from **Web of Science** or **PubMed** to generate co-occurrence networks.
+### 🔵 Bibliometrics & Science Mapping
+Processing of files exported from **Web of Science** or **PubMed** to generate and explore complex co-occurrence networks.
+
+<p align="center">
+  <img src="image/BNetworks.png" alt="Bibliometric Network Analysis" width="90%" />
+</p>
 
 - **Supported network types:** Co-occurrence (keywords, MeSH terms, custom fields), Co-authorship, Co-citation, Citation, Bibliographic Coupling, Bipartite (two custom fields).
 - **Temporal mode:** Generates a network series by year to analyze thematic evolution over time.
 - **SOM Integration:** A button transfers the calculated network directly to the "Data & SOM" module for training.
 
-### 🔵 InCites Data
-Explorer for institutional indicators exported from **Clarivate InCites**.
+### 🔵 InCites & Institutional Indicators (TlachIA Metrics)
+Explorer for institutional indicators exported from **Clarivate InCites** or institutional metrics pipelines.
+
+<p align="center">
+  <img src="image/TlachiaMetrics.png" alt="TlachIA Metrics and InCites Institutional Explorer" width="90%" />
+</p>
 
 - **Loading:** Accepts individual or multiple Excel (`.xlsx`) files, or a full **ZIP** archive containing all indicators for an institution.
 - **Automatic unit detection:** Identifies the unit type (Researchers, Organizations, Locations, Publication Sources, Funding Agencies, WoS Categories, ESI, SDG, Macro/Meso/Micro Topics, Patentometrics) from the filename.
@@ -128,8 +145,16 @@ Explorer for institutional indicators exported from **Clarivate InCites**.
   - **Quartile distribution chart** (Q1–Q4) per entity.
 - **Export to SOM:** Select a subset of indicators and train a SOM neural network directly on the entities of the active unit.
 
-### 🔵 Data & SOM
-The main panel for training and exploring the **Self-Organizing Map (SOM)**.
+### 🔵 Data & SOM (Self-Organizing Maps)
+The core neural engine for training, calibrating, and exploring **Kohonen Self-Organizing Maps (SOM)**.
+
+<p align="center">
+  <img src="image/EntrenarSOM.png" alt="SOM Neural Network Training & Parameter Tuning" width="90%" />
+</p>
+
+<p align="center">
+  <img src="image/MapasSOM.png" alt="Interactive Hexagonal SOM Topographic Maps" width="90%" />
+</p>
 
 - **Data import:** CSV/Excel files or direct transfer from the Bibliometrics and InCites modules.
 - **Normalization:** Apply and revert transformations on the data matrix.
@@ -139,11 +164,15 @@ The main panel for training and exploring the **Self-Organizing Map (SOM)**.
 - **UMAP projection:** Visualization of neuron similarity in a 2D space overlaid on the SOM.
 - **Project export:** Save and load the complete analysis state (`.json`).
 
-### 🔵 Dim Reduction
-Independent **dimensionality reduction** module.
+### 🔵 Dim Reduction & Manifold Learning (UMAP)
+Independent **dimensionality reduction** and manifold geometry module.
 
-- Estimation of the intrinsic dimension of the dataset.
-- Reduction to a target dimension using algorithms available in the Python engine.
+<p align="center">
+  <img src="image/UMAP.png" alt="UMAP Manifold Projection and Dimensionality Reduction" width="90%" />
+</p>
+
+- Estimation of the intrinsic dimension of the dataset (skdim, MLE).
+- Reduction to a target dimension using algorithms available in the Python engine (UMAP, PCA).
 - Visualization and export of the reduced matrix for use in the SOM module.
 
 ### 🔵 Semantic Bibliometrics
