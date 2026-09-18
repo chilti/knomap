@@ -269,9 +269,29 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+  }, [activeTab]);
+
   const aiEntries = useAiStore(state => state.entries);
 
-  if (isWebMode && !isAuthenticated && !isAuthLoading) {
+  if (isWebMode && isAuthLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen w-full bg-gray-950 text-gray-100 font-sans">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <div className="text-center">
+            <h2 className="text-sm font-bold text-gray-200">Iniciando knoMap</h2>
+            <p className="text-xs text-gray-500 mt-1">Verificando credenciales del servidor...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isWebMode && !isAuthenticated) {
     return <LoginScreen />;
   }
 
@@ -288,12 +308,6 @@ export default function App() {
       mainContentRef.current.scrollTop = 0;
     }
   };
-
-  useEffect(() => {
-    if (mainContentRef.current) {
-      mainContentRef.current.scrollTop = 0;
-    }
-  }, [activeTab]);
 
   const handlePreprocess = async (e: React.FormEvent) => {
     e.preventDefault();

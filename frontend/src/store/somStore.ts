@@ -133,6 +133,14 @@ export interface SomRun {
   // PathSOM Customizations
   activeTrajectories?: string[];
   entityColorOverrides?: Record<string, string>;
+
+  // Label & Visualization State Snapshot
+  excludedLabels?: string[];
+  showLabels?: boolean;
+  labelStyleOverrides?: Record<string, { color?: string; sizeMultiplier?: number }>;
+  clusterLabels?: Record<number, string>;
+  showClusterLabels?: boolean;
+  componentScaleConfigs?: Record<number, ComponentScaleConfig>;
 }
 
 export interface ComponentScaleConfig {
@@ -1024,10 +1032,32 @@ export const useSomStore = create<SOMState>((set, get) => ({
       set({ activeRunId: null });
       return;
     }
-    const target = get().savedRuns.find(r => r.id === id);
+    const state = get();
+    const currentActiveId = state.activeRunId;
+
+    // Snapshot outgoing run's customizations before switching away
+    const updatedRuns = state.savedRuns.map(r => {
+      if (r.id === currentActiveId) {
+        return {
+          ...r,
+          activeTrajectories: Array.from(state.activeTrajectories || []),
+          entityColorOverrides: { ...state.entityColorOverrides },
+          excludedLabels: Array.from(state.excludedLabels || []),
+          showLabels: state.showLabels,
+          labelStyleOverrides: { ...state.labelStyleOverrides },
+          clusterLabels: { ...state.clusterLabels },
+          showClusterLabels: state.showClusterLabels,
+          componentScaleConfigs: { ...state.componentScaleConfigs }
+        };
+      }
+      return r;
+    });
+
+    const target = updatedRuns.find(r => r.id === id);
     if (!target) return;
 
     set({
+      savedRuns: updatedRuns,
       activeRunId: target.id,
       dataMatrix: target.dataMatrix,
       originalDataMatrix: target.originalDataMatrix,
@@ -1041,7 +1071,13 @@ export const useSomStore = create<SOMState>((set, get) => ({
       cmaWindowSize: target.cmaWindowSize,
       result: target.result,
       activeTrajectories: new Set(target.activeTrajectories || []),
-      entityColorOverrides: target.entityColorOverrides || {}
+      entityColorOverrides: target.entityColorOverrides || {},
+      excludedLabels: new Set(target.excludedLabels || []),
+      showLabels: target.showLabels !== undefined ? target.showLabels : true,
+      labelStyleOverrides: target.labelStyleOverrides || {},
+      clusterLabels: target.clusterLabels || {},
+      showClusterLabels: target.showClusterLabels !== undefined ? target.showClusterLabels : true,
+      componentScaleConfigs: target.componentScaleConfigs || {}
     });
   },
 
@@ -1069,7 +1105,13 @@ export const useSomStore = create<SOMState>((set, get) => ({
             cmaWindowSize: target.cmaWindowSize,
             result: target.result,
             activeTrajectories: new Set(target.activeTrajectories || []),
-            entityColorOverrides: target.entityColorOverrides || {}
+            entityColorOverrides: target.entityColorOverrides || {},
+            excludedLabels: new Set(target.excludedLabels || []),
+            showLabels: target.showLabels !== undefined ? target.showLabels : true,
+            labelStyleOverrides: target.labelStyleOverrides || {},
+            clusterLabels: target.clusterLabels || {},
+            showClusterLabels: target.showClusterLabels !== undefined ? target.showClusterLabels : true,
+            componentScaleConfigs: target.componentScaleConfigs || {}
           };
         }
       }
@@ -1662,6 +1704,25 @@ export const useSomStore = create<SOMState>((set, get) => ({
           defaultName = `[DimRed] ${prov.unitName || 'Reduced'} (${config.rows}x${config.cols})`;
         }
 
+        // Snapshot current active run if exists before adding new run
+        const currentActiveId = state.activeRunId;
+        const syncedSavedRuns = state.savedRuns.map(r => {
+          if (r.id === currentActiveId) {
+            return {
+              ...r,
+              activeTrajectories: Array.from(state.activeTrajectories || []),
+              entityColorOverrides: { ...state.entityColorOverrides },
+              excludedLabels: Array.from(state.excludedLabels || []),
+              showLabels: state.showLabels,
+              labelStyleOverrides: { ...state.labelStyleOverrides },
+              clusterLabels: { ...state.clusterLabels },
+              showClusterLabels: state.showClusterLabels,
+              componentScaleConfigs: { ...state.componentScaleConfigs }
+            };
+          }
+          return r;
+        });
+
         const newRun: SomRun = {
           id: runId,
           name: defaultName,
@@ -1679,13 +1740,19 @@ export const useSomStore = create<SOMState>((set, get) => ({
           cmaWindowSize: state.cmaWindowSize,
           result: trainedResult,
           activeTrajectories: Array.from(state.activeTrajectories || []),
-          entityColorOverrides: { ...state.entityColorOverrides }
+          entityColorOverrides: { ...state.entityColorOverrides },
+          excludedLabels: Array.from(state.excludedLabels || []),
+          showLabels: state.showLabels,
+          labelStyleOverrides: { ...state.labelStyleOverrides },
+          clusterLabels: { ...state.clusterLabels },
+          showClusterLabels: state.showClusterLabels,
+          componentScaleConfigs: { ...state.componentScaleConfigs }
         };
 
         set({
           result: trainedResult,
           isTraining: false,
-          savedRuns: [...state.savedRuns, newRun],
+          savedRuns: [...syncedSavedRuns, newRun],
           activeRunId: runId
         });
         return true;
@@ -2022,7 +2089,13 @@ export const useSomStore = create<SOMState>((set, get) => ({
         cmaWindowSize: 3,
         result: trainedResult,
         activeTrajectories: [],
-        entityColorOverrides: {}
+        entityColorOverrides: {},
+        excludedLabels: [],
+        showLabels: true,
+        labelStyleOverrides: {},
+        clusterLabels: {},
+        showClusterLabels: true,
+        componentScaleConfigs: {}
       };
 
       newRuns.push(runItem);
@@ -2048,7 +2121,13 @@ export const useSomStore = create<SOMState>((set, get) => ({
       activeRunId: latestRun.id,
       fileName: latestRun.fileName,
       activeTab: 'multidimensional',
-      exploSubTab: 'maps'
+      exploSubTab: 'maps',
+      excludedLabels: new Set(),
+      showLabels: true,
+      labelStyleOverrides: {},
+      clusterLabels: {},
+      showClusterLabels: true,
+      componentScaleConfigs: {}
     });
 
     alert(`Se agregaron exitosamente ${newRuns.length} experimentos a "SOM & UMAP" (uno por cada subperíodo temporal), normalizados con ${latestRun.normalizationInfo?.type === 'cooc_association' ? 'Fuerza de Asociación (Association Strength)' : 'Simétrica Bipartita'}.`);
@@ -2164,6 +2243,24 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
   getProjectPayload: () => {
     const state = get();
+    const currentActiveId = state.activeRunId;
+    const syncedSavedRuns = state.savedRuns.map(r => {
+      if (r.id === currentActiveId) {
+        return {
+          ...r,
+          activeTrajectories: Array.from(state.activeTrajectories || []),
+          entityColorOverrides: { ...state.entityColorOverrides },
+          excludedLabels: Array.from(state.excludedLabels || []),
+          showLabels: state.showLabels,
+          labelStyleOverrides: { ...state.labelStyleOverrides },
+          clusterLabels: { ...state.clusterLabels },
+          showClusterLabels: state.showClusterLabels,
+          componentScaleConfigs: { ...state.componentScaleConfigs }
+        };
+      }
+      return r;
+    });
+
     return {
       version: '2.1',
       activeTab: state.activeTab,
@@ -2179,7 +2276,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       compNames: state.compNames,
 
       // Experiment History (Multi-Training Runs)
-      savedRuns: state.savedRuns,
+      savedRuns: syncedSavedRuns,
       activeRunId: state.activeRunId,
       pendingProvenance: state.pendingProvenance,
 

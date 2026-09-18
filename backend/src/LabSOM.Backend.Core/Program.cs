@@ -590,10 +590,13 @@ app.MapGet("/api/auth/me", async (HttpContext ctx, AuthService authSvc, AppDbCon
     var user = await db.Users.FindAsync(userId);
     if (user == null) return Results.Ok(new { success = false, isWebMode = true });
 
+    string renewedToken = authSvc.GenerateJwtToken(user);
+
     return Results.Ok(new
     {
         success = true,
         isWebMode = true,
+        token = renewedToken,
         user = new { id = user.Id, username = user.Username, email = user.Email, role = user.Role }
     });
 });
