@@ -1,21 +1,23 @@
-/**
- * packages/ecosystem-bar/src/TlachiaSuiteBar.jsx
- * Componente React Oficial para la Franja del Ecosistema Científico TlachIA
- */
-
 import React from 'react';
-import { ECOSYSTEM_APPS, SUITE_I18N } from './config.js';
+import { ECOSYSTEM_APPS, SUITE_I18N, type EcosystemApp } from './config';
 import './tlachia-suite-bar.css';
 
-export function TlachiaSuiteBar({
-  currentApp = 'sinapsisai',
+export interface TlachiaSuiteBarProps {
+  currentApp?: 'sinapsisai' | 'revistaslatam' | 'knomap' | 'tlachia_metrics' | string;
+  lang?: 'es' | 'pt' | 'en' | string;
+  isDev?: boolean;
+  onNavigate?: (app: EcosystemApp) => boolean | void;
+}
+
+export const TlachiaSuiteBar: React.FC<TlachiaSuiteBarProps> = ({
+  currentApp = 'knomap',
   lang = 'es',
   isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'),
   onNavigate
-}) {
+}) => {
   const i18n = SUITE_I18N[lang] || SUITE_I18N.es;
 
-  const handleAppClick = (app, e) => {
+  const handleAppClick = (app: EcosystemApp, e: React.MouseEvent) => {
     if (app.id === currentApp) {
       e.preventDefault();
       return;
@@ -46,7 +48,7 @@ export function TlachiaSuiteBar({
           {ECOSYSTEM_APPS.map((app) => {
             const isActive = app.id === currentApp;
             const targetUrl = isDev ? app.devUrl : app.prodUrl;
-            const tagline = app.tagline[lang] || app.tagline.es;
+            const tagline = app.tagline[lang as 'es' | 'pt' | 'en'] || app.tagline.es;
             const controlId = app.id === 'sinapsisai' 
               ? 'suite_tab_infotlachia' 
               : app.id === 'revistaslatam' 
@@ -95,6 +97,6 @@ export function TlachiaSuiteBar({
       </div>
     </header>
   );
-}
+};
 
 export default TlachiaSuiteBar;

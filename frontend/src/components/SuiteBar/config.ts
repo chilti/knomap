@@ -1,9 +1,24 @@
-/**
- * packages/ecosystem-bar/src/config.js
- * Configuración unificada de las 4 aplicaciones del Ecosistema Científico TlachIA
- */
+export interface EcosystemApp {
+  id: string;
+  name: string;
+  shortName: string;
+  tagline: {
+    es: string;
+    pt: string;
+    en: string;
+  };
+  badge: string;
+  badgeColor: string;
+  path: string;
+  devUrl: string;
+  prodUrl: string;
+  icon: string;
+  accentColor: string;
+  glowColor: string;
+  activeBorder: string;
+}
 
-export const ECOSYSTEM_APPS = [
+export const ECOSYSTEM_APPS: EcosystemApp[] = [
   {
     id: "sinapsisai",
     name: "Info TlachIA",
@@ -82,7 +97,7 @@ export const ECOSYSTEM_APPS = [
   }
 ];
 
-export const SUITE_I18N = {
+export const SUITE_I18N: Record<string, Record<string, string>> = {
   es: {
     suiteTitle: "Info TlachIA: Infraestructura para la Ciencia Abierta",
     suiteSubtitle: "Plataformas Integradas de Inteligencia Científica y Bibliometría",
