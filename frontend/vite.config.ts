@@ -5,6 +5,9 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    dedupe: ['react', 'react-dom']
+  },
   base: './',
   build: {
     outDir: path.resolve(__dirname, '../backend/src/LabSOM.Backend.Core/wwwroot'),

@@ -18,6 +18,7 @@ import { ProjectsDrawer } from './components/ProjectsDrawer';
 import { LlmConfigModal } from './components/LlmConfigModal';
 import { VosApiModal } from './components/vos/VosApiModal';
 import { EntityMergerModal } from './components/EntityMergerModal';
+import { SuiteBar } from './components/SuiteBar';
 import { Database, Share2, Sliders, ArrowRight, RefreshCw, ChevronLeft, ChevronRight, Settings, Upload, Save, FolderOpen, FolderX, Layers, Compass, BarChart2, ChevronDown, BookOpen, Cloud, User as UserIcon, LogIn, LogOut, Shield, Bot, Key, TrendingUp, GitMerge, HelpCircle } from 'lucide-react';
 
 const isDesktopApp = typeof (window as any).external?.sendMessage === 'function';
@@ -394,6 +395,9 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Franja Superior del Ecosistema Científico TlachIA */}
+        <SuiteBar />
 
         {/* Main Workspace (Sidebar + Content) */}
         <div className="flex flex-1 overflow-hidden">
