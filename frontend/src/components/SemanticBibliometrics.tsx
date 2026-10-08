@@ -411,12 +411,12 @@ export const SemanticBibliometrics: React.FC = () => {
           ) : (
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-gray-800 text-gray-500">
-                  <th className="py-2 font-semibold">Title</th>
-                  <th className="py-2 font-semibold">Keywords / MeSH</th>
-                  <th className="py-2 font-semibold">Vector</th>
-                  <th className="py-2 font-semibold">Topic</th>
-                  <th className="py-2 font-semibold text-right">DOI</th>
+                <tr className="border-b border-gray-800 text-gray-300 uppercase tracking-wider text-[10px]">
+                  <th className="py-2.5 font-bold">Title</th>
+                  <th className="py-2.5 font-bold">Keywords / MeSH</th>
+                  <th className="py-2.5 font-bold">Vector</th>
+                  <th className="py-2.5 font-bold">Topic</th>
+                  <th className="py-2.5 font-bold text-right">DOI</th>
                 </tr>
               </thead>
               <tbody>
@@ -433,7 +433,7 @@ export const SemanticBibliometrics: React.FC = () => {
                       <td className="py-3 pr-4 font-medium text-gray-100 max-w-sm truncate" title={record.title}>
                         {record.title}
                       </td>
-                      <td className="py-3 pr-4 text-gray-400 max-w-xs truncate" title={(record.keywords || []).join(', ')}>
+                      <td className="py-3 pr-4 text-gray-300 max-w-xs truncate" title={(record.keywords || []).join(', ')}>
                         {(record.keywords || []).join(', ') || 'N/A'}
                       </td>
                       <td className="py-3 pr-4 font-mono text-[10px]" title={vector ? JSON.stringify(vector) : undefined}>
@@ -444,7 +444,7 @@ export const SemanticBibliometrics: React.FC = () => {
                         ) : semanticEmbeddingsCount > 0 ? (
                           <span className="text-emerald-400 font-semibold">[Vectorized] (768d)</span>
                         ) : (
-                          <span className="text-gray-600 italic">Unvectorized</span>
+                          <span className="text-gray-400 italic font-medium">Unvectorized</span>
                         )}
                       </td>
                       <td className="py-3 pr-4 text-indigo-400 font-semibold">
@@ -456,13 +456,13 @@ export const SemanticBibliometrics: React.FC = () => {
                              href={getDoiUrl(record.doi)}
                              target="_blank"
                              rel="noopener noreferrer"
-                             className="inline-flex items-center text-indigo-500 hover:text-indigo-400 space-x-1"
+                             className="inline-flex items-center text-indigo-400 hover:text-indigo-300 space-x-1"
                           >
                              <span className="truncate max-w-[90px]">{record.doi}</span>
                              <ExternalLink className="w-3 h-3" />
                           </a>
                         ) : (
-                          <span className="text-gray-600">N/A</span>
+                          <span className="text-gray-500">N/A</span>
                         )}
                       </td>
                     </tr>
@@ -472,7 +472,7 @@ export const SemanticBibliometrics: React.FC = () => {
             </table>
           )}
           {filteredRecords.length > 10 && (
-            <div className="text-[10px] text-gray-500 text-center py-2 border-t border-gray-800/20">
+            <div className="text-[11px] text-gray-400 text-center py-2.5 border-t border-gray-800/30 font-medium">
               Showing first 10 of {filteredRecords.length} articles. Use the search box to filter.
             </div>
           )}

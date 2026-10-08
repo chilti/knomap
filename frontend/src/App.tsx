@@ -681,7 +681,7 @@ export default function App() {
                         <div className="text-[11px] font-bold text-white tracking-tight leading-snug">
                           Want to leverage your research data?
                         </div>
-                        <p className="text-[9.5px] text-gray-300/90 mt-1 leading-normal font-normal">
+                        <p className="text-[10px] text-gray-200 mt-1 leading-normal font-normal">
                           Deploy knoMap on your machine for private data processing, custom bibliometric corpora, and GPU acceleration.
                         </p>
                         <a
@@ -701,7 +701,7 @@ export default function App() {
                   <img src="https://www.dynamics.unam.mx/images/logos/ldnl-logo.png" alt="Laboratorio de Dinámica no Lineal" className="h-9 w-auto object-contain" />
                 </a>
                 <div className="flex flex-col space-y-1 border-l-2 border-gray-800 pl-3 ml-1 mt-1">
-                  <span className="font-bold text-gray-400 mb-0.5">Authors:</span>
+                  <span className="font-bold text-gray-300 mb-0.5">Authors:</span>
                   <a href="https://www.dynamics.unam.mx/integrantes/humberto-carrillo/" target="_blank" rel="noopener noreferrer" className="text-white hover:text-indigo-400 transition-colors">
                     Humberto Andrés Carrillo Calvet
                   </a>
@@ -717,7 +717,7 @@ export default function App() {
               {/* Theme Picker */}
               {!isSidebarCollapsed && (
                 <div>
-                  <p className="text-[10px] text-gray-500 mb-1.5 uppercase tracking-widest">Theme</p>
+                  <p className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-widest font-semibold">Theme</p>
                   <div className="flex space-x-1.5">
                     {([
                       { key: 'dark',  label: 'Dark',  icon: '●', color: '#050508', ring: '#475569' },
