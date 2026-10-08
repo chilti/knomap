@@ -242,7 +242,7 @@ namespace LabSOM.Backend.Core.Services
     public class SemanticEmbedRequest
     {
         [JsonPropertyName("records")]
-        public List<SemanticRecord> Records { get; set; } = new();
+        public List<SemanticRecord>? Records { get; set; } = new();
 
         [JsonPropertyName("model")]
         public string Model { get; set; } = "nomic";
@@ -311,13 +311,13 @@ namespace LabSOM.Backend.Core.Services
     public class SemanticClusterRequest
     {
         [JsonPropertyName("intrinsic_data")]
-        public List<List<double>> IntrinsicData { get; set; } = new();
+        public List<List<double>>? IntrinsicData { get; set; } = new();
 
         [JsonPropertyName("coords_2d")]
         public List<Coordinate2D> Coords2D { get; set; } = new();
 
         [JsonPropertyName("records")]
-        public List<SemanticRecord> Records { get; set; } = new();
+        public List<SemanticRecord>? Records { get; set; } = new();
 
         [JsonPropertyName("num_levels")]
         public int NumLevels { get; set; } = 2;

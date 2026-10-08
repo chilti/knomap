@@ -1613,16 +1613,30 @@ export const useSomStore = create<SOMState>((set, get) => ({
     if (!vosviewerJson) return { success: false, error: 'No network loaded.' };
 
     try {
-      const response = await fetch('/api/preprocess/vos_recluster', {
+      // Intentar primero con vosviewer_json: null para aprovechar la caché del servidor
+      let response = await fetch('/api/preprocess/vos_recluster', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vosviewer_json: vosviewerJson,
+          vosviewer_json: null,
           resolution: params.resolution,
           min_cluster_size: params.minClusterSize
         })
       });
-      const result = await response.json();
+      let result = await response.json();
+      // Si la caché no existe en el servidor (ej. proyecto importado offline), reenviar con vosviewerJson completo
+      if (!result.success && result.error && result.error.toLowerCase().includes('cache')) {
+        response = await fetch('/api/preprocess/vos_recluster', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vosviewer_json: vosviewerJson,
+            resolution: params.resolution,
+            min_cluster_size: params.minClusterSize
+          })
+        });
+        result = await response.json();
+      }
       if (result.success && result.clusters) {
         return { success: true, clusters: result.clusters };
       }
@@ -2724,16 +2738,22 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
     set({ isSemanticEmbedding: true });
     try {
-      const res = await fetch(getApiUrl('/api/semantic/embed'), {
+      // Intentar primero con records: [] apoyado en semantic_records_cache.json en el servidor
+      let res = await fetch(getApiUrl('/api/semantic/embed'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ records: semanticRecords, model: semanticEmbedModel })
+        body: JSON.stringify({ records: [], model: semanticEmbedModel })
       });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Server returned HTTP ${res.status}: ${errText.slice(0, 150)}`);
+      let json = await res.json();
+      // Si falló por falta de caché (ej. proyecto importado offline), reenviar con semanticRecords completos
+      if (!json.success && json.error && json.error.toLowerCase().includes('cache')) {
+        res = await fetch(getApiUrl('/api/semantic/embed'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ records: semanticRecords, model: semanticEmbedModel })
+        });
+        json = await res.json();
       }
-      const json = await res.json();
       if (json.success) {
         set({
           semanticEmbeddings: json.embeddings,
@@ -2854,22 +2874,36 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
     set({ isSemanticClustering: true });
     try {
-      const res = await fetch(getApiUrl('/api/semantic/cluster'), {
+      const basePayload = {
+        coords_2d: semantic2DCoords,
+        num_levels: semanticNumLevels,
+        min_size: semanticMinSize
+      };
+
+      // Intentar primero con intrinsic_data: [] y records: [] aprovechando la caché del servidor
+      let res = await fetch(getApiUrl('/api/semantic/cluster'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          intrinsic_data: semanticIntrinsicData || [],
-          coords_2d: semantic2DCoords,
-          records: semanticRecords,
-          num_levels: semanticNumLevels,
-          min_size: semanticMinSize
+          ...basePayload,
+          intrinsic_data: [],
+          records: []
         })
       });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Server returned HTTP ${res.status}: ${errText.slice(0, 150)}`);
+      let json = await res.json();
+      // Si la caché no existe en el servidor (ej. proyecto importado offline), reenviar con datos completos
+      if (!json.success && json.error && json.error.toLowerCase().includes('cache')) {
+        res = await fetch(getApiUrl('/api/semantic/cluster'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...basePayload,
+            intrinsic_data: semanticIntrinsicData || [],
+            records: semanticRecords
+          })
+        });
+        json = await res.json();
       }
-      const json = await res.json();
       if (json.success) {
         set({
           semanticClusters: json.clusters,

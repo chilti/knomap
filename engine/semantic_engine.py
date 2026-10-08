@@ -292,6 +292,15 @@ def handle_parse(params):
             "concatenated_text": concatenated_text,
             "extras": extras
         })
+
+    try:
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        cache_path = os.path.join(temp_dir, "semantic_records_cache.json")
+        with open(cache_path, "w", encoding="utf-8") as _f_rec:
+            json.dump(records, _f_rec)
+    except Exception as _e_rec:
+        print(f"[semantic_engine] Notice: could not cache records: {_e_rec}")
         
     return {"success": True, "records": records}
 
@@ -300,7 +309,17 @@ def handle_embed(params):
     model_name = params.get("model", "nomic").lower()
     
     if not records:
-        return {"success": False, "error": "No records provided for embedding."}
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        cache_path = os.path.join(temp_dir, "semantic_records_cache.json")
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as _f_rec:
+                    records = json.load(_f_rec)
+            except Exception as _e_rec:
+                print(f"[semantic_engine] Notice: could not load cached records: {_e_rec}")
+
+    if not records:
+        return {"success": False, "error": "No records provided and no semantic_records_cache.json found on server."}
         
     texts = [r.get("concatenated_text", "") for r in records]
     
@@ -567,6 +586,16 @@ def handle_cluster(params):
     intrinsic_data_list = params.get("intrinsic_data", [])
     coords_2d_list = params.get("coords_2d", [])
     records = params.get("records", [])
+    if not records:
+        temp_dir_rec = os.path.join(os.path.dirname(__file__), "temp")
+        cache_path_rec = os.path.join(temp_dir_rec, "semantic_records_cache.json")
+        if os.path.exists(cache_path_rec):
+            try:
+                with open(cache_path_rec, "r", encoding="utf-8") as _f_rec:
+                    records = json.load(_f_rec)
+            except Exception as _e_rec:
+                print(f"[semantic_engine] Notice: could not load cached records for clustering: {_e_rec}")
+
     num_levels = params.get("num_levels", 2)
     min_size = params.get("min_size", 10)
     
@@ -603,7 +632,6 @@ def handle_cluster(params):
         except Exception as e:
             print(f"LLM not available, fallback to TF-IDF keywords: {e}")
             
-        X_int = np.array(intrinsic_data_list, dtype=np.float32)
         X_2d = np.array([[pt["x"], pt["y"]] for pt in coords_2d_list], dtype=np.float32)
         
         # Let's run HDBSCAN at Level 1 to find the primary clusters

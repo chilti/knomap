@@ -500,7 +500,20 @@ def handle_vos_recluster(params):
     """
     import networkx as nx
 
-    vos_json = params.get("vosviewer_json", {})
+    vos_json = params.get("vosviewer_json")
+    if not vos_json:
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        cache_file = os.path.join(temp_dir, "vosviewer_cache.json")
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f_v:
+                    vos_json = json.load(f_v)
+            except Exception as _e:
+                print(f"[handle_vos_recluster] Notice: could not load vosviewer_cache.json: {_e}")
+
+    if not vos_json:
+        return {"success": False, "error": "No vosviewer_json provided and server cache not found."}
+
     resolution = float(params.get("resolution", 1.0))
     min_cluster_size = int(params.get("min_cluster_size", 2))
 

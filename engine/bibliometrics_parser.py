@@ -1011,9 +1011,7 @@ def _finalize_network(global_graph, records, network_type, custom_tag,
             )
             networks_by_year[label] = {
                 "nodes": y_nodes,
-                "edges": y_edges,
-                "cooccurrence_csv": y_df.to_csv(),
-                "vosviewer_json": y_vos_json
+                "edges": y_edges
             }
             cooccurrence_matrices_by_period[label] = {
                 "data": y_df.values.tolist(),
@@ -1037,6 +1035,15 @@ def _finalize_network(global_graph, records, network_type, custom_tag,
         record_year_getter=record_year_getter,
         record_citations_getter=lambda r: r.get('Cited by', r.get('TC', 0)) if isinstance(r, dict) else 0
     )
+
+    try:
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        if vosviewer_json:
+            with open(os.path.join(temp_dir, "vosviewer_cache.json"), "w", encoding="utf-8") as _f_vos:
+                json.dump(vosviewer_json, _f_vos)
+    except Exception as _v_err:
+        print(f"[bibliometrics_parser] Notice: could not cache vosviewer: {_v_err}")
 
     result = {
         "success": True,
@@ -2380,9 +2387,7 @@ def _metaknowledge_process(filepath, network_type, custom_tag,
 
                 networks_by_year[str(label)] = {
                     "nodes": y_nodes,
-                    "edges": y_edges,
-                    "cooccurrence_csv": y_cooc_csv,
-                    "vosviewer_json": y_vos_json
+                    "edges": y_edges
                 }
                 cooccurrence_matrices_by_period[str(label)] = {
                     "data": y_df.values.tolist(),
@@ -2436,6 +2441,15 @@ def _metaknowledge_process(filepath, network_type, custom_tag,
         record_year_getter=_mk_year_getter,
         record_citations_getter=_mk_cit_getter
     )
+
+    try:
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        if vosviewer_json:
+            with open(os.path.join(temp_dir, "vosviewer_cache.json"), "w", encoding="utf-8") as _f_vos:
+                json.dump(vosviewer_json, _f_vos)
+    except Exception as _v_err:
+        print(f"[bibliometrics_parser] Notice: could not cache vosviewer: {_v_err}")
 
     # 8. Build result
     result_dict = {

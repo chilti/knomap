@@ -229,11 +229,6 @@ app.MapPost("/api/preprocess/api_query", async (ApiQueryRequest request, Preproc
 // 2c. VOS Recluster Endpoint — re-runs Louvain on the current VOS network
 app.MapPost("/api/preprocess/vos_recluster", async (VosReclusterRequest request, PreprocessService preprocessor) =>
 {
-    if (request.Vosviewer_Json is null)
-    {
-        return Results.BadRequest(new { success = false, error = "vosviewer_json is required." });
-    }
-
     var result = await preprocessor.VosReclusterAsync(request);
     if (!result.Success)
     {
@@ -494,11 +489,6 @@ app.MapPost("/api/semantic/preprocess", async (HttpRequest req, SemanticService 
 
 app.MapPost("/api/semantic/embed", async (SemanticEmbedRequest request, SemanticService service) =>
 {
-    if (request.Records == null || request.Records.Count == 0)
-    {
-        return Results.BadRequest(new { success = false, error = "Records list is empty." });
-    }
-
     var result = await service.GenerateEmbeddingsAsync(request);
     return Results.Ok(result);
 });

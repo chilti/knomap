@@ -37,16 +37,29 @@ export const RedBibliometrica: React.FC = () => {
     vosRecluster,
     edaReport,
     isPreprocessing,
-    sharedBibFile
+    sharedBibFile,
+    cooccurrenceMatricesByPeriod
   } = useSomStore();
 
-  const handleSendToSOM = () => {
-    let targetCsv = cooccurrenceCsv;
-    let targetName = 'Bibliometrics Co-occurrence';
-    if (selectedYear !== 'Global' && networksByYear && networksByYear[selectedYear]?.cooccurrence_csv) {
-      targetCsv = networksByYear[selectedYear].cooccurrence_csv;
-      targetName = `Bibliometrics (${selectedYear})`;
+  const getActiveCooccurrenceCsv = (): string | null => {
+    if (selectedYear === 'Global') return cooccurrenceCsv;
+    if (networksByYear && networksByYear[selectedYear]?.cooccurrence_csv) {
+      return networksByYear[selectedYear].cooccurrence_csv;
     }
+    if (cooccurrenceMatricesByPeriod && cooccurrenceMatricesByPeriod[selectedYear]) {
+      const period = cooccurrenceMatricesByPeriod[selectedYear];
+      if (period.data && period.labels) {
+        const header = '""' + period.labels.map(l => `,"${l}"`).join('');
+        const rows = period.data.map((row: number[], i: number) => `"${period.labels![i]}"` + row.map(v => `,${v}`).join(''));
+        return [header, ...rows].join('\n');
+      }
+    }
+    return null;
+  };
+
+  const handleSendToSOM = () => {
+    const targetCsv = getActiveCooccurrenceCsv();
+    const targetName = selectedYear === 'Global' ? 'Bibliometrics Co-occurrence' : `Bibliometrics (${selectedYear})`;
 
     if (!targetCsv) {
       alert("No co-occurrence matrix available to send.");
@@ -340,11 +353,7 @@ export const RedBibliometrica: React.FC = () => {
   };
 
   const handleDownloadCsv = () => {
-    let currentCsv = cooccurrenceCsv;
-    if (selectedYear !== 'Global' && networksByYear && networksByYear[selectedYear]?.cooccurrence_csv) {
-      currentCsv = networksByYear[selectedYear].cooccurrence_csv;
-    }
-    
+    const currentCsv = getActiveCooccurrenceCsv();
     if (!currentCsv) return;
     const blob = new Blob([currentCsv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -357,11 +366,7 @@ export const RedBibliometrica: React.FC = () => {
   };
 
   const renderAdjacencyTable = () => {
-    let currentCsv = cooccurrenceCsv;
-    if (selectedYear !== 'Global' && networksByYear && networksByYear[selectedYear]?.cooccurrence_csv) {
-      currentCsv = networksByYear[selectedYear].cooccurrence_csv;
-    }
-    
+    const currentCsv = getActiveCooccurrenceCsv();
     if (!currentCsv) return null;
     
     const lines = currentCsv.split('\n').map(l => l.trim()).filter(Boolean);
