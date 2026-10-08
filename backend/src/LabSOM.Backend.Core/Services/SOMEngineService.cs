@@ -802,7 +802,7 @@ namespace LabSOM.Backend.Core.Services
     public class EvaluateClustersRequest
     {
         [JsonPropertyName("weights")]
-        public List<List<double>> Weights { get; set; }
+        public List<List<double>>? Weights { get; set; }
 
         [JsonPropertyName("max_k")]
         public int Max_K { get; set; }
@@ -823,7 +823,7 @@ namespace LabSOM.Backend.Core.Services
     public class UmapRequest
     {
         [JsonPropertyName("weights")]
-        public List<List<double>> Weights { get; set; }
+        public List<List<double>>? Weights { get; set; }
 
         [JsonPropertyName("n_neighbors")]
         public int N_Neighbors { get; set; }
@@ -853,7 +853,7 @@ namespace LabSOM.Backend.Core.Services
     public class ReclusterRequest
     {
         [JsonPropertyName("weights")]
-        public List<List<double>> Weights { get; set; }
+        public List<List<double>>? Weights { get; set; }
 
         [JsonPropertyName("algorithm")]
         public string Algorithm { get; set; }
@@ -949,7 +949,7 @@ namespace LabSOM.Backend.Core.Services
     public class LongitudinalSOMTrainingRequest
     {
         [JsonPropertyName("periods_data")]
-        public Dictionary<string, LongitudinalPeriodData> PeriodsData { get; set; } = new();
+        public Dictionary<string, LongitudinalPeriodData>? PeriodsData { get; set; } = new();
 
         [JsonPropertyName("rows")]
         public int Rows { get; set; } = 10;

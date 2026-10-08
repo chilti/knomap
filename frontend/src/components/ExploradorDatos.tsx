@@ -180,14 +180,23 @@ export const ExploradorDatos: React.FC = () => {
     setIsAnalyzingClusters(true);
     setClusterMetricsError(null);
     try {
-      const payload = { weights: currentResult.weights, max_k: config.maxK || 15 };
       const apiUrl = getApiUrl('/api/som/evaluate_clusters');
-      const res = await fetch(apiUrl, {
+      // Intentar primero con weights: [] para aprovechar la caché del servidor
+      let res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ weights: [], max_k: config.maxK || 15 })
       });
-      const json = await res.json();
+      let json = await res.json();
+      // Si la caché del servidor no existe (ej. proyecto importado offline), enviar weights completos como fallback
+      if (!json.success && json.error && json.error.toLowerCase().includes('cache')) {
+        res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weights: currentResult.weights, max_k: config.maxK || 15 })
+        });
+        json = await res.json();
+      }
       if (json.success) {
         setClusterMetricsData(json.metrics);
       } else {
@@ -493,21 +502,31 @@ export const ExploradorDatos: React.FC = () => {
     try {
       const apiUrl = getApiUrl('/api/som/recluster');
       
-      const payload = {
-        weights: result.weights,
+      const basePayload = {
         algorithm: config.clusteringAlgorithm,
         n_clusters: config.nClusters,
         eps: config.eps,
         min_samples: config.minSamples
       };
       
-      const res = await fetch(apiUrl, {
+      // Intentar primero con weights: [] para aprovechar la caché del servidor
+      let res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...basePayload, weights: [] })
       });
       
-      const json = await res.json();
+      let json = await res.json();
+      // Si la caché del servidor no existe (ej. proyecto importado offline), enviar weights completos como fallback
+      if (!json.success && json.error && json.error.toLowerCase().includes('cache')) {
+        res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...basePayload, weights: result.weights })
+        });
+        json = await res.json();
+      }
+      
       if (json.success && json.clustering) {
         reclusterLocally(json.clustering);
         setSubTab('maps');

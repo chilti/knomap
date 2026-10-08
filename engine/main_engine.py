@@ -224,6 +224,14 @@ def handle_train(params):
         # Format weights to list for JSON response
         # self.weights is (rows*cols, input_dim) -> flat-topped lists
         weights_list = solver.weights.cpu().tolist()
+
+        # Cache weights locally for zero-payload reclustering/umap/evaluations
+        try:
+            temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+            np.save(os.path.join(temp_dir, "som_weights_cache.npy"), solver.weights.cpu().numpy())
+        except Exception as _w_err:
+            print(f"[handle_train] Notice: could not cache som weights: {_w_err}")
         
         # Build document-to-neuron mapped label arrays
         # map each document label to its BMU
@@ -272,7 +280,17 @@ def handle_train_longitudinal(params):
     """
     periods_data = params.get("periods_data", {})
     if not periods_data:
-        return {"success": False, "error": "No periods data provided for longitudinal training."}
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        cache_file = os.path.join(temp_dir, "longitudinal_subperiods_cache.json")
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f_sub:
+                    periods_data = json.load(f_sub)
+            except Exception as _p_err:
+                print(f"[handle_train_longitudinal] Notice: could not load subperiods cache: {_p_err}")
+
+    if not periods_data:
+        return {"success": False, "error": "No periods data provided or found in server cache."}
 
     rows = params.get("rows", 8)
     cols = params.get("cols", 12)
@@ -415,17 +433,37 @@ def handle_train_longitudinal(params):
             "traceback": traceback.format_exc()
         }
 
-def handle_evaluate_clusters(params):
-    weights_list = params.get("weights", [])
-    if not weights_list:
-        return {"success": False, "error": "No weights provided."}
+def _get_weights_tensor(params, device="cpu"):
+    """
+    Retrieves weights as a float32 torch.Tensor either from payload params['weights']
+    or from the local server-side cache (engine/temp/som_weights_cache.npy).
+    """
+    import torch
+    weights_list = params.get("weights")
+    if weights_list and len(weights_list) > 0:
+        return torch.tensor(weights_list, dtype=torch.float32, device=device)
     
+    temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+    cache_file = os.path.join(temp_dir, "som_weights_cache.npy")
+    if os.path.exists(cache_file):
+        try:
+            weights_np = np.load(cache_file)
+            return torch.from_numpy(weights_np).float().to(device)
+        except Exception as e:
+            print(f"[_get_weights_tensor] Cache load error: {e}")
+            
+    return None
+
+def handle_evaluate_clusters(params):
     max_k = params.get("max_k", 15)
     
     try:
-        solver = SOMSolver(1, len(weights_list), len(weights_list[0]))
-        import torch
-        solver.weights = torch.tensor(weights_list, dtype=torch.float32, device=solver.device)
+        weights = _get_weights_tensor(params)
+        if weights is None or weights.shape[0] == 0:
+            return {"success": False, "error": "No weights provided or found in server cache."}
+            
+        solver = SOMSolver(1, weights.shape[0], weights.shape[1])
+        solver.weights = weights.to(solver.device)
         
         results = solver.evaluate_clustering(max_k=max_k)
         return {"success": True, "metrics": results}
@@ -434,19 +472,18 @@ def handle_evaluate_clusters(params):
         return {"success": False, "error": f"Evaluation error: {str(e)}", "traceback": traceback.format_exc()}
 
 def handle_recluster(params):
-    weights_list = params.get("weights", [])
-    if not weights_list:
-        return {"success": False, "error": "No weights provided."}
-    
     algorithm = params.get("algorithm", "dbscan")
     n_clusters = params.get("n_clusters", 4)
     eps = params.get("eps", 0.5)
     min_samples = params.get("min_samples", 3)
     
     try:
-        solver = SOMSolver(1, len(weights_list), len(weights_list[0]))
-        import torch
-        solver.weights = torch.tensor(weights_list, dtype=torch.float32, device=solver.device)
+        weights = _get_weights_tensor(params)
+        if weights is None or weights.shape[0] == 0:
+            return {"success": False, "error": "No weights provided or found in server cache."}
+            
+        solver = SOMSolver(1, weights.shape[0], weights.shape[1])
+        solver.weights = weights.to(solver.device)
         
         clustering_labels = solver.get_clustering(algorithm=algorithm, n_clusters=n_clusters, eps=eps, min_samples=min_samples)
         return {"success": True, "clustering": clustering_labels}
@@ -536,19 +573,17 @@ def handle_vos_recluster(params):
         return {"success": False, "error": f"VOS recluster error: {str(e)}", "traceback": traceback.format_exc()}
 
 def handle_umap(params):
-    import torch
     from som_solver import run_umap
     
-    weights_list = params.get("weights", [])
-    if not weights_list:
-        return {"success": False, "error": "No weights provided."}
-        
     n_neighbors = params.get("n_neighbors", 15)
     min_dist = params.get("min_dist", 0.1)
     metric = params.get("metric", "euclidean")
     
     try:
-        data = torch.tensor(weights_list, dtype=torch.float32)
+        data = _get_weights_tensor(params)
+        if data is None or data.shape[0] == 0:
+            return {"success": False, "error": "No weights provided or found in server cache."}
+            
         # Using fallback_level 3 for safety on potentially large inputs in python context
         umap_embedding, umap_source = run_umap(data, fallback_level=3, n_components=2, n_neighbors=n_neighbors, min_dist=min_dist, metric=metric)
         return {

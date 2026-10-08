@@ -377,13 +377,8 @@ app.MapPost("/api/som/train", async (SOMTrainingRequest request, SOMEngineServic
 
 app.MapPost("/api/som/train-longitudinal", async (LongitudinalSOMTrainingRequest request, SOMEngineService engine) =>
 {
-    if (request.PeriodsData == null || request.PeriodsData.Count == 0)
-    {
-        return Results.BadRequest(new { success = false, error = "Periods data is empty or invalid." });
-    }
-    
     var sw = System.Diagnostics.Stopwatch.StartNew();
-    Console.WriteLine($"[SOM] Starting train-longitudinal for {request.PeriodsData.Count} periods (Grid: {request.Rows}x{request.Cols}, Method: {request.Method}, Iterations: {request.Iterations}, Refine: {request.RefineIterations})...");
+    Console.WriteLine($"[SOM] Starting train-longitudinal for {request.PeriodsData?.Count ?? 0} periods (Grid: {request.Rows}x{request.Cols}, Method: {request.Method}, Iterations: {request.Iterations}, Refine: {request.RefineIterations})...");
     
     var result = await engine.TrainLongitudinalAsync(request);
     sw.Stop();
@@ -400,11 +395,6 @@ app.MapPost("/api/som/train-longitudinal", async (LongitudinalSOMTrainingRequest
 // 4. Evaluate Clustering Endpoint
 app.MapPost("/api/som/evaluate_clusters", async (EvaluateClustersRequest request, SOMEngineService engine) =>
 {
-    if (request.Weights == null || request.Weights.Count == 0)
-    {
-        return Results.BadRequest(new { success = false, error = "Weights matrix is empty or invalid." });
-    }
-    
     var result = await engine.EvaluateClustersAsync(request);
     if (!result.Success)
     {
@@ -416,11 +406,6 @@ app.MapPost("/api/som/evaluate_clusters", async (EvaluateClustersRequest request
 // 5. Recluster Fast Endpoint
 app.MapPost("/api/som/recluster", async (ReclusterRequest request, SOMEngineService engine) =>
 {
-    if (request.Weights == null || request.Weights.Count == 0)
-    {
-        return Results.BadRequest(new { success = false, error = "Weights matrix is empty or invalid." });
-    }
-    
     var result = await engine.ReclusterAsync(request);
     if (!result.Success)
     {
@@ -432,11 +417,6 @@ app.MapPost("/api/som/recluster", async (ReclusterRequest request, SOMEngineServ
 // 5. UMAP Projections Endpoint
 app.MapPost("/api/som/umap", async (UmapRequest request, SOMEngineService engine) =>
 {
-    if (request.Weights == null || request.Weights.Count == 0)
-    {
-        return Results.BadRequest(new { success = false, error = "Weights matrix is empty or invalid." });
-    }
-    
     var result = await engine.GenerateUmapAsync(request);
     if (!result.Success)
     {

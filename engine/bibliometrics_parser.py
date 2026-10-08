@@ -1060,6 +1060,13 @@ def _finalize_network(global_graph, records, network_type, custom_tag,
     if temporal:
         result["networks_by_year"] = networks_by_year
         result["cooccurrence_matrices_by_period"] = cooccurrence_matrices_by_period
+        try:
+            temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+            with open(os.path.join(temp_dir, "longitudinal_subperiods_cache.json"), "w", encoding="utf-8") as _f_sub:
+                json.dump(cooccurrence_matrices_by_period, _f_sub)
+        except Exception as _sub_err:
+            print(f"[bibliometrics_parser] Notice: could not cache subperiods: {_sub_err}")
     return result
 
 
@@ -2454,6 +2461,13 @@ def _metaknowledge_process(filepath, network_type, custom_tag,
     if temporal:
         result_dict["networks_by_year"] = networks_by_year
         result_dict["cooccurrence_matrices_by_period"] = cooccurrence_matrices_by_period
+        try:
+            temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+            with open(os.path.join(temp_dir, "longitudinal_subperiods_cache.json"), "w", encoding="utf-8") as _f_sub:
+                json.dump(cooccurrence_matrices_by_period, _f_sub)
+        except Exception as _sub_err:
+            print(f"[bibliometrics_parser] Notice: could not cache subperiods: {_sub_err}")
     return result_dict
 
 

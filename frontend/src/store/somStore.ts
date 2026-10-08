@@ -1782,20 +1782,32 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
     set({ isGeneratingUmap: true });
     try {
-      const payload = {
-        weights: (config.umapDataSource as string) === 'original' || (config.umapDataSource as string) === 'data' ? dataMatrix : result.weights,
+      const isOriginalData = (config.umapDataSource as string) === 'original' || (config.umapDataSource as string) === 'data';
+      const basePayload = {
         n_neighbors: 15,
         min_dist: 0.1,
         metric: config.metric
       };
 
-      const res = await fetch(getApiUrl('/api/som/umap'), {
+      // Si el origen son los pesos de la red, enviamos weights: [] para aprovechar la caché del servidor
+      const initialWeights = isOriginalData ? dataMatrix : [];
+      let res = await fetch(getApiUrl('/api/som/umap'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...basePayload, weights: initialWeights })
       });
 
-      const resJson = await res.json();
+      let resJson = await res.json();
+      // Si la fuente eran pesos y falló por falta de caché (ej. proyecto importado offline), reenviar con result.weights
+      if (!isOriginalData && !resJson?.success && resJson?.error && resJson?.error.toLowerCase().includes('cache')) {
+        res = await fetch(getApiUrl('/api/som/umap'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...basePayload, weights: result.weights })
+        });
+        resJson = await res.json();
+      }
+
       if (resJson?.success) {
         set({
           result: {
@@ -1883,8 +1895,10 @@ export const useSomStore = create<SOMState>((set, get) => ({
         };
       }
 
-      const payload = {
-        periods_data: periodsData,
+      // Si no hay normalización frontend, intentamos enviar payload liviano apoyado en caché del servidor
+      const useSubperiodsCache = effectiveNormType === 'none';
+
+      const baseLongitudinalPayload = {
         rows: effectiveRows,
         cols: effectiveCols,
         iterations: effectiveIterations,
@@ -1902,6 +1916,11 @@ export const useSomStore = create<SOMState>((set, get) => ({
         min_samples: config.minSamples,
         fallback_level: hardware?.level ?? 3,
         run_umap: false
+      };
+
+      const payload = {
+        ...baseLongitudinalPayload,
+        periods_data: useSubperiodsCache ? {} : periodsData
       };
 
       // Resilient fetch with retry in case of transient local network flaps
@@ -1936,7 +1955,24 @@ export const useSomStore = create<SOMState>((set, get) => ({
           const errObj = await res.json();
           errMsg = errObj.error || errMsg;
         } catch {}
-        throw new Error(errMsg);
+
+        // Fallback: si falló por falta de caché del servidor, reenviar con periods_data completo
+        if (useSubperiodsCache && errMsg.toLowerCase().includes('cache')) {
+          res = await fetch(getApiUrl('/api/som/train-longitudinal'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...baseLongitudinalPayload, periods_data: periodsData })
+          });
+          if (!res.ok) {
+            try {
+              const retryErr = await res.json();
+              errMsg = retryErr.error || errMsg;
+            } catch {}
+            throw new Error(errMsg);
+          }
+        } else {
+          throw new Error(errMsg);
+        }
       }
 
       const resJson = await res.json();
