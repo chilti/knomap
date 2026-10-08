@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { 
   Award, FileText, Globe, Users, BookOpen, RefreshCw, AlertCircle,
-  TrendingUp, Layers, Compass, Share2, BarChart2, Download
+  TrendingUp, Layers, Compass, Share2, BarChart2, Download, Zap
 } from 'lucide-react';
 import { exportChartAsPNG, exportChartAsSVG } from '../utils/chartExport';
 
@@ -121,7 +121,15 @@ const ChartExportButton: React.FC<{
 type TabKey = 'overview' | 'laws' | 'geopolitics' | 'thematic';
 
 const BiblioEdaReportContent: React.FC = () => {
-  const { edaReport, sankeyData, termGrowth, isPreprocessing, uploadProgress } = useSomStore();
+  const { 
+    edaReport, 
+    sankeyData, 
+    termGrowth, 
+    isPreprocessing, 
+    uploadProgress,
+    sharedBibFile,
+    preprocessEda
+  } = useSomStore();
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
   const health = edaReport?.health || {};
@@ -365,11 +373,37 @@ const BiblioEdaReportContent: React.FC = () => {
 
   if (!edaReport || !edaReport.success) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400 p-8 text-center bg-gray-950">
-        <p className="text-lg font-medium text-gray-200">No EDA Data Available</p>
-        <p className="text-sm mt-2 max-w-md">Run bibliometrics parsing to generate Exploratory Data Analysis metrics.</p>
+      <div className="flex flex-col items-center justify-center h-full text-gray-400 p-8 text-center bg-gray-950 space-y-4">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-950/40 border border-indigo-800/40 flex items-center justify-center text-indigo-400 shadow-inner">
+          <BarChart2 className="w-8 h-8" />
+        </div>
+        <div className="text-center max-w-md">
+          <p className="text-lg font-semibold text-gray-100">No EDA Data Available</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {sharedBibFile 
+              ? `Dataset ready: "${sharedBibFile.name}". Click the button below to compute Exploratory Data Analysis metrics (Bradford & Lotka laws, author H/G/M indices, country collaboration, and thematic maps).`
+              : 'Please load a dataset or import a file first to compute Exploratory Data Analysis metrics.'}
+          </p>
+        </div>
+
+        {sharedBibFile && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (sharedBibFile) {
+                await preprocessEda(sharedBibFile);
+              }
+            }}
+            disabled={isPreprocessing}
+            className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs rounded-xl shadow-lg hover:shadow-indigo-500/25 transition-all flex items-center space-x-2 cursor-pointer active:scale-95 disabled:opacity-50"
+          >
+            <Zap className="w-4 h-4 text-amber-300" />
+            <span>Calcular Métricas EDA ({sharedBibFile.name})</span>
+          </button>
+        )}
+
         {edaReport?.error && (
-          <p className="text-xs mt-4 text-red-400 bg-red-950/40 p-2 rounded border border-red-900/50">
+          <p className="text-xs mt-4 text-red-400 bg-red-950/40 p-2.5 rounded-lg border border-red-900/50 max-w-md">
             {edaReport.error}
           </p>
         )}

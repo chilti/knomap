@@ -14,7 +14,7 @@ export const LoginScreen: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center bg-gray-950 text-gray-100 overflow-hidden font-sans" style={{ backgroundColor: '#050508' }}>
+    <div className="w-full h-full flex items-center justify-center bg-gray-950 text-gray-100 overflow-hidden font-sans relative" style={{ backgroundColor: '#050508' }}>
       {/* Background glowing gradients & tech elements */}
       <div className="absolute rounded-full pointer-events-none" style={{ top: '-10rem', left: '-10rem', width: '24rem', height: '24rem', background: 'radial-gradient(circle, rgba(99, 102, 241, 0.25) 0%, transparent 70%)', filter: 'blur(60px)' }} />
       <div className="absolute rounded-full pointer-events-none" style={{ bottom: '-10rem', right: '-10rem', width: '24rem', height: '24rem', background: 'radial-gradient(circle, rgba(168, 85, 247, 0.2) 0%, transparent 70%)', filter: 'blur(60px)' }} />

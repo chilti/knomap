@@ -138,8 +138,13 @@ namespace LabSOM.Backend.Core.Services
         {
             string tempDir = Path.GetFullPath(Path.Combine(_enginePath, "temp"));
             if (!Directory.Exists(tempDir)) Directory.CreateDirectory(tempDir);
+            string uploadedExt = Path.GetExtension(uploadedFile.FileName);
+            if (string.IsNullOrEmpty(uploadedExt))
+            {
+                uploadedExt = (uploadedFile.ContentType != null && uploadedFile.ContentType.Contains("csv", StringComparison.OrdinalIgnoreCase)) ? ".csv" : ".txt";
+            }
 
-            string sourceDataFile = Path.Combine(tempDir, $"data_{Guid.NewGuid():N}.txt");
+            string sourceDataFile = Path.Combine(tempDir, $"data_{Guid.NewGuid():N}{uploadedExt}");
 
             try
             {

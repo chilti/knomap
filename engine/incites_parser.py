@@ -605,7 +605,8 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
         "profile_5years": [],
         "quartiles_5years": [],
         "sunburst_5years": None,
-        "time_series": {}
+        "time_series": {},
+        "countries": []
     }
 
     df_entities = None  # keep reference for trend filtering later
@@ -660,6 +661,8 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
         q3_col = next((c for c in ent_df.columns if re.search(r'Q3', str(c), re.IGNORECASE)), None)
         q4_col = next((c for c in ent_df.columns if re.search(r'Q4', str(c), re.IGNORECASE)), None)
 
+        country_col = next((c for c in ent_df.columns if re.search(r'^(country|country_code|country_name|pa[ií]s)$', str(c).strip(), re.IGNORECASE)), None)
+
         def safe_float(val):
             if pd.isna(val): return 0.0
             if isinstance(val, str):
@@ -675,6 +678,10 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
                 continue
 
             profile_row = {"entity": entity_name}
+            if country_col and pd.notna(row[country_col]):
+                c_val = str(row[country_col]).strip()
+                if c_val and c_val.lower() not in ('nan', 'none', 'null', ''):
+                    profile_row["Country"] = c_val
             for col in numeric_cols:
                 profile_row[col] = float(row[col]) if pd.notna(row[col]) else 0.0
             prof.append(profile_row)
@@ -708,6 +715,18 @@ def process_unit(unit_name, df_whole, df_5years, df_trend, all_units_dfs=None, a
 
     result["profile_5years"] = p_5y
     result["quartiles_5years"] = q_5y
+
+    # Compilar países únicos encontrados en la unidad
+    seen_countries = set()
+    for row in (result["profile"] or []):
+        c = row.get("Country")
+        if c:
+            seen_countries.add(str(c).strip().upper())
+    for row in (result["profile_5years"] or []):
+        c = row.get("Country")
+        if c:
+            seen_countries.add(str(c).strip().upper())
+    result["countries"] = sorted(list(seen_countries))
 
     # ── Time Series Processing ─────────────────────────────────────────────
     # Prefer the dedicated Trend file; fall back to df_whole if it has time columns

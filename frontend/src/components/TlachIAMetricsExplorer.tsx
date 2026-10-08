@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download, Database, TrendingUp, Filter, Check, Zap, HelpCircle } from 'lucide-react';
+import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download, Database, TrendingUp, Filter, Check, Zap, HelpCircle, Globe } from 'lucide-react';
 import { useSomStore, getApiUrl } from '../store/somStore';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
@@ -74,6 +74,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
         tlachiaLimitTop50,
         tlachiaFilterIndicator,
         tlachiaFilterMinValue,
+        tlachiaFilterCountries,
         tlachiaIsFilterActive,
         tlachiaIsFilterModalOpen,
         sendTlachiaToLongitudinalSom
@@ -84,9 +85,15 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
     const limitTop50 = tlachiaLimitTop50 !== undefined ? tlachiaLimitTop50 : true;
     const filterIndicator = tlachiaFilterIndicator || (unit?.indicators?.includes('Documents') ? 'Documents' : (unit?.indicators?.[0] || ''));
     const filterMinValue = tlachiaFilterMinValue ?? '';
-    const isFilterActive = tlachiaIsFilterActive || false;
+    const filterCountries: string[] = Array.isArray(tlachiaFilterCountries) ? tlachiaFilterCountries : [];
+    const hasNumericFilter = filterMinValue !== '' && Number(filterMinValue) > 0;
+    const hasCountryFilter = filterCountries.length > 0;
+    const isFilterActive = (tlachiaIsFilterActive && hasNumericFilter) || hasCountryFilter;
     const isFilterModalOpen = tlachiaIsFilterModalOpen || false;
     const setIsFilterModalOpen = (open: boolean) => setTlachiaState({ tlachiaIsFilterModalOpen: open });
+
+    const [countrySearch, setCountrySearch] = useState<string>('');
+    const [modalCountrySearch, setModalCountrySearch] = useState<string>('');
 
     const [selectedProfileIndicators, setSelectedProfileIndicators] = useState<string[]>([]);
     const [isProfileExpanded, setIsProfileExpanded] = useState<boolean>(false);
@@ -317,7 +324,23 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
     useEffect(() => {
         if (!unit || !unit.profile || !entitySortBy || entityLimit === 'custom') return;
         const profileToUse = (useRecent && unit.profile_5years && unit.profile_5years.length > 0) ? unit.profile_5years : unit.profile;
-        const sorted = [...profileToUse].sort((a: any, b: any) => {
+        
+        let candidateProfile = [...profileToUse];
+        const thresholdNum = parseFloat(String(filterMinValue));
+        const hasNum = isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0;
+        const hasCountry = filterCountries.length > 0;
+        if (hasNum || hasCountry) {
+            candidateProfile = candidateProfile.filter((r: any) => {
+                if (hasNum && parseVal(r[filterIndicator]) < thresholdNum) return false;
+                if (hasCountry) {
+                    const c = r.Country ? String(r.Country).trim().toUpperCase() : '';
+                    if (!filterCountries.includes(c)) return false;
+                }
+                return true;
+            });
+        }
+
+        const sorted = candidateProfile.sort((a: any, b: any) => {
             const valA = typeof a[entitySortBy] === 'number' ? a[entitySortBy] : parseFloat(String(a[entitySortBy] || '').replace('%', '').replace(',', '.')) || 0;
             const valB = typeof b[entitySortBy] === 'number' ? b[entitySortBy] : parseFloat(String(b[entitySortBy] || '').replace('%', '').replace(',', '.')) || 0;
             return valB - valA;
@@ -328,7 +351,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
             topEntities = topEntities.slice(0, entityLimit);
         }
         setSelectedChartEntities(topEntities);
-    }, [unit, useRecent, entityLimit, entitySortBy]);
+    }, [unit, useRecent, entityLimit, entitySortBy, isFilterActive, filterIndicator, filterMinValue, filterCountries]);
 
     const toggleProfileIndicator = (ind: string) => {
         setSelectedProfileIndicators(prev =>
@@ -437,12 +460,95 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
 
 
 
-    const matchingFilterCount = useMemo(() => {
-        if (!activeProfile || !filterIndicator) return 0;
+    const availableCountries = useMemo(() => {
+        const base = (useRecent && hasRecentData && unit.profile_5years) ? unit.profile_5years : unit.profile;
+        if (!base || base.length === 0) return [];
+        const map = new Map<string, number>();
+        base.forEach((r: any) => {
+            const rawC = r.Country;
+            if (rawC && typeof rawC === 'string' && rawC.trim()) {
+                const c = rawC.trim().toUpperCase();
+                if (c !== 'NAN' && c !== 'NONE' && c !== 'NULL' && c !== '') {
+                    map.set(c, (map.get(c) || 0) + 1);
+                }
+            }
+        });
+        return Array.from(map.entries())
+            .map(([code, count]) => ({ code, count }))
+            .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+    }, [unit, useRecent, hasRecentData]);
+
+    const toggleCountry = (code: string) => {
+        const norm = code.toUpperCase();
+        const next = filterCountries.includes(norm)
+            ? filterCountries.filter(c => c !== norm)
+            : [...filterCountries, norm];
+        const hasNum = filterMinValue !== '' && Number(filterMinValue) > 0;
+        setTlachiaState({
+            tlachiaFilterCountries: next,
+            tlachiaIsFilterActive: hasNum || next.length > 0,
+            tlachiaLimitTop50: next.length > 0 ? false : limitTop50
+        });
+    };
+
+    const selectAllCountries = () => {
+        const allCodes = availableCountries.map(c => c.code);
+        setTlachiaState({
+            tlachiaFilterCountries: allCodes,
+            tlachiaIsFilterActive: true,
+            tlachiaLimitTop50: false
+        });
+    };
+
+    const clearCountryFilter = () => {
+        const hasNum = filterMinValue !== '' && Number(filterMinValue) > 0;
+        setTlachiaState({
+            tlachiaFilterCountries: [],
+            tlachiaIsFilterActive: hasNum
+        });
+    };
+
+    const clearAllFilters = () => {
+        setTlachiaState({
+            tlachiaFilterMinValue: '',
+            tlachiaFilterCountries: [],
+            tlachiaIsFilterActive: false
+        });
+    };
+
+    const profileForList = useMemo(() => {
+        const base = activeProfile || [];
         const thresholdNum = parseFloat(String(filterMinValue));
-        if (isNaN(thresholdNum) || thresholdNum <= 0) return activeProfile.length;
-        return activeProfile.filter((r: any) => parseVal(r[filterIndicator]) >= thresholdNum).length;
-    }, [activeProfile, filterIndicator, filterMinValue]);
+        const hasNum = isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0;
+        const hasCountry = filterCountries.length > 0;
+        if (!hasNum && !hasCountry) return base;
+        return base.filter((r: any) => {
+            if (hasNum && parseVal(r[filterIndicator]) < thresholdNum) return false;
+            if (hasCountry) {
+                const c = r.Country ? String(r.Country).trim().toUpperCase() : '';
+                if (!filterCountries.includes(c)) return false;
+            }
+            return true;
+        });
+    }, [activeProfile, isFilterActive, filterIndicator, filterMinValue, filterCountries]);
+
+    const matchingFilterCount = useMemo(() => {
+        if (!activeProfile) return 0;
+        const thresholdNum = parseFloat(String(filterMinValue));
+        const hasNum = isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0;
+        const hasCountry = filterCountries.length > 0;
+
+        if (!hasNum && !hasCountry) return activeProfile.length;
+
+        return activeProfile.filter((r: any) => {
+            if (hasNum && parseVal(r[filterIndicator]) < thresholdNum) return false;
+            if (hasCountry) {
+                const c = r.Country ? String(r.Country).trim().toUpperCase() : '';
+                if (!filterCountries.includes(c)) return false;
+            }
+            return true;
+        }).length;
+    }, [activeProfile, filterIndicator, filterMinValue, filterCountries, isFilterActive]);
 
     const handleTrainSOM = () => {
         if (!unit || selectedProfileIndicators.length === 0) return;
@@ -451,18 +557,29 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
             return;
         }
 
-        // 1. Apply threshold filtering if active
+        // 1. Apply threshold and country filtering if active
         let candidateRows = [...activeProfile];
         const thresholdNum = parseFloat(String(filterMinValue));
-        if (isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0) {
+        const hasNum = isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0;
+        const hasCountry = filterCountries.length > 0;
+
+        if (hasNum || hasCountry) {
             candidateRows = candidateRows.filter((r: any) => {
-                const val = parseVal(r[filterIndicator]);
-                return val >= thresholdNum;
+                if (hasNum && parseVal(r[filterIndicator]) < thresholdNum) return false;
+                if (hasCountry) {
+                    const c = r.Country ? String(r.Country).trim().toUpperCase() : '';
+                    if (!filterCountries.includes(c)) return false;
+                }
+                return true;
             });
         }
 
         if (candidateRows.length === 0) {
-            alert(`No entities match the filter criteria (${filterIndicator} >= ${filterMinValue}).`);
+            const filterSummary = [
+                hasNum ? `${filterIndicator} >= ${filterMinValue}` : null,
+                hasCountry ? `Countries: ${filterCountries.join(', ')}` : null
+            ].filter(Boolean).join(' & ');
+            alert(`No entities match the filter criteria (${filterSummary}).`);
             return;
         }
 
@@ -478,9 +595,10 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
             csvContent += rowData.join(",") + "\n";
         });
 
-        const filterDescription = isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0
-            ? `Filtered (${filterIndicator} >= ${thresholdNum})`
-            : 'All entities';
+        const filterParts: string[] = [];
+        if (hasNum) filterParts.push(`${filterIndicator} >= ${thresholdNum}`);
+        if (hasCountry) filterParts.push(`Countries: ${filterCountries.join(',')}`);
+        const filterDescription = filterParts.length > 0 ? `Filtered (${filterParts.join(' & ')})` : 'All entities';
 
         loadCsvData(csvContent, 0, [], 'csv', `${unitName}_Profile`, {
             originType: 'tlachia',
@@ -600,15 +718,29 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
             return;
         }
 
-        // 1. Filter entities from activeProfile using the active threshold filter
+        // 1. Filter entities from activeProfile using the active threshold and country filter
         let candidateRows = [...activeProfile];
         const thresholdNum = parseFloat(String(filterMinValue));
-        if (isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0) {
-            candidateRows = candidateRows.filter((r: any) => parseVal(r[filterIndicator]) >= thresholdNum);
+        const hasNum = isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0;
+        const hasCountry = filterCountries.length > 0;
+
+        if (hasNum || hasCountry) {
+            candidateRows = candidateRows.filter((r: any) => {
+                if (hasNum && parseVal(r[filterIndicator]) < thresholdNum) return false;
+                if (hasCountry) {
+                    const c = r.Country ? String(r.Country).trim().toUpperCase() : '';
+                    if (!filterCountries.includes(c)) return false;
+                }
+                return true;
+            });
         }
 
         if (candidateRows.length === 0) {
-            alert(`No entities match the filter criteria (${filterIndicator} >= ${filterMinValue}).`);
+            const filterSummary = [
+                hasNum ? `${filterIndicator} >= ${filterMinValue}` : null,
+                hasCountry ? `Countries: ${filterCountries.join(', ')}` : null
+            ].filter(Boolean).join(' & ');
+            alert(`No entities match the filter criteria (${filterSummary}).`);
             return;
         }
 
@@ -630,9 +762,10 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
             csvContent += rowData.join(",") + "\n";
         });
 
-        const filterDescription = isFilterActive && filterIndicator && !isNaN(thresholdNum) && thresholdNum > 0
-            ? `Filtered (${filterIndicator} >= ${thresholdNum})`
-            : 'All entities';
+        const filterParts: string[] = [];
+        if (hasNum) filterParts.push(`${filterIndicator} >= ${thresholdNum}`);
+        if (hasCountry) filterParts.push(`Countries: ${filterCountries.join(',')}`);
+        const filterDescription = filterParts.length > 0 ? `Filtered (${filterParts.join(' & ')})` : 'All entities';
 
         loadCsvData(csvContent, 0, [], 'csv', `${unitName}_4DBubble`, {
             originType: 'tlachia',
@@ -728,6 +861,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
             });
             return {
                 entity: String(r.entity),
+                country: r.Country ? String(r.Country).trim().toUpperCase() : undefined,
                 cells
             };
         });
@@ -1016,20 +1150,38 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                     </div>
                                     
                                     <div className="flex flex-col space-y-1 pt-2 border-t border-gray-800/50">
-                                        <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Select Entities</label>
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Select Entities</label>
+                                            {isFilterActive && (
+                                                <span className="text-[9px] text-cyan-400 font-mono">
+                                                    {profileForList.length} matching
+                                                </span>
+                                            )}
+                                        </div>
                                         <div className="max-h-48 overflow-y-auto pr-1 space-y-1 custom-scrollbar bg-gray-900 rounded p-1">
-                                            {unit.profile?.map((r: any) => r.entity).sort().map((ent: string) => (
-                                                <button
-                                                    key={ent}
-                                                    onClick={() => toggleChartEntity(ent)}
-                                                    className={`flex items-center space-x-2 text-[11px] w-full text-left p-1 rounded transition border-0 ${selectedChartEntities.includes(ent) ? 'bg-blue-600/20 text-gray-200' : 'hover:bg-gray-800 text-gray-500'}`}
-                                                >
-                                                    {selectedChartEntities.includes(ent) ? <CheckSquare size={12} className="text-blue-400 shrink-0" /> : <Square size={12} className="opacity-50 shrink-0" />}
-                                                    <span className={`truncate ${selectedChartEntities.includes(ent) ? 'text-gray-200' : 'text-gray-500'}`} title={ent}>
-                                                        {ent}
-                                                    </span>
-                                                </button>
-                                            ))}
+                                            {profileForList.map((r: any) => {
+                                                const ent = String(r.entity);
+                                                const country = r.Country ? String(r.Country).trim().toUpperCase() : null;
+                                                return (
+                                                    <button
+                                                        key={ent}
+                                                        onClick={() => toggleChartEntity(ent)}
+                                                        className={`flex items-center justify-between text-[11px] w-full text-left p-1 rounded transition border-0 ${selectedChartEntities.includes(ent) ? 'bg-blue-600/20 text-gray-200' : 'hover:bg-gray-800 text-gray-500'}`}
+                                                    >
+                                                        <div className="flex items-center space-x-2 truncate">
+                                                            {selectedChartEntities.includes(ent) ? <CheckSquare size={12} className="text-blue-400 shrink-0" /> : <Square size={12} className="opacity-50 shrink-0" />}
+                                                            <span className={`truncate ${selectedChartEntities.includes(ent) ? 'text-gray-200' : 'text-gray-500'}`} title={ent}>
+                                                                {ent}
+                                                            </span>
+                                                        </div>
+                                                        {country && (
+                                                            <span className="shrink-0 px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-indigo-950/80 text-cyan-300 border border-cyan-800/60 ml-1">
+                                                                {country}
+                                                            </span>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </div>
@@ -1047,9 +1199,12 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                     <div>
                                         <h3 className="text-sm font-bold text-gray-200 group-hover:text-cyan-400 transition-colors flex items-center space-x-2">
                                             <span>Multidimensional Profile</span>
-                                            {isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0 && (
+                                            {isFilterActive && (
                                                 <span className="px-1.5 py-0.5 bg-indigo-950 text-cyan-300 border border-cyan-500/50 text-[9px] font-bold rounded">
-                                                    ≥ {filterMinValue}
+                                                    {[
+                                                        hasNumericFilter ? `≥ ${filterMinValue}` : null,
+                                                        hasCountryFilter ? `${filterCountries.join(', ')}` : null
+                                                    ].filter(Boolean).join(' · ')}
                                                 </span>
                                             )}
                                         </h3>
@@ -1094,13 +1249,13 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                                     </div>
                                                     <h4 className="text-[11px] font-bold text-gray-200 uppercase tracking-wider">Filter Units for SOM</h4>
                                                 </div>
-                                                {isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0 && (
+                                                {isFilterActive && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => setTlachiaState({ tlachiaFilterMinValue: '', tlachiaIsFilterActive: false })}
+                                                        onClick={clearAllFilters}
                                                         className="text-[10px] text-red-400 hover:text-red-300 font-bold underline cursor-pointer"
                                                     >
-                                                        Clear
+                                                        Clear All
                                                     </button>
                                                 )}
                                             </div>
@@ -1140,7 +1295,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                                         const hasVal = val !== '' && Number(val) > 0;
                                                         setTlachiaState({
                                                             tlachiaFilterMinValue: val,
-                                                            tlachiaIsFilterActive: hasVal,
+                                                            tlachiaIsFilterActive: hasVal || hasCountryFilter,
                                                             tlachiaLimitTop50: hasVal ? false : limitTop50
                                                         });
                                                     }}
@@ -1172,6 +1327,71 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                                     ))}
                                                 </div>
                                             </div>
+
+                                            {/* Country Multi-Select Filter (When available in unit) */}
+                                            {availableCountries.length > 0 && (
+                                                <div className="space-y-1.5 pt-2 border-t border-gray-800/80">
+                                                    <div className="flex items-center justify-between">
+                                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center space-x-1">
+                                                            <Globe className="w-3 h-3 text-cyan-400" />
+                                                            <span>Filter by Country:</span>
+                                                        </label>
+                                                        <div className="flex items-center space-x-1.5 text-[9px]">
+                                                            {filterCountries.length > 0 ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={clearCountryFilter}
+                                                                    className="text-red-400 hover:text-red-300 font-bold underline cursor-pointer"
+                                                                >
+                                                                    Clear ({filterCountries.length})
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={selectAllCountries}
+                                                                    className="text-cyan-400 hover:text-cyan-300 font-bold underline cursor-pointer"
+                                                                >
+                                                                    All
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {availableCountries.length > 6 && (
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Search country code..."
+                                                            value={countrySearch}
+                                                            onChange={(e) => setCountrySearch(e.target.value)}
+                                                            className="w-full bg-gray-950 border border-gray-800 focus:border-cyan-500 rounded px-2 py-0.5 text-[10px] text-gray-200"
+                                                        />
+                                                    )}
+
+                                                    <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto custom-scrollbar p-1 bg-gray-950 rounded-lg border border-gray-800">
+                                                        {availableCountries
+                                                            .filter(c => !countrySearch.trim() || c.code.toLowerCase().includes(countrySearch.toLowerCase().trim()))
+                                                            .map(c => {
+                                                                const isSelected = filterCountries.includes(c.code);
+                                                                return (
+                                                                    <button
+                                                                        key={c.code}
+                                                                        type="button"
+                                                                        onClick={() => toggleCountry(c.code)}
+                                                                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition border cursor-pointer flex items-center space-x-0.5 ${
+                                                                            isSelected
+                                                                                ? 'bg-cyan-600 text-white border-cyan-400 shadow-xs'
+                                                                                : 'bg-gray-900 hover:bg-gray-800 text-gray-300 border-gray-800'
+                                                                        }`}
+                                                                        title={`${c.count} entities from ${c.code}`}
+                                                                    >
+                                                                        <span>{c.code}</span>
+                                                                        <span className="text-[8px] opacity-75">({c.count})</span>
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 )}
@@ -1187,10 +1407,19 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                                 <span className="text-gray-500 font-normal text-xs">
                                                     ({heatmapMatrixData.rows.length} entities)
                                                 </span>
-                                                {isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0 && (
+                                                {isFilterActive && (
                                                     <span className="px-2 py-0.5 bg-indigo-950/80 border border-cyan-500/60 text-cyan-300 text-[10px] font-bold rounded-lg flex items-center space-x-1">
                                                         <Filter className="w-2.5 h-2.5" />
-                                                        <span className="truncate max-w-[150px]">{filterIndicator} ≥ {filterMinValue}</span>
+                                                        <span className="truncate max-w-[200px]">
+                                                            {[
+                                                                hasNumericFilter ? `${filterIndicator} ≥ ${filterMinValue}` : null,
+                                                                hasCountryFilter
+                                                                    ? filterCountries.length <= 3
+                                                                        ? `[${filterCountries.join(', ')}]`
+                                                                        : `[${filterCountries.length} countries]`
+                                                                    : null
+                                                            ].filter(Boolean).join(' · ')}
+                                                        </span>
                                                     </span>
                                                 )}
                                             </h3>
@@ -1204,14 +1433,25 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                                 type="button"
                                                 onClick={() => setIsFilterModalOpen(true)}
                                                 className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center space-x-1.5 cursor-pointer ${
-                                                    isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0
+                                                    isFilterActive
                                                         ? 'bg-indigo-900/60 text-cyan-300 border-cyan-500/80 shadow-md shadow-indigo-950'
                                                         : 'bg-gray-900 hover:bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-600'
                                                 }`}
-                                                title="Filter entities by minimum threshold on any indicator (e.g. Web of Science Documents >= 10)"
+                                                title="Filter entities by minimum threshold or country"
                                             >
                                                 <Filter className="w-3.5 h-3.5" />
-                                                <span>{isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0 ? `Filter: ≥ ${filterMinValue}` : 'Filter Units'}</span>
+                                                <span>
+                                                    {isFilterActive
+                                                        ? [
+                                                            hasNumericFilter ? `≥ ${filterMinValue}` : null,
+                                                            hasCountryFilter
+                                                                ? filterCountries.length <= 3
+                                                                    ? `[${filterCountries.join(', ')}]`
+                                                                    : `[${filterCountries.length} countries]`
+                                                                : null
+                                                          ].filter(Boolean).join(' · ') || 'Filter Active'
+                                                        : 'Filter Units'}
+                                                </span>
                                             </button>
 
                                             {/* Limit Top 50 Checkbox */}
@@ -1247,6 +1487,9 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                             <thead className="sticky top-0 bg-gray-950 border-b border-gray-800 shadow-sm">
                                                 <tr>
                                                     <th className="text-left px-2 py-2 text-gray-400 font-semibold whitespace-nowrap bg-gray-950">Entity</th>
+                                                    {availableCountries.length > 0 && (
+                                                        <th className="text-center px-2 py-2 text-gray-400 font-semibold whitespace-nowrap bg-gray-950 w-16">Country</th>
+                                                    )}
                                                     {selectedProfileIndicators.map(ind => (
                                                         <th key={ind} className="text-right px-2 py-2 text-gray-400 font-semibold whitespace-nowrap truncate max-w-[100px] bg-gray-950" title={ind}>
                                                             {ind}
@@ -1260,6 +1503,17 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                                         <td className="px-2 py-1.5 text-gray-300 font-medium max-w-[130px] truncate bg-gray-950" title={row.entity}>
                                                             {row.entity}
                                                         </td>
+                                                        {availableCountries.length > 0 && (
+                                                            <td className="px-2 py-1.5 text-center whitespace-nowrap bg-gray-950 w-16">
+                                                                {row.country ? (
+                                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-950/80 text-cyan-300 border border-cyan-800/60">
+                                                                        {row.country}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-gray-600 text-[10px]">-</span>
+                                                                )}
+                                                            </td>
+                                                        )}
                                                         {selectedProfileIndicators.map((ind: string) => {
                                                             const cell = row.cells[ind];
                                                             return (
@@ -2255,10 +2509,19 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                             <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2 flex-wrap gap-1">
                                                 <span>4D Bubble Chart Analysis</span>
                                                 <span className="text-gray-500 font-normal text-xs">({bubbleChartData.points.length} entities)</span>
-                                                {isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0 && (
+                                                {isFilterActive && (
                                                     <span className="px-2 py-0.5 bg-indigo-950/80 border border-cyan-500/60 text-cyan-300 text-[10px] font-bold rounded-lg flex items-center space-x-1">
                                                         <Filter className="w-2.5 h-2.5" />
-                                                        <span className="truncate max-w-[150px]">{filterIndicator} ≥ {filterMinValue}</span>
+                                                        <span className="truncate max-w-[200px]">
+                                                            {[
+                                                                hasNumericFilter ? `${filterIndicator} ≥ ${filterMinValue}` : null,
+                                                                hasCountryFilter
+                                                                    ? filterCountries.length <= 3
+                                                                        ? `[${filterCountries.join(', ')}]`
+                                                                        : `[${filterCountries.length} countries]`
+                                                                    : null
+                                                            ].filter(Boolean).join(' · ')}
+                                                        </span>
                                                     </span>
                                                 )}
                                             </h3>
@@ -2296,14 +2559,25 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                                 type="button"
                                                 onClick={() => setIsFilterModalOpen(true)}
                                                 className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center space-x-1.5 cursor-pointer ${
-                                                    isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0
+                                                    isFilterActive
                                                         ? 'bg-indigo-900/60 text-cyan-300 border-cyan-500/80 shadow-md shadow-indigo-950'
                                                         : 'bg-gray-950 hover:bg-gray-800 text-gray-300 border-gray-800 hover:border-gray-700'
                                                 }`}
-                                                title="Filter entities by minimum threshold on any indicator"
+                                                title="Filter entities by minimum threshold or country"
                                             >
                                                 <Filter className="w-3.5 h-3.5" />
-                                                <span>{isFilterActive && filterMinValue !== '' && Number(filterMinValue) > 0 ? `Filter: ≥ ${filterMinValue}` : 'Filter Units'}</span>
+                                                <span>
+                                                    {isFilterActive
+                                                        ? [
+                                                            hasNumericFilter ? `≥ ${filterMinValue}` : null,
+                                                            hasCountryFilter
+                                                                ? filterCountries.length <= 3
+                                                                    ? `[${filterCountries.join(', ')}]`
+                                                                    : `[${filterCountries.length} countries]`
+                                                                : null
+                                                          ].filter(Boolean).join(' · ') || 'Filter Active'
+                                                        : 'Filter Units'}
+                                                </span>
                                             </button>
 
                                             {/* Limit Top 50 Checkbox */}
@@ -2825,6 +3099,76 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                             </div>
                         </div>
 
+                        {/* Country Multi-Select Filter */}
+                        {availableCountries.length > 0 && (
+                            <div className="space-y-2 pt-2 border-t border-gray-800">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-bold uppercase text-gray-400 tracking-wider flex items-center space-x-1.5">
+                                        <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                                        <span>Filter by Country (ISO-2):</span>
+                                        {filterCountries.length > 0 && (
+                                            <span className="text-cyan-400 font-mono text-[9px] font-bold">
+                                                ({filterCountries.length} selected)
+                                            </span>
+                                        )}
+                                    </label>
+                                    <div className="flex items-center space-x-2 text-[10px]">
+                                        {filterCountries.length > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={clearCountryFilter}
+                                                className="text-red-400 hover:text-red-300 font-bold underline cursor-pointer"
+                                            >
+                                                Clear ({filterCountries.length})
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={selectAllCountries}
+                                                className="text-cyan-400 hover:text-cyan-300 font-bold underline cursor-pointer"
+                                            >
+                                                Select All ({availableCountries.length})
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {availableCountries.length > 5 && (
+                                    <input
+                                        type="text"
+                                        placeholder="Search country code..."
+                                        value={modalCountrySearch}
+                                        onChange={(e) => setModalCountrySearch(e.target.value)}
+                                        className="w-full bg-gray-950 border border-gray-800 focus:border-cyan-500 rounded-lg px-2.5 py-1 text-xs text-gray-200 focus:outline-none"
+                                    />
+                                )}
+
+                                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto custom-scrollbar p-2 bg-gray-950 rounded-xl border border-gray-800">
+                                    {availableCountries
+                                        .filter(c => !modalCountrySearch.trim() || c.code.toLowerCase().includes(modalCountrySearch.toLowerCase().trim()))
+                                        .map(c => {
+                                            const isSelected = filterCountries.includes(c.code);
+                                            return (
+                                                <button
+                                                    key={c.code}
+                                                    type="button"
+                                                    onClick={() => toggleCountry(c.code)}
+                                                    className={`px-2 py-1 rounded-lg text-xs font-mono font-bold transition border cursor-pointer flex items-center space-x-1 ${
+                                                        isSelected
+                                                            ? 'bg-cyan-600 text-white border-cyan-400 shadow-sm'
+                                                            : 'bg-gray-900 hover:bg-gray-800 text-gray-300 border-gray-800'
+                                                    }`}
+                                                    title={`${c.count} entities from ${c.code}`}
+                                                >
+                                                    <span>{c.code}</span>
+                                                    <span className="text-[10px] opacity-75 font-normal">({c.count})</span>
+                                                </button>
+                                            );
+                                        })}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Real-time Match Summary Card */}
                         <div className="bg-gray-950/80 rounded-xl p-3 border border-gray-800/80 space-y-1.5 text-xs">
                             <div className="flex items-center justify-between text-gray-400">
@@ -2832,7 +3176,11 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                                 <span className="font-mono font-bold text-gray-200">{activeProfile?.length ?? 0}</span>
                             </div>
                             <div className="flex items-center justify-between text-cyan-300 font-semibold">
-                                <span>Matching Criteria (≥ {filterMinValue || 0}):</span>
+                                <span>
+                                    Matching Criteria
+                                    {hasNumericFilter ? ` (≥ ${filterMinValue})` : ''}
+                                    {hasCountryFilter ? ` [${filterCountries.length} countries]` : ''}:
+                                </span>
                                 <span className="font-mono font-bold text-emerald-400">
                                     {matchingFilterCount} units {activeProfile?.length ? `(${((matchingFilterCount / activeProfile.length) * 100).toFixed(0)}%)` : ''}
                                 </span>
@@ -2850,10 +3198,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                             <button
                                 type="button"
                                 onClick={() => {
-                                    setTlachiaState({
-                                        tlachiaFilterMinValue: '',
-                                        tlachiaIsFilterActive: false
-                                    });
+                                    clearAllFilters();
                                     setIsFilterModalOpen(false);
                                 }}
                                 className="flex-1 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-bold rounded-xl transition cursor-pointer"
@@ -2863,7 +3208,7 @@ const TlachIAUnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName,
                             <button
                                 type="button"
                                 onClick={() => {
-                                    const hasVal = filterMinValue !== '' && Number(filterMinValue) > 0;
+                                    const hasVal = hasNumericFilter || hasCountryFilter;
                                     setTlachiaState({
                                         tlachiaIsFilterActive: hasVal,
                                         tlachiaLimitTop50: hasVal ? false : limitTop50 // Automatically uncheck Max 50 when active filter is applied!
@@ -3249,7 +3594,7 @@ export const TlachIAMetricsExplorer: React.FC = () => {
         tlachiaActiveUnit: activeUnit, 
         tlachiaIsUploading: isUploading,
         tlachiaBaseline: baselineData,
-        semanticRecords,
+        sharedBibFile,
         uploadTlachIAFiles,
         setTlachiaState,
         setActiveTab,
@@ -3332,10 +3677,10 @@ export const TlachIAMetricsExplorer: React.FC = () => {
                     <p className="text-sm text-gray-400 mt-1">Explore and process OpenAlex TlachIA bibliometric indicators</p>
                 </div>
                 <div className="flex items-center space-x-3">
-                    {semanticRecords && semanticRecords.length > 0 && (
-                        <div className="px-3 py-1.5 bg-emerald-950/70 border border-emerald-700/80 text-emerald-300 text-xs font-semibold rounded-xl flex items-center space-x-2 shadow-sm animate-fade-in">
+                    {sharedBibFile && (
+                        <div className="px-3 py-1.5 bg-emerald-950/70 border border-emerald-700/80 text-emerald-300 text-xs font-semibold rounded-xl flex items-center space-x-2 shadow-sm animate-fade-in" title="Document metadata CSV loaded and ready for Biblio Networks & Semantic Biblio">
                             <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                            <span><strong>OpenAlex Works:</strong> {semanticRecords.length.toLocaleString()} linked works</span>
+                            <span><strong>Documents Metadata:</strong> {sharedBibFile.name} ready for Biblio & Semantic tabs</span>
                         </div>
                     )}
                     <button

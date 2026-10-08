@@ -226,7 +226,11 @@ export function getSerializedSvg(containerIdOrElement: string | HTMLElement, bgC
     clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
     clonedSvg.setAttribute('width', String(width));
     clonedSvg.setAttribute('height', String(height));
-    clonedSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    if (viewBoxAttr) {
+      clonedSvg.setAttribute('viewBox', viewBoxAttr);
+    } else {
+      clonedSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    }
     
     clonedSvg.style.backgroundColor = bgColor;
     clonedSvg.style.borderRadius = '12px';

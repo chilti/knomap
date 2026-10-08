@@ -24,6 +24,8 @@ interface AuthState {
   user: User | null;
   isWebMode: boolean;
   isAuthenticated: boolean;
+  isReadOnlyDemo: boolean;
+  isDemoLoading: boolean;
   isLoading: boolean;
   error: string | null;
   
@@ -34,6 +36,7 @@ interface AuthState {
 
   // Actions
   checkAuth: () => Promise<void>;
+  loadDemoProject: () => Promise<boolean>;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   fetchUserProjects: () => Promise<void>;
@@ -62,6 +65,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isWebMode: typeof window !== 'undefined' && window.location.protocol.startsWith('http'),
   isAuthenticated: false,
+  isReadOnlyDemo: false,
+  isDemoLoading: false,
   isLoading: true,
   error: null,
 
@@ -87,6 +92,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           user: data.user,
           isWebMode: data.isWebMode ?? true,
           isAuthenticated: true,
+          isReadOnlyDemo: false,
           token: data.token || token,
           isLoading: false
         });
@@ -94,18 +100,52 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           localStorage.setItem('knomap_jwt_token', data.token);
         }
       } else {
+        const isWeb = data.isWebMode ?? true;
         set({
           user: null,
-          isWebMode: data.isWebMode ?? true,
+          isWebMode: isWeb,
           isAuthenticated: false,
+          isReadOnlyDemo: isWeb,
           isLoading: false
         });
+        if (isWeb) {
+          get().loadDemoProject();
+        }
       }
     } catch (err: any) {
       console.error('Auth check error:', err);
       // If we are over HTTP/HTTPS, fallback to web mode so we don't bypass login screen on network errors
       const fallbackWebMode = typeof window !== 'undefined' && window.location.protocol.startsWith('http');
-      set({ isLoading: false, isAuthenticated: false, isWebMode: fallbackWebMode });
+      set({ isLoading: false, isAuthenticated: false, isReadOnlyDemo: fallbackWebMode, isWebMode: fallbackWebMode });
+      if (fallbackWebMode) {
+        get().loadDemoProject();
+      }
+    }
+  },
+
+  loadDemoProject: async () => {
+    const currentSom = useSomStore.getState();
+    const hasData = (currentSom.labels && currentSom.labels.length > 0) || currentSom.documentCount > 0;
+    if (hasData && currentSom.cloudProjectTitle?.includes("Artificial_Intelligence_in_Education")) {
+      set({ isReadOnlyDemo: true });
+      return true;
+    }
+
+    set({ isDemoLoading: true });
+    try {
+      const response = await fetch(getApiUrl('/api/projects/demo'));
+      if (!response.ok) {
+        throw new Error('Failed to load demo project');
+      }
+      const data = await response.json();
+      const payloadString = typeof data === 'string' ? data : JSON.stringify(data);
+      useSomStore.getState().importProject(payloadString);
+      set({ isDemoLoading: false, isReadOnlyDemo: true });
+      return true;
+    } catch (err: any) {
+      console.error('Failed to load demo project:', err);
+      set({ isDemoLoading: false });
+      return false;
     }
   },
 
@@ -125,6 +165,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           token: data.token,
           user: data.user,
           isAuthenticated: true,
+          isReadOnlyDemo: false,
           isLoading: false,
           error: null
         });
@@ -142,7 +183,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem('knomap_jwt_token');
-    set({ token: null, user: null, isAuthenticated: false, ownedProjects: [], sharedProjects: [] });
+    const isWeb = get().isWebMode;
+    set({
+      token: null,
+      user: null,
+      isAuthenticated: false,
+      isReadOnlyDemo: isWeb,
+      ownedProjects: [],
+      sharedProjects: []
+    });
+    if (isWeb) {
+      get().loadDemoProject();
+    }
   },
 
   fetchUserProjects: async () => {

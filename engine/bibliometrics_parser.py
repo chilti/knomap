@@ -1443,11 +1443,11 @@ def _process_record_list(
                     terms = r.get('authors') or r.get('AU') or []
             elif base_type == 'co-occurrence':
                 if sub_type == 'author_keywords':
-                    terms = r.get('author_keywords') or r.get('DE') or r.get('keywords') or []
+                    terms = r.get('author_keywords') or r.get('DE') or r.get('keywords') or r.get('topics') or r.get('Topic') or []
                 elif sub_type == 'keywords_plus':
-                    terms = r.get('concepts') or r.get('keywords_plus') or r.get('ID') or r.get('keywords') or []
+                    terms = r.get('concepts') or r.get('keywords_plus') or r.get('ID') or r.get('keywords') or r.get('topics') or r.get('Topic') or []
                 else:
-                    terms = r.get('keywords') or r.get('DE_ID') or list(dict.fromkeys((r.get('author_keywords') or r.get('DE') or []) + (r.get('concepts') or r.get('ID') or [])))
+                    terms = r.get('keywords') or r.get('DE_ID') or list(dict.fromkeys((r.get('author_keywords') or r.get('DE') or []) + (r.get('concepts') or r.get('ID') or []))) or r.get('topics') or r.get('Topic') or []
             else:
                 tag_candidates = [custom_tag, custom_tag.lower(), custom_tag.upper()]
                 for tc in tag_candidates:
@@ -1716,22 +1716,10 @@ def read_and_generate_bibliometrics(
     if is_vos_native_file(filepath):
         return parse_vos_native_json(filepath)
 
-    # ── Route Dimensions CSV exports ──────────────────────────────────────────
-    if is_dimensions_csv(filepath):
-        records = parse_dimensions_csv(filepath)
-        return _process_record_list(
-            records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
-            extraction_source=extraction_source, counting_method=counting_method,
-            thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
-            temporal_window=temporal_window,
-            include_eda=include_eda
-        )
-
-    # ── Route Lens.org CSV exports ────────────────────────────────────────────
-    if is_lens_csv(filepath):
-        records = parse_lens_csv(filepath)
-        return _process_record_list(
-            records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
+    # ── Route Scopus CSV to the pandas-based parser ───────────────────────────
+    if _is_scopus_csv(filepath):
+        return _process_scopus_csv(
+            filepath, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
             temporal_window=temporal_window,
@@ -1760,19 +1748,31 @@ def read_and_generate_bibliometrics(
             include_eda=include_eda
         )
 
-    # ── Route RIS files to the dedicated parser ───────────────────────────────
-    if _is_ris_file(filepath):
-        return _process_ris_file(
-            filepath, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
+    # ── Route Dimensions CSV exports ──────────────────────────────────────────
+    if is_dimensions_csv(filepath):
+        records = parse_dimensions_csv(filepath)
+        return _process_record_list(
+            records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
             temporal_window=temporal_window,
             include_eda=include_eda
         )
 
-    # ── Route Scopus CSV to the pandas-based parser ───────────────────────────
-    if _is_scopus_csv(filepath):
-        return _process_scopus_csv(
+    # ── Route Lens.org CSV exports ────────────────────────────────────────────
+    if is_lens_csv(filepath):
+        records = parse_lens_csv(filepath)
+        return _process_record_list(
+            records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
+            extraction_source=extraction_source, counting_method=counting_method,
+            thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
+            temporal_window=temporal_window,
+            include_eda=include_eda
+        )
+
+    # ── Route RIS files to the dedicated parser ───────────────────────────────
+    if _is_ris_file(filepath):
+        return _process_ris_file(
             filepath, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
             extraction_source=extraction_source, counting_method=counting_method,
             thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
@@ -1792,6 +1792,21 @@ def read_and_generate_bibliometrics(
                 include_eda=include_eda
             )
 
+    # ── Generic CSV/TSV fallback ──────────────────────────────────────────────
+    if filepath.lower().endswith(('.csv', '.tsv')):
+        try:
+            records = parse_openalex_csv(filepath)
+            if records:
+                return _process_record_list(
+                    records, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
+                    extraction_source=extraction_source, counting_method=counting_method,
+                    thesaurus_filepath=thesaurus_filepath, relevance_ratio=relevance_ratio,
+                    temporal_window=temporal_window,
+                    include_eda=include_eda
+                )
+        except Exception:
+            pass
+
     # ── All other formats go through MetaKnowledge ────────────────────────────
     return _metaknowledge_process(
         filepath, network_type, custom_tag, max_terms, min_cooccurrence, temporal,
@@ -1808,21 +1823,26 @@ def get_corpus_records(filepath):
     """
     if is_vos_native_file(filepath):
         return []
-    if is_dimensions_csv(filepath):
-        return parse_dimensions_csv(filepath)
-    if is_lens_csv(filepath):
-        return parse_lens_csv(filepath)
+    if _is_scopus_csv(filepath):
+        df = pd.read_csv(filepath, encoding='utf-8-sig', dtype=str, keep_default_na=False)
+        return df.to_dict(orient='records')
     if is_openalex_csv(filepath):
         return parse_openalex_csv(filepath)
     if is_openalex_json(filepath):
         return parse_openalex_json(filepath)
+    if is_dimensions_csv(filepath):
+        return parse_dimensions_csv(filepath)
+    if is_lens_csv(filepath):
+        return parse_lens_csv(filepath)
     if _is_ris_file(filepath):
         return _parse_ris_records(filepath)
-    if _is_scopus_csv(filepath):
-        df = pd.read_csv(filepath, encoding='utf-8-sig', dtype=str, keep_default_na=False)
-        return df.to_dict(orient='records')
     if _is_wos_plaintext(filepath):
         return _parse_wos_records(filepath)
+    if filepath.lower().endswith(('.csv', '.tsv')):
+        try:
+            return parse_openalex_csv(filepath)
+        except Exception:
+            pass
     
     # MetaKnowledge fallback for PubMed / ProQuest
     if mk is not None:

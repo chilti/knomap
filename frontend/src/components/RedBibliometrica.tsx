@@ -36,7 +36,8 @@ export const RedBibliometrica: React.FC = () => {
     setActiveTab,
     vosRecluster,
     edaReport,
-    isPreprocessing
+    isPreprocessing,
+    sharedBibFile
   } = useSomStore();
 
   const handleSendToSOM = () => {
@@ -239,7 +240,7 @@ export const RedBibliometrica: React.FC = () => {
     };
   }, [network, viewerMode]);
 
-  if (!network && !vosviewerJson && !edaReport && !isPreprocessing) {
+  if (!network && !vosviewerJson && !edaReport && !isPreprocessing && !sharedBibFile) {
     return (
       <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-gray-700 rounded-2xl h-96 text-gray-400 bg-gray-900 bg-opacity-40">
         <Share2 className="w-12 h-12 mb-4 text-gray-500 animate-pulse" />

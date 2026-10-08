@@ -343,6 +343,16 @@ app.MapGet("/api/tlachia/baseline", async (InCitesService service) =>
 });
 
 
+app.MapGet("/api/tlachia/works-csv", (InCitesService service) =>
+{
+    var (success, filePath, fileName) = service.GetWorksCsvPath();
+    if (!success || filePath == null || !File.Exists(filePath))
+    {
+        return Results.NotFound(new { success = false, error = "No works CSV metadata file found in active session." });
+    }
+    return Results.File(filePath, "text/csv", fileName ?? "documents_metadata.csv");
+});
+
 // 3. SOM and UMAP Training Endpoint
 app.MapPost("/api/som/suggest_size", async (SuggestSizeRequest request, SOMEngineService engine) =>
 {
@@ -515,22 +525,12 @@ app.MapPost("/api/semantic/embed", async (SemanticEmbedRequest request, Semantic
 
 app.MapPost("/api/semantic/reduce", async (SemanticReduceRequest request, SemanticService service) =>
 {
-    if (request.Embeddings == null || request.Embeddings.Count == 0)
-    {
-        return Results.BadRequest(new { success = false, error = "Embeddings list is empty." });
-    }
-
     var result = await service.ReduceDimensionAsync(request);
     return Results.Ok(result);
 });
 
 app.MapPost("/api/semantic/cluster", async (SemanticClusterRequest request, SemanticService service) =>
 {
-    if (request.IntrinsicData == null || request.IntrinsicData.Count == 0)
-    {
-        return Results.BadRequest(new { success = false, error = "Intrinsic data list is empty." });
-    }
-
     var result = await service.ClusterSemanticAsync(request);
     return Results.Ok(result);
 });
@@ -642,6 +642,19 @@ static int GetUserId(HttpContext ctx)
     var claim = ctx.User.FindFirst(ClaimTypes.NameIdentifier);
     return claim != null && int.TryParse(claim.Value, out int id) ? id : 0;
 }
+
+app.MapGet("/api/projects/demo", async (ProjectService projSvc) =>
+{
+    try
+    {
+        string payload = await projSvc.GetDemoProjectPayloadAsync();
+        return Results.Content(payload, "application/json");
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+});
 
 app.MapGet("/api/projects", async (HttpContext ctx, ProjectService projSvc) =>
 {

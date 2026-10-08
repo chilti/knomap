@@ -2,13 +2,16 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useSomStore } from '../store/somStore';
 import { Upload, Activity, Layers, Database, RefreshCw, Play, Compass, FileText, Search, ExternalLink } from 'lucide-react';
 import { SendToAssistantButton } from './SendToAssistantButton';
+import { useAuthStore } from '../store/authStore';
 
 export const SemanticBibliometrics: React.FC = () => {
+  const { isReadOnlyDemo } = useAuthStore();
   const {
     sharedBibFile,
     setSharedBibFile,
     semanticRecords,
     semanticEmbeddings,
+    semanticEmbeddingsCount,
     semanticIntrinsicData,
     semantic2DCoords,
     semanticClusters,
@@ -186,11 +189,12 @@ export const SemanticBibliometrics: React.FC = () => {
 
               <button
                 onClick={runPreprocessing}
-                disabled={isSemanticPreprocessing || !sharedBibFile}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer disabled:cursor-not-allowed"
+                disabled={isSemanticPreprocessing || !sharedBibFile || isReadOnlyDemo}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer disabled:cursor-not-allowed"
+                title={isReadOnlyDemo ? 'Cálculos no permitidos en modo demo' : undefined}
               >
                 {isSemanticPreprocessing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                <span>Process File</span>
+                <span>{isReadOnlyDemo ? 'Modo Lectura (Demo)' : 'Process File'}</span>
               </button>
             </div>
           ) : (
@@ -220,16 +224,17 @@ export const SemanticBibliometrics: React.FC = () => {
 
                   <button
                     onClick={handleEmbed}
-                    disabled={isSemanticEmbedding}
+                    disabled={isSemanticEmbedding || isReadOnlyDemo}
                     className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2"
+                    title={isReadOnlyDemo ? 'Cálculos no permitidos en modo demo' : undefined}
                   >
                     {isSemanticEmbedding ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
-                    <span>Generate Embeddings</span>
+                    <span>{isReadOnlyDemo ? 'Embeddings precargados' : 'Generate Embeddings'}</span>
                   </button>
                 </div>
               ) : (
                 <div className="bg-emerald-950 bg-opacity-20 border border-emerald-800/40 rounded-xl p-3 text-xs text-emerald-400 font-bold flex items-center space-x-2">
-                  <span>✓ Embeddings ready ({semanticEmbeddings.length} vectors)</span>
+                  <span>✓ Embeddings ready ({semanticEmbeddingsCount || semanticEmbeddings?.length || 0} vectors)</span>
                 </div>
               )}
             </div>
@@ -237,7 +242,7 @@ export const SemanticBibliometrics: React.FC = () => {
         </div>
 
         {/* Step 2: Dimension Reduction */}
-        <div className={`bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4 ${!semanticEmbeddings ? 'opacity-40 pointer-events-none' : ''}`}>
+        <div className={`bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-xl space-y-4 ${(!semanticEmbeddings && !semanticEmbeddingsCount) ? 'opacity-40 pointer-events-none' : ''}`}>
           <h3 className="text-sm font-bold text-gray-200 flex items-center space-x-2">
             <Activity className="w-4 h-4 text-emerald-400" />
             <span>2. Intrinsic Dimension Reduction</span>
@@ -250,11 +255,12 @@ export const SemanticBibliometrics: React.FC = () => {
             </p>
             <button
               onClick={() => estimateSemanticIntrinsicDim()}
-              disabled={isSemanticReducing}
+              disabled={isSemanticReducing || isReadOnlyDemo}
               className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2"
+              title={isReadOnlyDemo ? 'Cálculos no permitidos en modo demo' : undefined}
             >
               {isSemanticReducing && !semanticCeilingResult ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
-              <span>Calculate Intrinsic Dimension</span>
+              <span>{isReadOnlyDemo ? 'Dimensión estimada (Demo)' : 'Calculate Intrinsic Dimension'}</span>
             </button>
 
             {semanticCeilingResult && (
@@ -288,7 +294,7 @@ export const SemanticBibliometrics: React.FC = () => {
           </div>
 
           {/* Phase B: Reduce to K dimensions */}
-          <div className={`space-y-2 border-t border-gray-800 pt-3 ${!semanticEmbeddings ? 'opacity-50' : ''}`}>
+          <div className={`space-y-2 border-t border-gray-800 pt-3 ${(!semanticEmbeddings && !semanticEmbeddingsCount) ? 'opacity-50' : ''}`}>
             <p className="text-[10px] text-gray-500">
               Adjust Target K and apply UMAP to that dimension (for clustering) and to 2D (for visualization).
             </p>
@@ -305,10 +311,11 @@ export const SemanticBibliometrics: React.FC = () => {
               </div>
               <button
                 onClick={reduceSemanticDimension}
-                disabled={isSemanticReducing}
+                disabled={isSemanticReducing || isReadOnlyDemo}
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition flex items-center space-x-2 disabled:opacity-50"
+                title={isReadOnlyDemo ? 'Cálculos no permitidos en modo demo' : undefined}
               >
-                {isSemanticReducing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <span>Reduce</span>}
+                {isSemanticReducing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <span>{isReadOnlyDemo ? 'Reducido (Demo)' : 'Reduce'}</span>}
               </button>
             </div>
 
@@ -357,11 +364,12 @@ export const SemanticBibliometrics: React.FC = () => {
 
             <button
               onClick={clusterSemantic}
-              disabled={isSemanticClustering}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2"
+              disabled={isSemanticClustering || isReadOnlyDemo}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2 disabled:opacity-50"
+              title={isReadOnlyDemo ? 'Cálculos no permitidos en modo demo' : undefined}
             >
               {isSemanticClustering ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-              <span>Generate Clusters</span>
+              <span>{isReadOnlyDemo ? 'Clústeres calculados (Demo)' : 'Generate Clusters'}</span>
             </button>
 
             {semanticClusters && (
@@ -433,6 +441,8 @@ export const SemanticBibliometrics: React.FC = () => {
                           <span className="text-emerald-400 font-semibold">
                             {`[${vector.slice(0, 3).map(v => v.toFixed(3)).join(', ')}, ...] (${vector.length}d)`}
                           </span>
+                        ) : semanticEmbeddingsCount > 0 ? (
+                          <span className="text-emerald-400 font-semibold">[Vectorized] (768d)</span>
                         ) : (
                           <span className="text-gray-600 italic">Unvectorized</span>
                         )}

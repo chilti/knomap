@@ -17,7 +17,9 @@ def is_dimensions_csv(filepath: str) -> bool:
         with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
             for _ in range(5):
                 line = f.readline().lower()
-                if 'dimensions' in line or ('publication title' in line and ('times cited' in line or 'dimensions' in line)) or 'fields of research (anzsrc' in line:
+                if 'exported from dimensions' in line or 'dimensions.ai' in line or 'dimensions url' in line:
+                    return True
+                if ('publication title' in line and ('times cited' in line or 'dimensions id' in line)) or 'fields of research (anzsrc' in line:
                     return True
     except Exception:
         pass
@@ -25,17 +27,29 @@ def is_dimensions_csv(filepath: str) -> bool:
 
 
 def is_openalex_csv(filepath: str) -> bool:
-    """Checks if a CSV file is an export from OpenAlex."""
-    if not filepath.lower().endswith('.csv'):
+    """Checks if a CSV file is an export from OpenAlex or TlachIA Metrics."""
+    lower = filepath.lower()
+    if not (lower.endswith('.csv') or lower.endswith('.txt') or lower.endswith('.tsv')):
         return False
     try:
-        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+        with open(filepath, 'r', encoding='utf-8-sig', errors='replace') as f:
             first_line = f.readline().lower()
-            if 'work id' in first_line or 'concept ids' in first_line or 'keyword ids' in first_line:
+            if first_line.startswith('fn isi') or first_line.startswith('pt '):
+                return False
+            # Exclude Scopus CSV so it gets routed to the dedicated Scopus parser
+            if 'scopus' in first_line or ('authors' in first_line and 'source title' in first_line):
+                return False
+            if 'work id' in first_line or 'concept ids' in first_line or 'keyword ids' in first_line or 'openalex id' in first_line:
                 return True
             if 'open access' in first_line and 'concept' in first_line and 'author' in first_line:
                 return True
-            if 'fwci' in first_line and 'topic' in first_line:
+            if 'fwci' in first_line and ('topic' in first_line or 'tópico' in first_line or 'topico' in first_line):
+                return True
+            if ('título' in first_line or 'titulo' in first_line) and ('autores' in first_line or 'citas' in first_line or 'países' in first_line or 'paises' in first_line):
+                return True
+            if 'citas totales' in first_line or 'vía de acceso abierto' in first_line or 'via de acceso abierto' in first_line:
+                return True
+            if any(k in first_line for k in ['title', 'título', 'titulo', 'display_name']) and any(k in first_line for k in ['author', 'autores', 'doi', 'year', 'año', 'ano', 'journal', 'revista']):
                 return True
     except Exception:
         pass
@@ -196,15 +210,22 @@ def parse_lens_csv(filepath: str) -> List[Dict[str, Any]]:
 
 
 def parse_openalex_csv(filepath: str) -> List[Dict[str, Any]]:
-    """Parses an OpenAlex CSV export into standardized records with all available fields."""
+    """Parses an OpenAlex or TlachIA Metrics CSV export into standardized records with all available fields."""
     import ast
     records = []
-    with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-        reader = csv.DictReader(f)
+    with open(filepath, 'r', encoding='utf-8-sig', errors='replace') as f:
+        first_line = f.readline()
+        delimiter = ','
+        if ';' in first_line and first_line.count(';') > first_line.count(','):
+            delimiter = ';'
+        elif '\t' in first_line and first_line.count('\t') > first_line.count(','):
+            delimiter = '\t'
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
         for raw_row in reader:
             if not raw_row:
                 continue
-            row = {k.strip(): v for k, v in raw_row.items() if k}
+            row = {str(k).strip().strip('"\'').lstrip('\ufeff'): v for k, v in raw_row.items() if k}
             lower_row = {k.lower().strip(): v for k, v in row.items()}
             
             def get_val(*keys):
@@ -220,22 +241,32 @@ def parse_openalex_csv(filepath: str) -> List[Dict[str, Any]]:
                             return val
                 return ''
 
-            title = get_val('Title', 'display_name', 'title')
+            title = get_val(
+                'Title', 'display_name', 'title', 'Título del Artículo', 'Título del artículo',
+                'Título', 'Titulo', 'Article Title', 'Document Title', 'Work Title',
+                'TI', 'T1', 'Obra', 'obra', 'Artículo', 'Articulo', 'Nombre'
+            )
             if not title:
-                continue
+                ident = get_val('Work ID', 'id', 'work_id', 'OpenAlex ID', 'DOI', 'doi', 'pmid')
+                if ident:
+                    title = f"Document {ident}"
+                elif get_val('Author', 'authors', 'Autores', 'AU'):
+                    title = f"Document_{len(records)+1}"
+                else:
+                    continue
 
-            abstract = get_val('Abstract', 'abstract')
+            abstract = get_val('Abstract', 'abstract', 'Resumen', 'AB')
             if abstract == '.':
                 abstract = ''
 
-            year = get_val('Year', 'publication_year', 'Year of publication')
+            year = get_val('Year', 'publication_year', 'Year of publication', 'Año', 'Ano', 'PY')
             if not year:
-                date_val = get_val('Date', 'publication_date')
+                date_val = get_val('Date', 'publication_date', 'Fecha de Publicación', 'Fecha')
                 if len(date_val) >= 4:
                     year = date_val[:4]
 
             citations = 0.0
-            cit_raw = get_val('Citation count', 'Cited by', 'cited_by_count', 'Citations')
+            cit_raw = get_val('Citation count', 'Cited by', 'cited_by_count', 'Citations', 'Citas Totales (OpenAlex)', 'Citas Totales', 'Citas', 'TC')
             if cit_raw:
                 try:
                     citations = float(cit_raw.replace(',', ''))
@@ -256,34 +287,36 @@ def parse_openalex_csv(filepath: str) -> List[Dict[str, Any]]:
                 delim = '|' if '|' in s else (';' if ';' in s else ',')
                 return [p.strip() for p in s.split(delim) if p.strip() and p.strip().lower() != 'nan']
 
-            authors = parse_list(get_val('Author', 'author_names', 'authors', 'Authors'))
-            author_keywords = parse_list(get_val('Keyword', 'keywords', 'Keywords', 'author_keywords'))
-            concepts = parse_list(get_val('Concept', 'concepts', 'Concepts'))
+            authors = parse_list(get_val('Author', 'author_names', 'authors', 'Authors', 'Autores', 'AU'))
+            author_keywords = parse_list(get_val('Keyword', 'keywords', 'Keywords', 'author_keywords', 'Palabras clave', 'Palabras Clave', 'DE'))
+            concepts = parse_list(get_val('Concept', 'concepts', 'Concepts', 'Conceptos', 'ID'))
             keywords = list(dict.fromkeys(author_keywords + concepts))
 
-            subfields = parse_list(get_val('Subfield', 'subfields', 'subfield_name', 'subfield'))
-            fields = parse_list(get_val('Field', 'fields', 'field_name', 'field'))
-            domains = parse_list(get_val('Domain', 'domains', 'domain_name', 'domain'))
-            topics = parse_list(get_val('Topic', 'topics', 'all_topics', 'primary_topic_id'))
+            subfields = parse_list(get_val('Subfield', 'subfields', 'subfield_name', 'subfield', 'Subcampo (Área de Investigación)', 'Subcampo'))
+            fields = parse_list(get_val('Field', 'fields', 'field_name', 'field', 'Campo'))
+            domains = parse_list(get_val('Domain', 'domains', 'domain_name', 'domain', 'Dominio Temático', 'Dominio'))
+            topics = parse_list(get_val('Topic', 'topics', 'all_topics', 'primary_topic_id', 'Tópico Principal', 'Tópico', 'Topico'))
             if not topics:
                 topics = list(dict.fromkeys(subfields + fields + domains))
+            if not keywords and topics:
+                keywords = list(topics)
 
-            sdgs = parse_list(get_val('SDG', 'sdgs', 'Sustainable Development Goals', 'Sustainable Development Goal'))
-            organizations = parse_list(get_val('Institution', 'institution_names', 'organizations', 'Affiliations'))
-            countries = parse_list(get_val('Country', 'country_codes', 'all_country_codes', 'countries'))
+            sdgs = parse_list(get_val('SDG', 'sdgs', 'Sustainable Development Goals', 'Sustainable Development Goal', 'ODS / Agenda 2030 (SDGs)', 'ODS'))
+            organizations = parse_list(get_val('Institution', 'institution_names', 'organizations', 'Affiliations', 'Instituciones', 'Afiliaciones', 'C1'))
+            countries = parse_list(get_val('Country', 'country_codes', 'all_country_codes', 'countries', 'Países Colaboradores', 'País', 'Países', 'Pais', 'Paises', 'CU'))
             continents = parse_list(get_val('Continent', 'continents'))
-            funders = parse_list(get_val('Funder', 'funder_names', 'funders'))
+            funders = parse_list(get_val('Funder', 'funder_names', 'funders', 'Agencias de Financiamiento', 'FU'))
 
-            source = get_val('Source', 'source_name', 'Any location source', 'Journal', 'Publication Title')
-            doi = get_val('DOI', 'doi')
-            work_id = get_val('Work ID', 'id', 'work_id')
+            source = get_val('Source', 'source_name', 'Any location source', 'Journal', 'Publication Title', 'Revista / Fuente', 'Revista', 'Fuente', 'SO')
+            doi = get_val('DOI', 'doi', 'DI')
+            work_id = get_val('Work ID', 'id', 'work_id', 'OpenAlex ID')
             if work_id:
                 work_id = work_id.split('/')[-1]
 
-            doc_type = get_val('Type', 'type', 'Document Type', 'Publication Type')
-            language = get_val('Language', 'language')
-            publisher = get_val('Publisher', 'publisher', 'Host Organization')
-            oa_status = get_val('Open access', 'oa_status', 'OA Status', 'Open Access Status')
+            doc_type = get_val('Type', 'type', 'Document Type', 'Publication Type', 'Tipo de Documento', 'DT')
+            language = get_val('Language', 'language', 'Idioma', 'LA')
+            publisher = get_val('Publisher', 'publisher', 'Host Organization', 'Editorial', 'PU')
+            oa_status = get_val('Open access', 'oa_status', 'OA Status', 'Open Access Status', 'Vía de Acceso Abierto', 'Es Acceso Abierto', 'OA')
             fwci = get_val('FWCI', 'fwci')
 
             # Referenced works (citations)

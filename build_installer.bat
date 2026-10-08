@@ -50,6 +50,22 @@ if %errorlevel% neq 0 exit /b %errorlevel%
 cd ..\..\..\
 echo.
 
+echo   - Copiando archivos del proyecto Demo (App_Data\projects)...
+if exist backend\src\LabSOM.Backend.Core\App_Data\projects (
+    if not exist publish_win\App_Data\projects mkdir publish_win\App_Data\projects
+    xcopy backend\src\LabSOM.Backend.Core\App_Data\projects\*.* publish_win\App_Data\projects\ /s /e /y /q /r >nul
+
+    if not exist publish_linux\App_Data\projects mkdir publish_linux\App_Data\projects
+    xcopy backend\src\LabSOM.Backend.Core\App_Data\projects\*.* publish_linux\App_Data\projects\ /s /e /y /q /r >nul
+
+    if not exist publish_mac_intel\App_Data\projects mkdir publish_mac_intel\App_Data\projects
+    xcopy backend\src\LabSOM.Backend.Core\App_Data\projects\*.* publish_mac_intel\App_Data\projects\ /s /e /y /q /r >nul
+
+    if not exist publish_mac_arm\App_Data\projects mkdir publish_mac_arm\App_Data\projects
+    xcopy backend\src\LabSOM.Backend.Core\App_Data\projects\*.* publish_mac_arm\App_Data\projects\ /s /e /y /q /r >nul
+)
+echo.
+
 echo [3/4] Empaquetando para Linux y Mac (.zip)...
 if not exist Output mkdir Output
 

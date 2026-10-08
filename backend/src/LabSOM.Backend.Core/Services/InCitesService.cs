@@ -317,6 +317,49 @@ namespace LabSOM.Backend.Core.Services
                     try { File.Delete(payloadFile); } catch { }
             }
         }
+
+        public (bool success, string? filePath, string? fileName) GetWorksCsvPath()
+        {
+            if (string.IsNullOrEmpty(_sessionDir) || !Directory.Exists(_sessionDir))
+            {
+                return (false, null, null);
+            }
+
+            // 1. Try reading inventory.json if present
+            string invPath = Path.Combine(_sessionDir, "inventory.json");
+            if (File.Exists(invPath))
+            {
+                try
+                {
+                    using var stream = File.OpenRead(invPath);
+                    using var doc = JsonDocument.Parse(stream);
+                    if (doc.RootElement.TryGetProperty("works_file_path", out var wProp) && !string.IsNullOrEmpty(wProp.GetString()))
+                    {
+                        var p = wProp.GetString()!;
+                        if (File.Exists(p)) return (true, p, Path.GetFileName(p));
+                    }
+                }
+                catch { }
+            }
+
+            // 2. Scan session directory recursively for works/document CSVs
+            try
+            {
+                var csvFiles = Directory.GetFiles(_sessionDir, "*.csv", SearchOption.AllDirectories);
+                var match = csvFiles.FirstOrDefault(f => {
+                    var name = Path.GetFileName(f).ToLowerInvariant();
+                    return name.Contains("works") || name.Contains("document") || name.Contains("obra") || name.Contains("metadato");
+                }) ?? csvFiles.FirstOrDefault(f => f.Contains("05_Tablas", StringComparison.OrdinalIgnoreCase));
+
+                if (match != null && File.Exists(match))
+                {
+                    return (true, match, Path.GetFileName(match));
+                }
+            }
+            catch { }
+
+            return (false, null, null);
+        }
     }
 
     // ── DTOs ──────────────────────────────────────────────────────────

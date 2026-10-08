@@ -306,12 +306,6 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
       );
     }
 
-    // Cluster palette
-    const clusterColors = [
-      '#6366f1', '#ec4899', '#10b981', '#f59e0b', '#3b82f6',
-      '#8b5cf6', '#14b8a6', '#f43f5e', '#84cc16', '#06b6d4'
-    ];
-
     // Compute bounding box for SVG viewbox
     const xs = hexGrid.map((h: any) => h.x);
     const ys = hexGrid.map((h: any) => h.y);
@@ -357,7 +351,9 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
         >
           {hexGrid.map((node: any, idx: number) => {
             const clusterId = clusters[idx] !== undefined ? clusters[idx] : 0;
-            const color = clusterColors[Math.abs(clusterId) % clusterColors.length];
+            const color = clusterId === -1 
+              ? '#334155' 
+              : `hsl(${((clusterId * 137.5) % 360 + 360) % 360}, 70%, 50%)`;
             const rawFreq = frequencies[idx];
             const parsedFreq = typeof rawFreq === 'number' ? Math.round(rawFreq) : parseInt(rawFreq, 10) || 0;
             

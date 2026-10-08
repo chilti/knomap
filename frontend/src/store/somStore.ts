@@ -182,6 +182,7 @@ interface SOMState {
   // Semantic Bibliometrics State
   semanticRecords: SemanticRecord[] | null;
   semanticEmbeddings: number[][] | null;
+  semanticEmbeddingsCount: number;
   semanticIntrinsicData: number[][] | null;
   semantic2DCoords: Array<{ x: number; y: number }> | null;
   semanticClusters: any[] | null;
@@ -350,6 +351,7 @@ interface SOMState {
   incitesLimitTop50: boolean;
   incitesFilterIndicator: string;
   incitesFilterMinValue: number | string;
+  incitesFilterCountries: string[];
   incitesIsFilterActive: boolean;
   incitesIsFilterModalOpen: boolean;
   cloudProjectId: string | null;
@@ -366,6 +368,7 @@ interface SOMState {
     incitesLimitTop50: boolean,
     incitesFilterIndicator: string,
     incitesFilterMinValue: number | string,
+    incitesFilterCountries: string[],
     incitesIsFilterActive: boolean,
     incitesIsFilterModalOpen: boolean
   }>) => void;
@@ -382,6 +385,7 @@ interface SOMState {
   tlachiaLimitTop50: boolean;
   tlachiaFilterIndicator: string;
   tlachiaFilterMinValue: number | string;
+  tlachiaFilterCountries: string[];
   tlachiaIsFilterActive: boolean;
   tlachiaIsFilterModalOpen: boolean;
   setTlachiaState: (state: Partial<{
@@ -396,6 +400,7 @@ interface SOMState {
     tlachiaLimitTop50: boolean,
     tlachiaFilterIndicator: string,
     tlachiaFilterMinValue: number | string,
+    tlachiaFilterCountries: string[],
     tlachiaIsFilterActive: boolean,
     tlachiaIsFilterModalOpen: boolean
   }>) => void;
@@ -585,6 +590,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   // Semantic Bibliometrics Initial State
   semanticRecords: null,
   semanticEmbeddings: null,
+  semanticEmbeddingsCount: 0,
   semanticIntrinsicData: null,
   semantic2DCoords: null,
   semanticClusters: null,
@@ -671,6 +677,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   incitesLimitTop50: true,
   incitesFilterIndicator: '',
   incitesFilterMinValue: '',
+  incitesFilterCountries: [],
   incitesIsFilterActive: false,
   incitesIsFilterModalOpen: false,
   setIncitesState: (newState) => set((state) => ({ ...state, ...newState })),
@@ -798,6 +805,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   tlachiaLimitTop50: true,
   tlachiaFilterIndicator: '',
   tlachiaFilterMinValue: '',
+  tlachiaFilterCountries: [],
   tlachiaIsFilterActive: false,
   tlachiaIsFilterModalOpen: false,
   setTlachiaState: (newState) => set((state) => ({ ...state, ...newState })),
@@ -865,37 +873,29 @@ export const useSomStore = create<SOMState>((set, get) => ({
         tlachiaIsUploading: false
       });
 
-      // If OpenAlex JSON production is present, automatically load into Biblio Networks, SOM, and Semantic Biblio
-      if (data.openalex_data && data.openalex_data.has_json) {
+      // If documents metadata CSV or JSON is present in the archive, prepare it for Biblio Networks & Semantic Biblio
+      if (data.openalex_data && (data.openalex_data.has_works || data.openalex_data.has_json)) {
         const oa = data.openalex_data;
-        set({
-          // Biblio Networks
-          documentCount: oa.document_count || 0,
-          termCounts: oa.term_counts || {},
-          network: oa.network || null,
-          vosviewerJson: oa.vosviewer_json || null,
-          networksByYear: oa.networks_by_year || null,
-          cooccurrenceCsv: oa.cooccurrence_csv || null,
-          // Semantic Biblio
-          semanticRecords: oa.semantic_records || null,
-          semanticFileName: oa.json_file_name || 'OpenAlex Production',
-          semanticEmbeddings: null,
-          semanticIntrinsicData: null,
-          semantic2DCoords: null,
-          semanticClusters: null,
-          semanticClusterAssignment: null
-        });
+        const docCount = oa.document_count || 0;
+        const worksFileName = oa.works_file_name || oa.json_file_name || 'documents_metadata.csv';
 
-        // Also if cooccurrenceCsv is present, make it available for SOM training
-        if (oa.cooccurrence_csv) {
-          if (get().dataMatrix && get().dataMatrix.length > 0) {
+        try {
+          const csvRes = await fetch(getApiUrl('/api/tlachia/works-csv'));
+          if (csvRes.ok) {
+            const blob = await csvRes.blob();
+            const bibFile = new File([blob], worksFileName, { type: 'text/csv' });
             set({
-              pendingNetworkCsv: oa.cooccurrence_csv,
-              pendingNetworkOrigin: 'monothematic'
+              sharedBibFile: bibFile,
+              fileName: worksFileName,
+              documentCount: docCount,
+              semanticFileName: worksFileName
+              // Kept idle until user clicks:
+              // - Biblio Networks shows "Dataset: <worksFileName>" ready to click "Preprocess Bibliometrics"
+              // - Semantic Biblio shows "<worksFileName> • Shared file ready" ready to click "Process File"
             });
-          } else {
-            get().loadCsvData(oa.cooccurrence_csv, 0, [], 'monothematic');
           }
+        } catch (fetchErr) {
+          console.warn('Could not retrieve works CSV for sharedBibFile:', fetchErr);
         }
       }
 
@@ -2305,7 +2305,10 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
       // Semantic Bibliometrics
       semanticRecords: state.semanticRecords,
-      semanticEmbeddings: state.semanticEmbeddings,
+      semanticEmbeddings: (state.semanticEmbeddings && state.semanticEmbeddings.length > 100)
+        ? state.semanticEmbeddings.slice(0, 20)
+        : state.semanticEmbeddings,
+      semanticEmbeddingsCount: state.semanticEmbeddingsCount || state.semanticEmbeddings?.length || 0,
       semanticIntrinsicData: state.semanticIntrinsicData,
       semantic2DCoords: state.semantic2DCoords,
       semanticClusters: state.semanticClusters,
@@ -2326,6 +2329,11 @@ export const useSomStore = create<SOMState>((set, get) => ({
       incitesSidebarTab: state.incitesSidebarTab,
       incitesBaseline: state.incitesBaseline,
       incitesSelectedBaselineSource: state.incitesSelectedBaselineSource,
+      incitesLimitTop50: state.incitesLimitTop50,
+      incitesFilterIndicator: state.incitesFilterIndicator,
+      incitesFilterMinValue: state.incitesFilterMinValue,
+      incitesFilterCountries: state.incitesFilterCountries || [],
+      incitesIsFilterActive: state.incitesIsFilterActive,
 
       // TlachIA Metrics Explorer State
       tlachiaUnitNames: state.tlachiaUnitNames,
@@ -2337,6 +2345,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       tlachiaLimitTop50: state.tlachiaLimitTop50,
       tlachiaFilterIndicator: state.tlachiaFilterIndicator,
       tlachiaFilterMinValue: state.tlachiaFilterMinValue,
+      tlachiaFilterCountries: state.tlachiaFilterCountries || [],
       tlachiaIsFilterActive: state.tlachiaIsFilterActive,
       tlachiaLlmCache: state.tlachiaLlmCache,
 
@@ -2458,6 +2467,11 @@ export const useSomStore = create<SOMState>((set, get) => ({
           incitesSidebarTab: projectData.incitesSidebarTab || 'profiles',
           incitesBaseline: projectData.incitesBaseline || null,
           incitesSelectedBaselineSource: projectData.incitesSelectedBaselineSource || null,
+          incitesLimitTop50: projectData.incitesLimitTop50 ?? true,
+          incitesFilterIndicator: projectData.incitesFilterIndicator || '',
+          incitesFilterMinValue: projectData.incitesFilterMinValue || '',
+          incitesFilterCountries: projectData.incitesFilterCountries || [],
+          incitesIsFilterActive: projectData.incitesIsFilterActive || false,
 
           // TlachIA Metrics Explorer State
           tlachiaUnitNames: projectData.tlachiaUnitNames || null,
@@ -2469,6 +2483,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
           tlachiaLimitTop50: projectData.tlachiaLimitTop50 ?? true,
           tlachiaFilterIndicator: projectData.tlachiaFilterIndicator || '',
           tlachiaFilterMinValue: projectData.tlachiaFilterMinValue || '',
+          tlachiaFilterCountries: projectData.tlachiaFilterCountries || [],
           tlachiaIsFilterActive: projectData.tlachiaIsFilterActive || false,
           tlachiaLlmCache: projectData.tlachiaLlmCache || {},
 
@@ -2678,10 +2693,15 @@ export const useSomStore = create<SOMState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ records: semanticRecords, model: semanticEmbedModel })
       });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Server returned HTTP ${res.status}: ${errText.slice(0, 150)}`);
+      }
       const json = await res.json();
       if (json.success) {
         set({
           semanticEmbeddings: json.embeddings,
+          semanticEmbeddingsCount: json.count || json.embeddings?.length || 0,
           // Reset downstream states
           semanticIntrinsicData: null,
           semantic2DCoords: null,
@@ -2699,36 +2719,48 @@ export const useSomStore = create<SOMState>((set, get) => ({
   },
 
   estimateSemanticIntrinsicDim: async () => {
-    const { semanticEmbeddings } = get();
-    if (!semanticEmbeddings || semanticEmbeddings.length === 0) return;
+    const { semanticEmbeddings, semanticEmbeddingsCount } = get();
+    if (!semanticEmbeddings && !semanticEmbeddingsCount) return;
 
     set({ isSemanticReducing: true });
     try {
-      // Call reduce endpoint in estimate-only mode (no target_dim override)
+      // If embeddings are held in client memory and larger than 2500, sample 2000 points uniformly
+      let sampleEmbeddings: number[][] = [];
+      if (semanticEmbeddings && semanticEmbeddings.length > 0) {
+        if (semanticEmbeddings.length > 2500) {
+          const step = semanticEmbeddings.length / 2000;
+          for (let i = 0; i < 2000; i++) {
+            sampleEmbeddings.push(semanticEmbeddings[Math.floor(i * step)]);
+          }
+        } else {
+          sampleEmbeddings = semanticEmbeddings;
+        }
+      }
+
+      // Call reduce endpoint in estimate-only mode (target_dim: 0)
       const res = await fetch(getApiUrl('/api/semantic/reduce'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          embeddings: semanticEmbeddings,
+          embeddings: sampleEmbeddings,
           estimate_mode: 'ceiling',
           algorithm_name: 'MLE',
-          target_dim: 0  // 0 means: use the estimated dimension
+          target_dim: 0  // 0 means: estimate only
         })
       });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Server returned HTTP ${res.status}: ${errText.slice(0, 150)}`);
+      }
       const json = await res.json();
       if (json.success) {
         set({
-          semanticIntrinsicData: json.intrinsic_data,
-          semantic2DCoords: json.coords_2d,
           semanticCeilingResult: {
             success: true,
             estimated_dimension: json.estimated_dimension,
             metrics: json.metrics
           },
-          semanticTargetD: json.target_dim,
-          // Reset downstream clustering
-          semanticClusters: null,
-          semanticClusterAssignment: null
+          semanticTargetD: json.target_dim || Math.max(2, Math.round(json.estimated_dimension))
         });
       } else {
         alert("Estimation error: " + json.error);
@@ -2741,26 +2773,30 @@ export const useSomStore = create<SOMState>((set, get) => ({
   },
 
   reduceSemanticDimension: async () => {
-    const { semanticEmbeddings, semanticTargetD } = get();
-    if (!semanticEmbeddings || semanticEmbeddings.length === 0) return;
+    const { semanticEmbeddings, semanticEmbeddingsCount, semanticTargetD } = get();
+    if (!semanticEmbeddings && !semanticEmbeddingsCount) return;
 
     set({ isSemanticReducing: true });
     try {
-      // Use manual target_dim (user may have adjusted after ceiling estimate)
+      // Pass client embeddings if present and not preview, otherwise empty so server uses cache
       const res = await fetch(getApiUrl('/api/semantic/reduce'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          embeddings: semanticEmbeddings,
-          estimate_mode: 'manual_k',  // skip re-estimation, use target_dim directly
+          embeddings: (semanticEmbeddings && semanticEmbeddings.length > 50) ? semanticEmbeddings : [],
+          estimate_mode: 'manual_k',
           algorithm_name: 'MLE',
           target_dim: semanticTargetD
         })
       });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Server returned HTTP ${res.status}: ${errText.slice(0, 150)}`);
+      }
       const json = await res.json();
       if (json.success) {
         set({
-          semanticIntrinsicData: json.intrinsic_data,
+          semanticIntrinsicData: json.intrinsic_data || [],
           semantic2DCoords: json.coords_2d,
           // Reset downstream clustering
           semanticClusters: null,
@@ -2778,7 +2814,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
   clusterSemantic: async () => {
     const { semanticIntrinsicData, semantic2DCoords, semanticRecords, semanticNumLevels, semanticMinSize } = get();
-    if (!semanticIntrinsicData || !semantic2DCoords || !semanticRecords) return;
+    if (!semantic2DCoords || !semanticRecords) return;
 
     set({ isSemanticClustering: true });
     try {
@@ -2786,13 +2822,17 @@ export const useSomStore = create<SOMState>((set, get) => ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          intrinsic_data: semanticIntrinsicData,
+          intrinsic_data: semanticIntrinsicData || [],
           coords_2d: semantic2DCoords,
           records: semanticRecords,
           num_levels: semanticNumLevels,
           min_size: semanticMinSize
         })
       });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Server returned HTTP ${res.status}: ${errText.slice(0, 150)}`);
+      }
       const json = await res.json();
       if (json.success) {
         set({
@@ -2818,6 +2858,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
   clearSemanticState: () => set({
     semanticRecords: null,
     semanticEmbeddings: null,
+    semanticEmbeddingsCount: 0,
     semanticIntrinsicData: null,
     semantic2DCoords: null,
     semanticClusters: null,

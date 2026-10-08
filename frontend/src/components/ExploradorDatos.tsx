@@ -45,8 +45,10 @@ import { parseTrajectoryEntity } from '../utils/timeSeries';
 import { SendToAssistantButton } from './SendToAssistantButton';
 import { denormalizeValue } from '../utils/normalization';
 import { LongitudinalSomViewer } from './LongitudinalSomViewer';
+import { useAuthStore } from '../store/authStore';
 
 export const ExploradorDatos: React.FC = () => {
+  const { isReadOnlyDemo } = useAuthStore();
   const { 
     dataMatrix, 
     labels, 
@@ -483,6 +485,10 @@ export const ExploradorDatos: React.FC = () => {
   }, []);
 
   const handleRecluster = async () => {
+    if (isReadOnlyDemo) {
+      alert("En el modo demostración los clústeres ya están precalculados. Inicia sesión para re-agrupar clústeres.");
+      return;
+    }
     if (!result || !result.weights) return;
     try {
       const apiUrl = getApiUrl('/api/som/recluster');
@@ -2050,6 +2056,7 @@ export const ExploradorDatos: React.FC = () => {
                             type="checkbox" 
                             className="sr-only" 
                             checked={isCmaSmoothingActive}
+                            disabled={isReadOnlyDemo}
                             onChange={(e) => setIsCmaSmoothingActive(e.target.checked)}
                           />
                           <div className={`block w-10 h-6 rounded-full transition-colors ${isCmaSmoothingActive ? 'bg-indigo-600' : 'bg-gray-800'}`}></div>
@@ -2417,6 +2424,10 @@ export const ExploradorDatos: React.FC = () => {
               <div className="flex flex-col items-end border-t border-gray-800 pt-5 space-y-4">
                 <button
                   onClick={async () => {
+                    if (isReadOnlyDemo) {
+                      alert("En el modo demostración el SOM ya está entrenado. Inicia sesión para entrenar mapas con nuevos datos.");
+                      return;
+                    }
                     const success = await trainSOM();
                     if (success) {
                       // Automatically run optimal cluster analysis if agglomerative clustering is active
@@ -2425,8 +2436,9 @@ export const ExploradorDatos: React.FC = () => {
                       }
                     }
                   }}
-                  disabled={isTraining || dataMatrix.length === 0 || incitesIsUploading}
-                  className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 shadow-lg shadow-indigo-900 shadow-opacity-30 cursor-pointer"
+                  disabled={isTraining || dataMatrix.length === 0 || incitesIsUploading || isReadOnlyDemo}
+                  className={`px-6 py-3.5 ${isReadOnlyDemo ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer'} disabled:bg-gray-800 disabled:text-gray-500 text-xs font-black uppercase tracking-wider rounded-xl transition flex items-center justify-center space-x-2 shadow-lg shadow-indigo-900 shadow-opacity-30`}
+                  title={isReadOnlyDemo ? 'Entrenamiento bloqueado en modo demo' : undefined}
                 >
                   {isTraining ? (
                     <>
@@ -2438,6 +2450,8 @@ export const ExploradorDatos: React.FC = () => {
                       <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
                       <span>InCites Processing...</span>
                     </>
+                  ) : isReadOnlyDemo ? (
+                    <span>Modo Lectura (Demo - SOM Entrenado)</span>
                   ) : (
                     <span>Train SOM</span>
                   )}
@@ -2507,7 +2521,7 @@ export const ExploradorDatos: React.FC = () => {
                     alert("No pre-calculated labels found for this K. Please click 'Analyze Optimal Clusters' first or use 'Backend Re-cluster'.");
                   }
                 }}
-                disabledRecluster={!result || dataMatrix.length === 0}
+                disabledRecluster={!result || dataMatrix.length === 0 || isReadOnlyDemo}
               />
             )}
         </div>

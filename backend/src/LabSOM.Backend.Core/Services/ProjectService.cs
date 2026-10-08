@@ -81,6 +81,26 @@ namespace LabSOM.Backend.Core.Services
                 await compressedStream.CopyToAsync(fileStream);
             }
 
+            // Check if server-side embeddings cache exists for semantic bibliometrics, and link to this project
+            try
+            {
+                string engineTempDir = Path.Combine(AppContext.BaseDirectory, "engine", "temp");
+                if (!Directory.Exists(engineTempDir))
+                {
+                    engineTempDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine", "temp");
+                }
+                string cacheFile = Path.Combine(engineTempDir, "semantic_embeddings_cache.npz");
+                if (File.Exists(cacheFile))
+                {
+                    string projEmbeddingsFile = Path.Combine(_projectsDir, $"{project.Id}_embeddings.npz");
+                    File.Copy(cacheFile, projEmbeddingsFile, overwrite: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ProjectService] Notice: could not copy embeddings to project storage: {ex.Message}");
+            }
+
             await _db.SaveChangesAsync();
             return project;
         }
@@ -168,6 +188,26 @@ namespace LabSOM.Backend.Core.Services
             if (!File.Exists(filePath))
             {
                 throw new FileNotFoundException("Project payload file missing.");
+            }
+
+            // If project has persistent compressed embeddings on server, restore to active engine cache
+            try
+            {
+                string projEmbeddingsFile = Path.Combine(_projectsDir, $"{projectId}_embeddings.npz");
+                if (File.Exists(projEmbeddingsFile))
+                {
+                    string engineTempDir = Path.Combine(AppContext.BaseDirectory, "engine", "temp");
+                    if (!Directory.Exists(engineTempDir))
+                    {
+                        Directory.CreateDirectory(engineTempDir);
+                    }
+                    string cacheFile = Path.Combine(engineTempDir, "semantic_embeddings_cache.npz");
+                    File.Copy(projEmbeddingsFile, cacheFile, overwrite: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ProjectService] Notice: could not restore project embeddings: {ex.Message}");
             }
 
             using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
@@ -274,6 +314,58 @@ namespace LabSOM.Backend.Core.Services
 
             _db.Projects.Remove(project);
             await _db.SaveChangesAsync();
+        }
+
+        public async Task<string> GetDemoProjectPayloadAsync()
+        {
+            string demoFile = Path.Combine(_projectsDir, "demo_ai_education.json.gz");
+            if (!File.Exists(demoFile))
+            {
+                // Fallback to active project 22ce00e83bf84294bf360732e27ce744.json.gz if demo_ai_education.json.gz not generated yet
+                string fallbackFile = Path.Combine(_projectsDir, "22ce00e83bf84294bf360732e27ce744.json.gz");
+                if (File.Exists(fallbackFile))
+                {
+                    demoFile = fallbackFile;
+                }
+                else
+                {
+                    throw new FileNotFoundException("Demo project file not found.");
+                }
+            }
+
+            // Restore embeddings to active engine cache if needed
+            try
+            {
+                string demoEmbeddingsFile = Path.Combine(_projectsDir, "demo_ai_education_embeddings.npz");
+                if (!File.Exists(demoEmbeddingsFile))
+                {
+                    demoEmbeddingsFile = Path.Combine(_projectsDir, "d9e4fddf571e4f7cb7cf21ecaf636e0e_embeddings.npz");
+                }
+                if (File.Exists(demoEmbeddingsFile))
+                {
+                    string engineTempDir = Path.Combine(AppContext.BaseDirectory, "engine", "temp");
+                    if (!Directory.Exists(engineTempDir))
+                    {
+                        Directory.CreateDirectory(engineTempDir);
+                    }
+                    string cacheFile = Path.Combine(engineTempDir, "semantic_embeddings_cache.npz");
+                    if (!File.Exists(cacheFile) || new FileInfo(cacheFile).Length == 0)
+                    {
+                        File.Copy(demoEmbeddingsFile, cacheFile, overwrite: true);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ProjectService] Notice: could not restore demo embeddings: {ex.Message}");
+            }
+
+            using (var fileStream = new FileStream(demoFile, FileMode.Open, FileAccess.Read))
+            using (var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress))
+            using (var reader = new StreamReader(gzipStream, Encoding.UTF8))
+            {
+                return await reader.ReadToEndAsync();
+            }
         }
     }
 }

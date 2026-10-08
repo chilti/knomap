@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple, Union
 from pathlib import Path
+from vos_parsers import is_openalex_csv
 
 # Suprimir advertencias que interfieran con la salida estándar JSON
 warnings.filterwarnings("ignore")
@@ -213,8 +214,16 @@ def identify_tlachia_file(filepath: str) -> Tuple[Optional[str], Optional[str]]:
     if re.search(r'Matriz[_\s]+Desempe[nñ]o[_\s]+Longitudinal[_\s]+Consolidada', clean, re.IGNORECASE):
         return None, None
 
-    # Omitir archivos de obras completas y tablas de datos en 05_Tablas_Parquet_y_Datos (se procesan por separado)
-    if '05_tablas' in norm_path.lower() or 'openalex_works' in clean.lower() or clean.lower().endswith('_works') or clean.lower().endswith(' works'):
+    # Omitir archivos de obras completas y tablas de datos de documentos (se procesan por separado)
+    clean_lower = clean.lower()
+    if (
+        '05_tablas' in norm_path.lower() or
+        any(k in clean_lower for k in [
+            'openalex_works', 'documentos_enriquecidos', 'enriched_documents',
+            'metadatos', 'metadata', 'fichas', 'articulos', 'articles'
+        ]) or
+        clean_lower.endswith(('_works', ' works', '_documentos', ' documentos', '_documents', ' documents', '_obras', ' obras'))
+    ):
         return None, None
 
     # Detectar categoría por carpeta jerárquica
@@ -576,9 +585,16 @@ def extract_profile_data(df: Optional[pd.DataFrame]) -> Tuple[List[Dict[str, Any
     ent_df = ent_df.head(1500)
     cols = numeric_cols
 
+    # Detectar columna de país si existe
+    country_col = next((c for c in ent_df.columns if re.search(r'^(country|country_code|country_name|pa[ií]s)$', str(c).strip(), re.IGNORECASE)), None)
+
     for _, row in ent_df.iterrows():
         entity_name = str(row[entity_col]).strip()
         profile_row = {"entity": entity_name}
+        if country_col and pd.notna(row[country_col]):
+            c_val = str(row[country_col]).strip()
+            if c_val and c_val.lower() not in ('nan', 'none', 'null', ''):
+                profile_row["Country"] = c_val
         for col_name in cols:
             profile_row[col_name] = clean_val(row[col_name])
         prof.append(profile_row)
@@ -609,6 +625,7 @@ def process_tlachia_unit(unit_name: str,
         "quartiles_5years": [],
         "sunburst_5years": None,
         "time_series": {},
+        "countries": [],
         "profile_evolution": {"raw": [], "ecma3": [], "ecma5": []}
     }
 
@@ -627,6 +644,18 @@ def process_tlachia_unit(unit_name: str,
 
     result["profile_5years"] = p_5y
     result["quartiles_5years"] = q_5y
+
+    # Compilar países únicos encontrados en la unidad
+    seen_countries = set()
+    for row in (result["profile"] or []):
+        c = row.get("Country")
+        if c:
+            seen_countries.add(str(c).strip().upper())
+    for row in (result["profile_5years"] or []):
+        c = row.get("Country")
+        if c:
+            seen_countries.add(str(c).strip().upper())
+    result["countries"] = sorted(list(seen_countries))
 
     # 2. Procesamiento Vectorial de Series de Tiempo (Ultra-Rápido)
     target_trend = df_trend if (df_trend is not None and not df_trend.empty) else None
@@ -832,85 +861,78 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
         except Exception:
             pass
 
-    # Detectar y procesar automáticamente producción científica de OpenAlex (CSV o JSON) si está presente en el paquete
+    # Detectar y preparar archivo de metadatos de documentos / obras si está presente en el paquete
     openalex_json_data = None
-    works_files = [
-        f for f in extracted_files
-        if (
-            f.lower().endswith(('_openalex_works.csv', '_works.csv')) or
-            (f.lower().endswith(('.json', '.jsonl', '.ndjson'))
-             and not os.path.basename(f).lower().endswith('manifest.json')
-             and not f.endswith('inventory.json')
-             and not f.endswith('payload.json'))
-        )
-    ]
+    works_file_path = None
+    works_files = []
+
+    for f in extracted_files:
+        fn = os.path.basename(f).lower()
+        if fn in ('manifest.json', 'inventory.json', 'payload.json') or fn.startswith(('leeme', 'readme')):
+            continue
+        if fn.endswith(('.json', '.jsonl', '.ndjson')):
+            works_files.append(f)
+        elif fn.endswith('.csv'):
+            if (
+                any(k in fn for k in [
+                    'works', 'documentos', 'documents', 'obras', 'metadatos',
+                    'metadata', 'fichas', 'articulos', 'articles'
+                ]) or
+                '05_tablas' in f.lower() or
+                is_openalex_csv(f)
+            ):
+                works_files.append(f)
 
     if works_files:
-        # Priorizar archivo CSV de obras o archivo que contenga openalex_works
-        works_files.sort(
-            key=lambda x: 0 if x.lower().endswith('.csv') and 'works' in os.path.basename(x).lower()
-            else (1 if 'openalex_works' in os.path.basename(x).lower() else 2)
-        )
+        # Priorizar archivos CSV de obras/documentos sobre JSON
+        def _works_priority(x):
+            bx = os.path.basename(x).lower()
+            if bx.endswith('.csv'):
+                if 'works' in bx:
+                    return 0
+                if 'document' in bx or 'obra' in bx:
+                    return 1
+                return 2
+            return 3
+
+        works_files.sort(key=_works_priority)
         works_file_path = works_files[0]
+
+        # Calcular rápidamente el número de documentos sin disparar algoritmos pesados de red o embeddings
+        doc_count = 0
         try:
-            from vos_parsers import is_openalex_json, parse_openalex_json, is_openalex_csv, parse_openalex_csv
-            if works_file_path.lower().endswith('.csv') and (is_openalex_csv(works_file_path) or 'works' in os.path.basename(works_file_path).lower()):
-                raw_records = parse_openalex_csv(works_file_path)
-            elif is_openalex_json(works_file_path) or 'openalex_works' in os.path.basename(works_file_path).lower():
-                raw_records = parse_openalex_json(works_file_path)
+            if works_file_path.lower().endswith('.csv'):
+                with open(works_file_path, 'r', encoding='utf-8', errors='replace') as wf:
+                    doc_count = max(0, sum(1 for line in wf if line.strip()) - 1)
+            elif works_file_path.lower().endswith(('.jsonl', '.ndjson')):
+                with open(works_file_path, 'r', encoding='utf-8', errors='replace') as wf:
+                    doc_count = sum(1 for line in wf if line.strip())
             else:
-                raw_records = []
+                with open(works_file_path, 'r', encoding='utf-8', errors='replace') as wf:
+                    data = json.load(wf)
+                    if isinstance(data, list):
+                        doc_count = len(data)
+                    elif isinstance(data, dict):
+                        doc_count = len(data.get('results', [])) or 1
+        except Exception:
+            doc_count = 0
 
-            if raw_records:
-                from bibliometrics_parser import _process_record_list
-                # 1. Generar red bibliométrica y matriz de co-ocurrencia
-                biblio_res = _process_record_list(
-                    raw_records,
-                    network_type='co-occurrence',
-                    custom_tag='DE',
-                    max_terms=100,
-                    min_cooccurrence=2,
-                    temporal=False,
-                    extraction_source='keywords',
-                    counting_method='full'
-                )
-
-                # 2. Preparar registros normalizados para Semantic Biblio
-                from semantic_engine import clean_text
-                semantic_recs = []
-                for idx, r in enumerate(raw_records):
-                    semantic_recs.append({
-                        'id': r.get('doi') or r.get('work_id') or r.get('id') or f"ID_{idx+1}",
-                        'title': clean_text(r.get('title') or ''),
-                        'abstract': clean_text(r.get('abstract') or ''),
-                        'keywords': [clean_text(k) for k in r.get('keywords', []) if k],
-                        'authors': [clean_text(a) for a in r.get('authors', []) if a],
-                        'year': str(r.get('year') or ''),
-                        'citations': r.get('citations', 0),
-                        'source': clean_text(r.get('source') or ''),
-                        'doi': clean_text(r.get('doi') or '')
-                    })
-
-                openalex_json_data = {
-                    'has_json': True,
-                    'json_file_name': os.path.basename(works_file_path),
-                    'document_count': biblio_res.get('document_count', len(semantic_recs)),
-                    'network': biblio_res.get('network'),
-                    'vosviewer_json': biblio_res.get('vosviewer_json'),
-                    'networks_by_year': biblio_res.get('networks_by_year'),
-                    'cooccurrence_csv': biblio_res.get('cooccurrence_csv'),
-                    'term_counts': biblio_res.get('term_counts', {}),
-                    'semantic_records': semantic_recs
-                }
-        except Exception as err:
-            warnings.warn(f'Error procesando obras de OpenAlex en paquete TlachIA: {err}')
+        openalex_json_data = {
+            'has_works': True,
+            'has_json': True,
+            'works_file_name': os.path.basename(works_file_path),
+            'json_file_name': os.path.basename(works_file_path),
+            'document_count': doc_count,
+            'records_ready': True
+        }
 
     # Guardar mapa de inventario en el directorio de sesión
     inventory_map = {
         "session_dir": session_dir,
         "units": units,
         "manifest": manifest_data,
-        "openalex_data": openalex_json_data
+        "openalex_data": openalex_json_data,
+        "works_file_path": works_file_path
     }
     with open(os.path.join(session_dir, "inventory.json"), 'w', encoding='utf-8') as f:
         json.dump(inventory_map, f, ensure_ascii=False)
@@ -920,7 +942,8 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
         "session_dir": session_dir,
         "unit_names": sorted(list(units.keys())),
         "manifest": manifest_data,
-        "openalex_data": openalex_json_data
+        "openalex_data": openalex_json_data,
+        "works_file_path": works_file_path
     }
 
 

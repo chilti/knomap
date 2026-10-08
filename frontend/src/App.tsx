@@ -11,7 +11,6 @@ import { LongitudinalSomViewer } from './components/LongitudinalSomViewer';
 import { HelpTab } from './components/HelpTab';
 import { useAiStore } from './store/aiStore';
 import { useAuthStore } from './store/authStore';
-import { LoginScreen } from './components/LoginScreen';
 import { LoginModal } from './components/LoginModal';
 import { UserManagementModal } from './components/UserManagementModal';
 import { ProjectsDrawer } from './components/ProjectsDrawer';
@@ -90,7 +89,7 @@ export default function App() {
   } = useSomStore();
 
   const { llmConfig, openLlmConfigModal } = useAiStore();
-  const { isWebMode, isAuthenticated, isLoading: isAuthLoading, user, checkAuth, saveCloudProject, logout } = useAuthStore();
+  const { isWebMode, isAuthenticated, isReadOnlyDemo, isDemoLoading, isLoading: isAuthLoading, user, checkAuth, saveCloudProject, logout } = useAuthStore();
 
   const [biblioMainView, setBiblioMainView] = useState<'network' | 'longitudinal'>('network');
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -101,6 +100,11 @@ export default function App() {
   const [isSavingCloud, setIsSavingCloud] = useState(false);
 
   const handleSaveToCloud = async () => {
+    if (isReadOnlyDemo) {
+      alert("En el modo demostración los proyectos se encuentran en sólo lectura. Inicia sesión para guardar proyectos en el servidor.");
+      setIsLoginModalOpen(true);
+      return;
+    }
     const state = useSomStore.getState();
     const authState = useAuthStore.getState();
     const activeFileName = state.fileName || state.semanticFileName || state.dimFileName || (state.incitesUnitNames && state.incitesUnitNames.length > 0 ? 'InCites Project' : 'My Project');
@@ -280,21 +284,22 @@ export default function App() {
 
   if (isWebMode && isAuthLoading) {
     return (
-      <div className="flex items-center justify-center h-screen w-full bg-gray-950 text-gray-100 font-sans">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <div className="text-center">
-            <h2 className="text-sm font-bold text-gray-200">Iniciando knoMap</h2>
-            <p className="text-xs text-gray-500 mt-1">Verificando credenciales del servidor...</p>
+      <div className="flex flex-col h-screen w-full bg-gray-950 text-gray-100 font-sans overflow-hidden">
+        <SuiteBar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <div className="text-center">
+              <h2 className="text-sm font-bold text-gray-200">Iniciando knoMap</h2>
+              <p className="text-xs text-gray-500 mt-1">Verificando credenciales del servidor...</p>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  if (isWebMode && !isAuthenticated) {
-    return <LoginScreen />;
-  }
+  // Unauthenticated web users enter in read-only demo mode automatically
 
   const handleTabChange = (newTab: 'multidimensional' | 'bibliometrics' | 'dimreduction' | 'semantic_bibliometrics' | 'incites' | 'tlachia_metrics' | 'asistente' | 'ayuda') => {
     const state = useSomStore.getState();
@@ -312,6 +317,11 @@ export default function App() {
 
   const handlePreprocess = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isReadOnlyDemo) {
+      alert("En el modo demostración los recálculos están deshabilitados. Inicia sesión para procesar tus propios datos.");
+      setIsLoginModalOpen(true);
+      return;
+    }
     if (!sharedBibFile) {
       alert("Please select a file first.");
       return;
@@ -338,6 +348,11 @@ export default function App() {
   };
 
   const handleFileImport = async (file: File) => {
+    if (isReadOnlyDemo) {
+      alert("En el modo demostración la carga de archivos y recálculos están deshabilitados. Inicia sesión para analizar tus propios datos.");
+      setIsLoginModalOpen(true);
+      return;
+    }
     setSharedBibFile(file);
     setBiblioMainView('network');
     setBiblioActiveView('eda');
@@ -398,6 +413,38 @@ export default function App() {
 
         {/* Franja Superior del Ecosistema Científico TlachIA */}
         <SuiteBar />
+
+        {/* Demo Mode Notice Banner */}
+        {isReadOnlyDemo && (
+          <div className="bg-gradient-to-r from-indigo-950/90 via-purple-950/80 to-slate-950 border-b border-indigo-500/30 px-4 py-2 flex items-center justify-between text-xs text-indigo-100 z-40 backdrop-blur-sm shadow-md">
+            <div className="flex items-center space-x-2.5">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+              </span>
+              <span className="font-bold text-cyan-300">Modo Demostración:</span>
+              <span className="text-gray-200">
+                Estás explorando el proyecto <strong className="text-white">"Artificial Intelligence in Education"</strong> (Modo Lectura y Descarga).
+              </span>
+              {isDemoLoading && (
+                <span className="inline-flex items-center space-x-1 text-cyan-400 text-[11px] font-semibold animate-pulse ml-2">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span>Cargando datos demo...</span>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center space-x-3">
+              <span className="text-gray-400 hidden sm:inline">Para procesar tus propios corpus o recalcular modelos:</span>
+              <button
+                onClick={() => setIsLoginModalOpen(true)}
+                className="px-3 py-1 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 text-white rounded-lg font-semibold shadow-sm transition-all flex items-center space-x-1.5 cursor-pointer"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Iniciar Sesión</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Main Workspace (Sidebar + Content) */}
         <div className="flex flex-1 overflow-hidden">
@@ -1335,8 +1382,9 @@ export default function App() {
                         <div className="flex items-center space-x-3 pt-2">
                           <button
                             type="submit"
-                            disabled={isPreprocessing}
-                            className="relative flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-900 disabled:text-gray-500 text-white rounded-xl font-bold transition flex items-center justify-center space-x-2 overflow-hidden shadow-lg shadow-indigo-950/50 cursor-pointer"
+                            disabled={isPreprocessing || isReadOnlyDemo}
+                            className={`relative flex-1 py-3 ${isReadOnlyDemo ? 'bg-gray-800 text-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer'} disabled:bg-gray-900 disabled:text-gray-500 rounded-xl font-bold transition flex items-center justify-center space-x-2 overflow-hidden shadow-lg shadow-indigo-950/50`}
+                            title={isReadOnlyDemo ? 'Recálculo no permitido en modo demo' : undefined}
                           >
                             {isPreprocessing ? (
                               <>
@@ -1353,6 +1401,8 @@ export default function App() {
                                   />
                                 )}
                               </>
+                            ) : isReadOnlyDemo ? (
+                              <span>Modo Lectura (Demo - Recálculo deshabilitado)</span>
                             ) : (
                               <span>Process Bibliometrics</span>
                             )}
