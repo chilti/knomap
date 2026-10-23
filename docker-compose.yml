@@ -24,6 +24,7 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-http://172.17.0.1:1234/v1}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-default}
+      - KNOMAP_ENGINE_PATH=/app/engine
     volumes:
       - knomap_data:/app/backend/App_Data
       - ./engine:/app/engine

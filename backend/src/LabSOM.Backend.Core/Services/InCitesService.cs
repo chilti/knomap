@@ -37,18 +37,7 @@ namespace LabSOM.Backend.Core.Services
 
         public InCitesService()
         {
-            string dir = AppDomain.CurrentDomain.BaseDirectory;
-            while (!string.IsNullOrEmpty(dir))
-            {
-                var candidate = Path.Combine(dir, "engine");
-                if (Directory.Exists(candidate))
-                {
-                    _enginePath = candidate;
-                    return;
-                }
-                dir = Path.GetDirectoryName(dir)!;
-            }
-            _enginePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine");
+            _enginePath = PythonUtils.ResolveEnginePath();
         }
 
         // ─────────────────────────────────────────────────────────────

@@ -5,6 +5,36 @@ namespace LabSOM.Backend.Core.Utils
 {
     public static class PythonUtils
     {
+        public static string ResolveEnginePath()
+        {
+            // 1. Check environment variable KNOMAP_ENGINE_PATH if provided
+            var envPath = Environment.GetEnvironmentVariable("KNOMAP_ENGINE_PATH");
+            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath) && File.Exists(Path.Combine(envPath, "main_engine.py")))
+            {
+                return envPath;
+            }
+
+            // 2. Check /app/engine explicitly when running in container
+            if (Directory.Exists("/app/engine") && File.Exists(Path.Combine("/app/engine", "main_engine.py")))
+            {
+                return "/app/engine";
+            }
+
+            // 3. Walk up directory tree starting from BaseDirectory to find 'engine' folder containing main_engine.py
+            string? dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (!string.IsNullOrEmpty(dir))
+            {
+                var candidate = Path.Combine(dir, "engine");
+                if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "main_engine.py")))
+                {
+                    return candidate;
+                }
+                dir = Path.GetDirectoryName(dir);
+            }
+
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine");
+        }
+
         public static string GetPythonExecutablePath(string enginePath)
         {
             if (string.IsNullOrEmpty(enginePath))

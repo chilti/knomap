@@ -12,6 +12,11 @@ def detect_hardware():
     try:
         import torch
         if torch.cuda.is_available():
+            # Probe if CUDA context and memory can actually be allocated
+            test_t = torch.zeros(1, device="cuda")
+            del test_t
+            torch.cuda.empty_cache()
+
             # Check if cuML is available
             try:
                 import cuml
@@ -25,7 +30,8 @@ def detect_hardware():
                 result["device"] = torch.cuda.get_device_name(0)
                 result["details"] = "NVIDIA GPU (CUDA) with PyTorch acceleration"
                 return result
-    except ImportError:
+    except Exception as e:
+        print(f"[!] CUDA detected but unavailable or out of memory: {e}. Falling back to CPU/Level 2.", file=sys.stderr)
         pass
 
     # 2. Check Level 2: Apple Metal (MPS) or AMD/DirectML

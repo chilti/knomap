@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using LabSOM.Backend.Core.Data;
+using LabSOM.Backend.Core.Utils;
 using Microsoft.EntityFrameworkCore;
 
 namespace LabSOM.Backend.Core.Services
@@ -84,10 +85,10 @@ namespace LabSOM.Backend.Core.Services
             // Check if server-side embeddings cache exists for semantic bibliometrics, and link to this project
             try
             {
-                string engineTempDir = Path.Combine(AppContext.BaseDirectory, "engine", "temp");
+                string engineTempDir = Path.Combine(PythonUtils.ResolveEnginePath(), "temp");
                 if (!Directory.Exists(engineTempDir))
                 {
-                    engineTempDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine", "temp");
+                    Directory.CreateDirectory(engineTempDir);
                 }
                 string cacheFile = Path.Combine(engineTempDir, "semantic_embeddings_cache.npz");
                 if (File.Exists(cacheFile))
@@ -196,7 +197,7 @@ namespace LabSOM.Backend.Core.Services
                 string projEmbeddingsFile = Path.Combine(_projectsDir, $"{projectId}_embeddings.npz");
                 if (File.Exists(projEmbeddingsFile))
                 {
-                    string engineTempDir = Path.Combine(AppContext.BaseDirectory, "engine", "temp");
+                    string engineTempDir = Path.Combine(PythonUtils.ResolveEnginePath(), "temp");
                     if (!Directory.Exists(engineTempDir))
                     {
                         Directory.CreateDirectory(engineTempDir);
@@ -343,7 +344,7 @@ namespace LabSOM.Backend.Core.Services
                 }
                 if (File.Exists(demoEmbeddingsFile))
                 {
-                    string engineTempDir = Path.Combine(AppContext.BaseDirectory, "engine", "temp");
+                    string engineTempDir = Path.Combine(PythonUtils.ResolveEnginePath(), "temp");
                     if (!Directory.Exists(engineTempDir))
                     {
                         Directory.CreateDirectory(engineTempDir);

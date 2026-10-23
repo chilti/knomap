@@ -7,7 +7,7 @@ import json
 import torch
 
 class SOMSolver:
-    def __init__(self, rows, cols, input_dim, grid_type="hexagonal", metric="euclidean"):
+    def __init__(self, rows, cols, input_dim, grid_type="hexagonal", metric="euclidean", fallback_level=None, device=None):
         self.rows = rows
         self.cols = cols
         self.input_dim = input_dim
@@ -34,10 +34,56 @@ class SOMSolver:
         self.weights = None
         self.grid_dist = None
         self.coords = None
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        # Determine target device safely
+        if device is not None:
+            self.device = torch.device(device)
+        elif fallback_level == 3:
+            self.device = torch.device('cpu')
+        else:
+            use_cuda = False
+            if torch.cuda.is_available():
+                try:
+                    # Probe CUDA memory by testing a minimal allocation
+                    test_t = torch.zeros(1, device="cuda")
+                    del test_t
+                    torch.cuda.empty_cache()
+                    use_cuda = True
+                except Exception as e:
+                    print(f"[*] CUDA probe failed (OOM/error: {e}). Falling back to CPU.", file=sys.stderr)
+                    use_cuda = False
+            self.device = torch.device('cuda' if use_cuda else 'cpu')
+
         print(f"[*] SOM Engine initialized. Device assigned: {self.device}", file=sys.stderr)
         
+    def _fallback_to_cpu(self, reason: str = ""):
+        """Dynamically falls back to CPU execution if GPU runs out of memory."""
+        print(f"[!] Dynamic CPU fallback triggered: {reason}. Switching SOMSolver to CPU.", file=sys.stderr)
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        self.device = torch.device('cpu')
+        self.grid_dist = torch.tensor(self.grid_dist_np, dtype=torch.float64, device=self.device)
+        self.coords = torch.tensor(self.coords_np, dtype=torch.float64, device=self.device)
+        if self.weights is not None:
+            try:
+                self.weights = self.weights.to(self.device)
+            except Exception:
+                self.weights = None
+
     def initialize_weights(self, data, init_type="random"):
+        if self.device.type == "cuda":
+            try:
+                self._initialize_weights_core(data, init_type=init_type)
+            except Exception as e:
+                self._fallback_to_cpu(f"OOM during initialize_weights ({e})")
+                self._initialize_weights_core(data, init_type=init_type)
+        else:
+            self._initialize_weights_core(data, init_type=init_type)
+
+    def _initialize_weights_core(self, data, init_type="random"):
         n_samples = data.shape[0]
         
         # Setup Tensors in Float64 (Double Precision)
@@ -87,10 +133,19 @@ class SOMSolver:
             return torch.cdist(X, self.weights, p=2.0)
             
     def train_basic(self, data, iterations, learning_rate_start=0.9, sigma_start=None):
-        """Sequential/online SOM training with full double precision and optimized GPU execution."""
+        """Sequential/online SOM training with full double precision and optimized execution."""
+        if self.device.type == "cuda":
+            try:
+                return self._train_basic_core(data, iterations, learning_rate_start, sigma_start)
+            except Exception as e:
+                self._fallback_to_cpu(f"OOM during train_basic ({e})")
+                self._initialize_weights_core(data)
+                return self._train_basic_core(data, iterations, learning_rate_start, sigma_start)
+        return self._train_basic_core(data, iterations, learning_rate_start, sigma_start)
+
+    def _train_basic_core(self, data, iterations, learning_rate_start=0.9, sigma_start=None):
         n_samples = data.shape[0]
         if sigma_start is None:
-            # Academic standard: one half of grid's average size: 1/2 * (rows + cols) / 2
             sigma_start = 0.5 * ((self.rows + self.cols) / 2.0)
             
         quantization_errors = []
@@ -129,7 +184,17 @@ class SOMSolver:
         return quantization_errors
 
     def train_batch(self, data, iterations, sigma_start=None):
-        """Fully vectorized, highly parallel Batch SOM training with double precision on GPU/Multicore."""
+        """Fully vectorized, highly parallel Batch SOM training with double precision."""
+        if self.device.type == "cuda":
+            try:
+                return self._train_batch_core(data, iterations, sigma_start)
+            except Exception as e:
+                self._fallback_to_cpu(f"OOM during train_batch ({e})")
+                self._initialize_weights_core(data)
+                return self._train_batch_core(data, iterations, sigma_start)
+        return self._train_batch_core(data, iterations, sigma_start)
+
+    def _train_batch_core(self, data, iterations, sigma_start=None):
         n_samples = data.shape[0]
         if sigma_start is None:
             sigma_start = 0.5 * ((self.rows + self.cols) / 2.0)
@@ -226,6 +291,15 @@ class SOMSolver:
 
     def get_bmus_and_frequencies(self, data):
         """Maps dataset and calculates hit frequencies and quantization errors in full double precision."""
+        if self.device.type == "cuda":
+            try:
+                return self._get_bmus_and_frequencies_core(data)
+            except Exception as e:
+                self._fallback_to_cpu(f"OOM during get_bmus_and_frequencies ({e})")
+                return self._get_bmus_and_frequencies_core(data)
+        return self._get_bmus_and_frequencies_core(data)
+
+    def _get_bmus_and_frequencies_core(self, data):
         X = torch.tensor(data, dtype=torch.float64, device=self.device)
         n_neurons = self.rows * self.cols
         

@@ -14,20 +14,7 @@ namespace LabSOM.Backend.Core.Services
 
         public PreprocessService()
         {
-            // Walk up directory tree starting from BaseDirectory to find 'engine' folder robustly
-            string dir = AppDomain.CurrentDomain.BaseDirectory;
-            while (!string.IsNullOrEmpty(dir))
-            {
-                var candidate = Path.Combine(dir, "engine");
-                if (Directory.Exists(candidate))
-                {
-                    _enginePath = candidate;
-                    return;
-                }
-                dir = Path.GetDirectoryName(dir);
-            }
-            
-            _enginePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine");
+            _enginePath = PythonUtils.ResolveEnginePath();
         }
 
         public async Task<PreprocessResult> PreprocessBibliometricsWithFileAsync(

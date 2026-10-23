@@ -186,7 +186,7 @@ def handle_train(params):
     
     try:
         # Create and initialize solver
-        solver = SOMSolver(rows, cols, data.shape[1], grid_type="hexagonal", metric=metric)
+        solver = SOMSolver(rows, cols, data.shape[1], grid_type="hexagonal", metric=metric, fallback_level=fallback_level)
         solver.initialize_weights(data, init_type=init_type)
         
         # Train
@@ -365,7 +365,8 @@ def handle_train_longitudinal(params):
                 continue
 
             input_dim = data_arr.shape[1]
-            solver = SOMSolver(rows, cols, input_dim, grid_type="hexagonal", metric=metric)
+            fallback_level = params.get("fallback_level", 3)
+            solver = SOMSolver(rows, cols, input_dim, grid_type="hexagonal", metric=metric, fallback_level=fallback_level)
 
             if idx == 0 or prev_weights is None:
                 # Base period: Full training from scratch
@@ -378,7 +379,7 @@ def handle_train_longitudinal(params):
                 effective_iters = base_iterations
             else:
                 # Successive periods: Warm-start fine-tuning (smaller sigma and learning rate)
-                solver.weights = prev_weights.clone()
+                solver.weights = prev_weights.clone().to(solver.device)
                 solver.grid_dist = torch.tensor(solver.grid_dist_np, dtype=torch.float64, device=solver.device)
                 solver.coords = torch.tensor(solver.coords_np, dtype=torch.float64, device=solver.device)
                 refine_iters = default_refine_iters
@@ -462,7 +463,7 @@ def handle_evaluate_clusters(params):
         if weights is None or weights.shape[0] == 0:
             return {"success": False, "error": "No weights provided or found in server cache."}
             
-        solver = SOMSolver(1, weights.shape[0], weights.shape[1])
+        solver = SOMSolver(1, weights.shape[0], weights.shape[1], fallback_level=params.get("fallback_level", 3))
         solver.weights = weights.to(solver.device)
         
         results = solver.evaluate_clustering(max_k=max_k)
@@ -482,7 +483,7 @@ def handle_recluster(params):
         if weights is None or weights.shape[0] == 0:
             return {"success": False, "error": "No weights provided or found in server cache."}
             
-        solver = SOMSolver(1, weights.shape[0], weights.shape[1])
+        solver = SOMSolver(1, weights.shape[0], weights.shape[1], fallback_level=params.get("fallback_level", 3))
         solver.weights = weights.to(solver.device)
         
         clustering_labels = solver.get_clustering(algorithm=algorithm, n_clusters=n_clusters, eps=eps, min_samples=min_samples)

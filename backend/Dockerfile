@@ -50,9 +50,13 @@ COPY engine/ /app/engine/
 # Copy the published .NET application from the build stage
 COPY --from=build /app/publish /app/backend
 
+# Create permanent symlink so /app/backend/engine maps to /app/engine
+RUN ln -sf /app/engine /app/backend/engine
+
 # Configure ASP.NET Core to listen on port 5123
 ENV ASPNETCORE_URLS=http://+:5123
 ENV DOTNET_RUNNING_IN_CONTAINER=true
+ENV KNOMAP_ENGINE_PATH=/app/engine
 
 EXPOSE 5123
 
