@@ -248,6 +248,7 @@ def handle_train(params):
             
         return {
             "success": True,
+            "device": str(solver.device),
             "weights": weights_list,
             "umatrix": umatrix,
             "clustering": clustering,
@@ -473,7 +474,7 @@ def handle_evaluate_clusters(params):
         return {"success": False, "error": f"Evaluation error: {str(e)}", "traceback": traceback.format_exc()}
 
 def handle_recluster(params):
-    algorithm = params.get("algorithm", "dbscan")
+    algorithm = params.get("algorithm") or params.get("clustering_algorithm") or "dbscan"
     n_clusters = params.get("n_clusters", 4)
     eps = params.get("eps", 0.5)
     min_samples = params.get("min_samples", 3)
