@@ -755,7 +755,8 @@ def main():
                 "success": result.get("success", True),
                 "unit_names": result.get("unit_names", []),
                 "session_dir": result.get("session_dir"),
-                "manifest": result.get("manifest")
+                "manifest": result.get("manifest"),
+                "baseline": result.get("baseline")
             }))
         else:
             print(json.dumps(result))

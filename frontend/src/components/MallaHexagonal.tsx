@@ -88,6 +88,18 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
   useEffect(() => {
     setScale(calculatedScale);
   }, [calculatedScale]);
+
+  // Close filter modal on Escape key press
+  useEffect(() => {
+    if (!isFilterModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsFilterModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFilterModalOpen]);
   
   if (!result) {
     return (
@@ -418,7 +430,7 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
   return (
     <div className="flex flex-col h-full bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl relative">
       {/* Visual Controls Toolbar */}
-      <div className="flex items-center justify-between px-6 py-4 bg-gray-950 border-b border-gray-800 flex-wrap gap-4">
+      <div className="flex items-center justify-between px-3 py-2 bg-gray-950 border-b border-gray-800 flex-wrap gap-2">
         <div className="flex items-center space-x-2">
           <span className="text-xs uppercase tracking-wider text-gray-500 font-bold mr-1">Zoom</span>
           <button
@@ -522,21 +534,21 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
         )}
 
         {/* Download actions */}
-        <div className="flex items-center space-x-2 ml-auto">
+        <div className="flex items-center space-x-1.5 ml-auto shrink-0">
           <button
             onClick={() => handleDownload('png')}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold rounded-lg transition flex items-center space-x-1.5"
+            className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 text-[11px] font-bold rounded-lg transition flex items-center space-x-1"
             title="Save as High-Res PNG"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3 h-3" />
             <span>PNG</span>
           </button>
           <button
             onClick={() => handleDownload('svg')}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold rounded-lg transition flex items-center space-x-1.5"
+            className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 text-[11px] font-bold rounded-lg transition flex items-center space-x-1"
             title="Save as Vector SVG"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3 h-3" />
             <span>SVG</span>
           </button>
         </div>
@@ -885,9 +897,12 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
       </div>
 
       {/* COMPONENT CHROMATIC SCALE & REFERENCE MODAL */}
-      {isScaleModalOpen && visualizationMode === 'component' && (
-        <div className="absolute inset-0 bg-gray-950/85 backdrop-blur-xs z-50 flex items-center justify-center p-4 transition-all">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-5 shadow-2xl flex flex-col space-y-4">
+      {isScaleModalOpen && visualizationMode === 'component' && typeof document !== 'undefined' && createPortal(
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setIsScaleModalOpen(false); }}
+          className="fixed inset-0 bg-gray-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+        >
+          <div className="bg-gray-900 border border-gray-800 w-full max-w-sm rounded-2xl p-5 shadow-2xl flex flex-col space-y-4 max-h-[90vh] my-auto">
             <div className="flex items-center justify-between border-b border-gray-800 pb-3">
               <div className="flex items-center space-x-2">
                 <Sliders className="w-4 h-4 text-indigo-400" />
@@ -1069,135 +1084,169 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
 
 
       {/* 5. INTERACTIVE POP-UP MODAL: LABEL FILTER MANAGER */}
-      {isFilterModalOpen && (
-        <div className="absolute inset-0 bg-gray-950 bg-opacity-80 backdrop-blur-xs z-50 flex items-center justify-center p-6 transition-all duration-300">
-          <div className="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90%] space-y-4">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+      {isFilterModalOpen && typeof document !== 'undefined' && createPortal(
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setIsFilterModalOpen(false); }}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 99999,
+            backgroundColor: 'rgba(5, 5, 8, 0.85)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            boxSizing: 'border-box'
+          }}
+        >
+          <div 
+            style={{
+              width: '100%',
+              maxWidth: '520px',
+              height: '540px',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              borderRadius: '16px',
+              border: '1px solid #2a3447',
+              backgroundColor: '#0e121a',
+              color: '#e2e8f0',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.05)',
+              boxSizing: 'border-box'
+            }}
+          >
+            {/* Window Title Bar */}
+            <div 
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 20px',
+                backgroundColor: '#050508',
+                borderBottom: '1px solid #1e293b',
+                flexShrink: 0
+              }}
+            >
               <div className="flex items-center space-x-2">
-                <Tags className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-sm font-black uppercase text-gray-200 tracking-wider">Label Filter & Style Manager</h3>
+                <Tags className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-xs font-black uppercase text-gray-200 tracking-wider">Filtro de Etiquetas (Label Manager)</h3>
+                <span className="text-[10px] bg-indigo-950/80 text-indigo-300 font-bold px-1.5 py-0.5 rounded border border-indigo-800/40">
+                  {uniqueLabels.length}
+                </span>
               </div>
               <button 
                 onClick={() => setIsFilterModalOpen(false)}
-                className="text-xs text-gray-500 hover:text-gray-300 font-bold uppercase tracking-wider cursor-pointer"
+                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 text-xs font-bold leading-none cursor-pointer transition"
+                title="Cerrar ventana (Esc)"
               >
-                Close
+                ✕
               </button>
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex border-b border-gray-800 -mx-6 px-6">
+            <div 
+              style={{
+                display: 'flex',
+                padding: '0 20px',
+                backgroundColor: 'rgba(5, 5, 8, 0.6)',
+                borderBottom: '1px solid #1e293b',
+                flexShrink: 0
+              }}
+            >
               <button
                 onClick={() => setModalTab('docs')}
-                className={`flex-1 pb-2.5 text-xs font-bold flex items-center justify-center space-x-1.5 transition border-b-2 cursor-pointer ${
+                className={`pb-2.5 pt-2 text-xs font-bold flex items-center space-x-1.5 transition border-b-2 cursor-pointer ${
                   modalTab === 'docs'
                     ? 'border-indigo-500 text-indigo-400'
                     : 'border-transparent text-gray-500 hover:text-gray-300'
                 }`}
               >
                 <Tags className="w-3.5 h-3.5" />
-                <span>Document Labels ({uniqueLabels.length})</span>
+                <span>Etiquetas ({uniqueLabels.length})</span>
               </button>
               <button
                 onClick={() => setModalTab('clusters')}
-                className={`flex-1 pb-2.5 text-xs font-bold flex items-center justify-center space-x-1.5 transition border-b-2 cursor-pointer ${
+                className={`pb-2.5 pt-2 text-xs font-bold flex items-center space-x-1.5 transition border-b-2 cursor-pointer ml-4 ${
                   modalTab === 'clusters'
                     ? 'border-indigo-500 text-indigo-400'
                     : 'border-transparent text-gray-500 hover:text-gray-300'
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>Cluster Labels ({clusterCentroids.length})</span>
+                <span>Clusters ({clusterCentroids.length})</span>
               </button>
             </div>
 
             {modalTab === 'docs' ? (
               <>
-                {/* Density Limiter Counter Component */}
-                <div className="flex items-center justify-between bg-gray-950 p-3 rounded-xl border border-gray-850">
-                  <span className="text-xs text-gray-400 font-bold">Max labels per hexagon:</span>
-                  <div className="flex items-center space-x-3">
-                    <button
-                      onClick={() => setMaxLabelsPerNeuron(Math.max(1, maxLabelsPerNeuron - 1))}
-                      className="w-7 h-7 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 rounded-lg flex items-center justify-center font-black text-gray-200 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                      disabled={maxLabelsPerNeuron <= 1}
-                    >
-                      -
-                    </button>
-                    <span className="text-sm text-white font-black w-6 text-center">{maxLabelsPerNeuron}</span>
-                    <button
-                      onClick={() => setMaxLabelsPerNeuron(Math.min(15, maxLabelsPerNeuron + 1))}
-                      className="w-7 h-7 bg-gray-800 hover:bg-gray-700 active:bg-gray-900 rounded-lg flex items-center justify-center font-black text-gray-200 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                      disabled={maxLabelsPerNeuron >= 15}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* Manual Font Size Scale Slider */}
-                <div className="bg-gray-950 p-3 rounded-xl border border-gray-850 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400 font-bold">Global Font Size Scale:</span>
-                    <span className="text-xs font-mono font-black text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/40">
-                      {Math.round(labelFontSizeScale * 100)}%
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[9px] text-gray-500 font-bold">40%</span>
-                    <input
-                      type="range"
-                      min="0.4"
-                      max="10.0"
-                      step="0.1"
-                      value={labelFontSizeScale}
-                      onChange={(e) => setLabelFontSizeScale(parseFloat(e.target.value))}
-                      className="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                    />
-                    <span className="text-[9px] text-gray-500 font-bold">1000%</span>
-                  </div>
-                </div>
-
-                {/* Instant Search Bar */}
-                <div className="space-y-1.5">
-                  <label className="block text-[9px] text-gray-500 font-bold uppercase tracking-wider">Search Keywords / Years / Authors</label>
+                {/* Search & Selection Controls (Always Pinned at Top) */}
+                <div 
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#0e121a',
+                    borderBottom: '1px solid #1e293b',
+                    flexShrink: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}
+                >
                   <input
                     type="text"
-                    placeholder="Type to filter labels..."
+                    placeholder="Buscar etiqueta (ej. Mexico, 2024)..."
                     value={labelSearchQuery}
                     onChange={(e) => setLabelSearchQuery(e.target.value)}
-                    className="w-full bg-gray-950 border border-gray-850 rounded-xl px-4 py-2.5 text-xs text-gray-200 focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-indigo-500"
                   />
-                </div>
-
-                {/* Subsets checkboxes list header */}
-                <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-gray-500 pt-2 border-t border-gray-850">
-                  <span>MAPPED LABELS ({uniqueLabels.length})</span>
-                  <div className="flex space-x-3">
-                    <button 
-                      onClick={handleSelectAllLabels}
-                      className="text-indigo-400 hover:text-indigo-300 uppercase tracking-widest font-black cursor-pointer text-[9px]"
-                    >
-                      Select All
-                    </button>
-                    <button 
-                      onClick={handleClearAllLabels}
-                      className="text-amber-500 hover:text-amber-400 uppercase tracking-widest font-black cursor-pointer text-[9px]"
-                    >
-                      Clear All
-                    </button>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-gray-400 font-bold uppercase tracking-wider">
+                      {filteredUniqueLabels.length} {filteredUniqueLabels.length === 1 ? 'resultado' : 'resultados'}
+                    </span>
+                    <div className="flex items-center space-x-2">
+                      <button 
+                        onClick={handleSelectAllLabels}
+                        className="text-indigo-400 hover:text-indigo-300 uppercase font-bold cursor-pointer"
+                      >
+                        Seleccionar todo
+                      </button>
+                      <span className="text-gray-700">|</span>
+                      <button 
+                        onClick={handleClearAllLabels}
+                        className="text-amber-500 hover:text-amber-400 uppercase font-bold cursor-pointer"
+                      >
+                        Limpiar todo
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {/* Scrollable list container with individual color & size customization */}
-                <div className="flex-1 overflow-auto bg-gray-950 border border-gray-850 rounded-xl p-2.5 max-h-[220px] space-y-1.5">
+                {/* Scrollable List of Labels (from A to Z) */}
+                <div 
+                  className="custom-scrollbar"
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    padding: '8px 20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    backgroundColor: 'rgba(5, 5, 8, 0.4)'
+                  }}
+                >
                   {filteredUniqueLabels.length > 0 ? (
                     filteredUniqueLabels.map((label, idx) => {
                       const isChecked = !excludedLabels.has(label);
@@ -1276,64 +1325,124 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                       );
                     })
                   ) : (
-                    <span className="text-[10px] text-gray-600 block text-center py-4">No matching labels found.</span>
+                    <span className="text-[10px] text-gray-500 block text-center py-6">No matching labels found.</span>
                   )}
                 </div>
 
-                {/* Reset Filters action */}
-                <button
-                  onClick={resetLabelFilters}
-                  className="w-full py-2.5 bg-gray-850 hover:bg-gray-800 text-gray-300 text-xs font-bold rounded-xl transition uppercase tracking-wider cursor-pointer"
+                {/* Quick Map Density & Global Font Controls Bar */}
+                <div 
+                  style={{
+                    padding: '8px 20px',
+                    backgroundColor: '#050508',
+                    borderTop: '1px solid #1e293b',
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: '11px',
+                    color: '#94a3b8'
+                  }}
                 >
-                  Reset All Filters & Custom Styles
-                </button>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Max/celda:</span>
+                    <div className="flex items-center space-x-1 bg-gray-900 px-1.5 py-0.5 rounded-lg border border-gray-800">
+                      <button
+                        onClick={() => setMaxLabelsPerNeuron(Math.max(1, maxLabelsPerNeuron - 1))}
+                        disabled={maxLabelsPerNeuron <= 1}
+                        className="text-gray-400 hover:text-white disabled:opacity-30 cursor-pointer font-bold px-1"
+                      >
+                        -
+                      </button>
+                      <span className="font-mono font-bold text-white text-xs w-5 text-center">{maxLabelsPerNeuron}</span>
+                      <button
+                        onClick={() => setMaxLabelsPerNeuron(Math.min(15, maxLabelsPerNeuron + 1))}
+                        disabled={maxLabelsPerNeuron >= 15}
+                        className="text-gray-400 hover:text-white disabled:opacity-30 cursor-pointer font-bold px-1"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Fuente global:</span>
+                    <div className="flex items-center space-x-1 bg-gray-900 px-1.5 py-0.5 rounded-lg border border-gray-800">
+                      <button
+                        onClick={() => setLabelFontSizeScale(Math.max(0.4, parseFloat((labelFontSizeScale - 0.2).toFixed(1))))}
+                        disabled={labelFontSizeScale <= 0.4}
+                        className="text-gray-400 hover:text-white disabled:opacity-30 cursor-pointer font-bold px-1"
+                      >
+                        A-
+                      </button>
+                      <span className="font-mono font-bold text-indigo-400 text-xs w-10 text-center">{Math.round(labelFontSizeScale * 100)}%</span>
+                      <button
+                        onClick={() => setLabelFontSizeScale(Math.min(10.0, parseFloat((labelFontSizeScale + 0.2).toFixed(1))))}
+                        disabled={labelFontSizeScale >= 10.0}
+                        className="text-gray-400 hover:text-white disabled:opacity-30 cursor-pointer font-bold px-1"
+                      >
+                        A+
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </>
             ) : (
               <>
-                {/* Cluster Labels Tab Content */}
-                <div className="flex items-center justify-between bg-gray-950 p-3 rounded-xl border border-gray-850">
-                  <div>
-                    <span className="text-xs text-gray-200 font-bold block">Show Cluster Labels on Map</span>
-                    <span className="text-[10px] text-gray-500">Display thematic titles centered at each cluster</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={showClusterLabels}
-                    onChange={(e) => setShowClusterLabels(e.target.checked)}
-                    className="w-4 h-4 bg-gray-900 border-gray-700 rounded text-indigo-500 focus:ring-indigo-500 cursor-pointer"
-                  />
-                </div>
-
-                {/* Cluster Font Size Scale Slider */}
-                <div className="bg-gray-950 p-3 rounded-xl border border-gray-850 space-y-2">
+                {/* Cluster Settings Bar */}
+                <div 
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#0e121a',
+                    borderBottom: '1px solid #1e293b',
+                    flexShrink: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}
+                >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400 font-bold">Cluster Labels Font Scale:</span>
-                    <span className="text-xs font-mono font-black text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/40">
-                      {Math.round(labelFontSizeScale * 100)}%
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[9px] text-gray-500 font-bold">40%</span>
+                    <span className="text-xs text-gray-300 font-bold">Mostrar nombres en el mapa</span>
                     <input
-                      type="range"
-                      min="0.4"
-                      max="10.0"
-                      step="0.1"
-                      value={labelFontSizeScale}
-                      onChange={(e) => setLabelFontSizeScale(parseFloat(e.target.value))}
-                      className="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                      type="checkbox"
+                      checked={showClusterLabels}
+                      onChange={(e) => setShowClusterLabels(e.target.checked)}
+                      className="w-4 h-4 bg-gray-950 border-gray-700 rounded text-indigo-500 focus:ring-indigo-500 cursor-pointer"
                     />
-                    <span className="text-[9px] text-gray-500 font-bold">1000%</span>
                   </div>
-                </div>
-
-                {/* Cluster list title */}
-                <div className="text-[9px] font-bold uppercase tracking-wider text-gray-500 pt-1 border-t border-gray-850">
-                  <span>ACTIVE CLUSTERS & THEMATIC NAMES ({clusterCentroids.length})</span>
+                  <div className="flex items-center justify-between text-[11px] text-gray-400">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Tamaño fuente clusters: {Math.round(labelFontSizeScale * 100)}%</span>
+                    <div className="flex items-center space-x-1 bg-gray-950 px-2 py-0.5 rounded-lg border border-gray-800">
+                      <button
+                        onClick={() => setLabelFontSizeScale(Math.max(0.4, parseFloat((labelFontSizeScale - 0.2).toFixed(1))))}
+                        disabled={labelFontSizeScale <= 0.4}
+                        className="text-gray-300 hover:text-white disabled:opacity-30 cursor-pointer font-bold px-1"
+                      >
+                        A-
+                      </button>
+                      <button
+                        onClick={() => setLabelFontSizeScale(Math.min(10.0, parseFloat((labelFontSizeScale + 0.2).toFixed(1))))}
+                        disabled={labelFontSizeScale >= 10.0}
+                        className="text-gray-300 hover:text-white disabled:opacity-30 cursor-pointer font-bold px-1"
+                      >
+                        A+
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Scrollable list of clusters for direct renaming */}
-                <div className="flex-1 overflow-auto bg-gray-950 border border-gray-850 rounded-xl p-2.5 max-h-[220px] space-y-2">
+                <div 
+                  className="custom-scrollbar"
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    padding: '12px 20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    backgroundColor: 'rgba(5, 5, 8, 0.4)'
+                  }}
+                >
                   {clusterCentroids.length > 0 ? (
                     clusterCentroids.map((c) => {
                       const currentText = clusterLabels[c.clusterId] ?? '';
@@ -1365,13 +1474,42 @@ export const MallaHexagonal: React.FC<MallaHexagonalProps> = ({
                       );
                     })
                   ) : (
-                    <span className="text-[10px] text-gray-600 block text-center py-4">No active clusters found.</span>
+                    <span className="text-[10px] text-gray-500 block text-center py-6">No active clusters found.</span>
                   )}
                 </div>
               </>
             )}
+
+            {/* Window Footer (Always Pinned at Bottom) */}
+            <div 
+              style={{
+                padding: '12px 20px',
+                backgroundColor: '#050508',
+                borderTop: '1px solid #1e293b',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}
+            >
+              {modalTab === 'docs' ? (
+                <button
+                  onClick={resetLabelFilters}
+                  className="px-3 py-1.5 bg-gray-900 hover:bg-gray-850 text-gray-400 hover:text-gray-200 text-xs font-bold rounded-xl transition uppercase tracking-wider cursor-pointer border border-gray-800"
+                >
+                  Restablecer
+                </button>
+              ) : <div />}
+              <button
+                onClick={() => setIsFilterModalOpen(false)}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl transition shadow-lg shadow-indigo-950 cursor-pointer"
+              >
+                Listo / Volver al mapa
+              </button>
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 5. Floating Hover Tooltip: Mapped Units (up to 5) via Portal */}

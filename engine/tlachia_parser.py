@@ -781,6 +781,125 @@ def process_tlachia_unit(unit_name: str,
     return result
 
 
+def extract_tlachia_baseline_data(corpus_files: Optional[Dict[str, Any]] = None,
+                                  extracted_files: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Extrae la línea base global (resumen agregado y tendencias históricas anuales)
+    a partir de los archivos del Corpus completo de TlachIA Metrics.
+    """
+    whole_path = None
+    trend_path = None
+
+    if corpus_files:
+        whole_path = corpus_files.get("Whole")
+        trend_path = corpus_files.get("Trend")
+
+    if not whole_path and extracted_files:
+        for f in extracted_files:
+            fn = os.path.basename(f).lower()
+            if 'corpus' in fn and fn.endswith(('.csv', '.xlsx', '.parquet')):
+                if '03_historico' in f.lower() or ('whole' in fn or 'completo' in fn):
+                    whole_path = f
+                elif '04_tendencias' in f.lower() or 'trend' in fn:
+                    trend_path = f
+
+    df_whole = read_tlachia_file(whole_path) if whole_path else None
+    df_trend = read_tlachia_file(trend_path) if trend_path else None
+
+    if (df_whole is None or df_whole.empty) and (df_trend is None or df_trend.empty):
+        return None
+
+    summary_items = []
+    indicators = []
+
+    # 1. Resumen agregado del Dataset
+    dataset_summary = {"name": "Dataset Baseline"}
+    if df_whole is not None and not df_whole.empty:
+        first_row = df_whole.iloc[0]
+        for col in df_whole.columns:
+            c_str = str(col).strip()
+            if c_str.lower() in ('name', 'rank'):
+                continue
+            dataset_summary[c_str] = clean_val(first_row[col])
+        summary_items.append(dataset_summary)
+
+    # 2. Benchmark mundial de referencia estandarizado
+    world_benchmark = {
+        "name": "World Benchmark",
+        "Field-Weighted Citation Impact (FWCI)": 1.0,
+        "FWCI": 1.0,
+        "% Documents in Top 10%": 10.0,
+        "% Documents in Top 1%": 1.0,
+        "Average Percentile": 50.0,
+        "% Docs Cited": 50.0,
+        "% All Open Access Documents": 50.0,
+        "% International Collaborations": 25.0
+    }
+    summary_items.append(world_benchmark)
+
+    # 3. Tendencias históricas anuales
+    trend_list = []
+    if df_trend is not None and not df_trend.empty:
+        time_col = next((c for c in df_trend.columns if re.search(r'year|a[ñn]o|period', str(c), re.IGNORECASE)), None)
+        ind_cols = [c for c in df_trend.columns if c != time_col and str(c).strip().lower() not in ('name', 'rank')]
+        indicators = ind_cols
+
+        for _, row in df_trend.iterrows():
+            if time_col and pd.notna(row[time_col]):
+                raw_y = row[time_col]
+                try:
+                    year_str = str(int(float(raw_y)))
+                except Exception:
+                    year_str = str(raw_y)
+            else:
+                year_str = "All"
+
+            ds_vals = {}
+            for col in ind_cols:
+                ds_vals[str(col).strip()] = clean_val(row[col])
+
+            if "Field-Weighted Citation Impact (FWCI)" in ds_vals and "FWCI" not in ds_vals:
+                ds_vals["FWCI"] = ds_vals["Field-Weighted Citation Impact (FWCI)"]
+
+            item = {
+                "year": year_str,
+                "Dataset Baseline": ds_vals,
+                "World Benchmark": {
+                    "Field-Weighted Citation Impact (FWCI)": 1.0,
+                    "FWCI": 1.0,
+                    "% Documents in Top 10%": 10.0,
+                    "% Documents in Top 1%": 1.0,
+                    "Average Percentile": 50.0,
+                    "% Docs Cited": 50.0,
+                    "% All Open Access Documents": 50.0,
+                    "% International Collaborations": 25.0
+                }
+            }
+            trend_list.append(item)
+
+        try:
+            trend_list.sort(key=lambda x: int(x['year']) if x['year'].isdigit() else 0)
+        except Exception:
+            pass
+
+    if not indicators and summary_items:
+        indicators = [k for k in summary_items[0].keys() if k != 'name']
+
+    return {
+        "default_source": "Corpus",
+        "sources": {
+            "Corpus": {
+                "summary": summary_items,
+                "trend": trend_list,
+                "indicators": indicators,
+                "whole_filename": os.path.basename(whole_path) if whole_path else "Corpus.csv",
+                "trend_filename": os.path.basename(trend_path) if trend_path else "Corpus Trend.csv",
+                "unit_name": "Corpus"
+            }
+        }
+    }
+
+
 def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
     Construye el inventario de unidades y metadatos de un paquete de TlachIA Metrics.
@@ -840,6 +959,11 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
             elif period:
                 if period not in units[unit]["ConsecutivePeriods"] or is_csv:
                     units[unit]["ConsecutivePeriods"][period] = ef
+
+    # Extraer y separar los archivos de Corpus para construir la línea base global (Baseline)
+    # y evitar que Corpus aparezca como una unidad analítica SOM con 1 sola fila.
+    corpus_files = units.pop("Corpus", None)
+    baseline_data = extract_tlachia_baseline_data(corpus_files, extracted_files)
 
     # Asignar el periodo más reciente a 5Years si no está explícito
     for u, f_dict in units.items():
@@ -930,6 +1054,7 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
     inventory_map = {
         "session_dir": session_dir,
         "units": units,
+        "baseline": baseline_data,
         "manifest": manifest_data,
         "openalex_data": openalex_json_data,
         "works_file_path": works_file_path
@@ -941,6 +1066,7 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
         "success": True,
         "session_dir": session_dir,
         "unit_names": sorted(list(units.keys())),
+        "baseline": baseline_data,
         "manifest": manifest_data,
         "openalex_data": openalex_json_data,
         "works_file_path": works_file_path

@@ -3271,12 +3271,12 @@ const sortTlachIAUnits = (names: string[]): string[] => {
 // ── Data Indicators Panel Component ───────────────────────────────────────
 const TlachIADataIndicatorsPanel: React.FC = () => {
     const { tlachiaBaseline, tlachiaSelectedBaselineSource, setTlachiaState } = useSomStore();
-    const [selectedIndicator, setSelectedIndicator] = useState<string>('Category Normalized Citation Impact');
+    const [selectedIndicator, setSelectedIndicator] = useState<string>('Field-Weighted Citation Impact (FWCI)');
 
     if (!tlachiaBaseline || !tlachiaBaseline.sources) {
         return (
             <div className="p-8 text-center text-gray-500 bg-gray-900 border border-gray-800 rounded-2xl">
-                No baseline indicators found in uploaded files.
+                No se encontraron indicadores de línea base en el archivo cargado.
             </div>
         );
     }
@@ -3294,49 +3294,62 @@ const TlachIADataIndicatorsPanel: React.FC = () => {
     const trendData: any[] = activeSource.trend || [];
     const indicators: string[] = activeSource.indicators || [];
 
-    const datasetBaselineSummary = summaryItems.find(s => s.name?.toLowerCase().includes('dataset')) || summaryItems[0];
-    const allItemsBaselineSummary = summaryItems.find(s => s.name?.toLowerCase().includes('all items')) || summaryItems[1];
+    const datasetBaselineSummary = summaryItems.find(s => s.name?.toLowerCase().includes('dataset')) || summaryItems[0] || {};
+    const worldBenchmarkSummary = summaryItems.find(s => s.name?.toLowerCase().includes('world')) || summaryItems[1] || {};
 
-    // Format trend data for WoS Documents & Times Cited growth chart
-    // Format trend data for WoS Documents & Times Cited growth chart (prioritizing Baseline for All Items)
+    // Helper para formatear métricas cienciométricas de forma inteligente
+    const formatMetric = (key: string, val: any): string => {
+        if (val == null || val === '') return '-';
+        if (typeof val !== 'number') return String(val);
+        if (key.includes('(USD)')) {
+            return `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+        if (key.includes('%') || key.startsWith('%')) {
+            return `${val.toFixed(2)}%`;
+        }
+        if (key.includes('FWCI') || key.includes('Impact') || key.includes('Percentile')) {
+            return val.toFixed(2);
+        }
+        if (val % 1 !== 0) {
+            return val.toFixed(2);
+        }
+        return val.toLocaleString();
+    };
+
+    // Format trend data for Documents & Times Cited growth chart
     const growthChartData = trendData.map(item => {
-        const datasetDocs = item['Dataset Baseline']?.['Documents'] ?? 0;
-        const datasetCites = item['Dataset Baseline']?.['Times Cited'] ?? 0;
-        const allItemsDocs = item['Baseline for All Items']?.['Documents'] ?? 0;
-        const allItemsCites = item['Baseline for All Items']?.['Times Cited'] ?? 0;
-
-        const finalAllItemsDocs = allItemsDocs > 0 ? allItemsDocs : datasetDocs;
-        const finalAllItemsCites = allItemsCites > 0 ? allItemsCites : datasetCites;
-
-        const isDistinct = (datasetDocs > 0 || datasetCites > 0) &&
-            (datasetDocs !== finalAllItemsDocs || datasetCites !== finalAllItemsCites);
+        const datasetDocs = item['Dataset Baseline']?.['Documents'] ?? item['Dataset Baseline']?.['Total Documents'] ?? 0;
+        const datasetCites = item['Dataset Baseline']?.['Times Cited'] ?? item['Dataset Baseline']?.['Citations'] ?? 0;
 
         return {
             year: item.year,
-            'All Items WoS Docs': finalAllItemsDocs,
-            'All Items Times Cited': finalAllItemsCites,
-            'Dataset WoS Docs': datasetDocs,
-            'Dataset Times Cited': datasetCites,
-            isDistinct
+            'Documents': datasetDocs,
+            'Times Cited': datasetCites
         };
     });
 
     // Format trend data for selected indicator
-    const currentInd = indicators.includes(selectedIndicator) ? selectedIndicator : (indicators[0] || 'Category Normalized Citation Impact');
+    const currentInd = indicators.includes(selectedIndicator) 
+        ? selectedIndicator 
+        : (indicators.find(i => i.includes('FWCI')) || indicators[0] || 'Field-Weighted Citation Impact (FWCI)');
     
+    const hasWorldBenchmarkInTrend = trendData.some(item => item['World Benchmark']?.[currentInd] != null);
+
     const indicatorChartData = trendData.map(item => {
         const datasetVal = item['Dataset Baseline']?.[currentInd] ?? 0;
-        const allItemsVal = item['Baseline for All Items']?.[currentInd] ?? 0;
-        const finalAllItemsVal = allItemsVal !== 0 ? allItemsVal : datasetVal;
-        const isDistinct = datasetVal !== 0 && datasetVal !== finalAllItemsVal;
+        const worldVal = item['World Benchmark']?.[currentInd] ?? null;
 
         return {
             year: item.year,
-            'Baseline for All Items': finalAllItemsVal,
             'Dataset Baseline': datasetVal,
-            isDistinct
+            'World Benchmark': worldVal
         };
     });
+
+    // FWCI calculado para el delta badge
+    const fwciVal = typeof datasetBaselineSummary['Field-Weighted Citation Impact (FWCI)'] === 'number' 
+        ? datasetBaselineSummary['Field-Weighted Citation Impact (FWCI)'] 
+        : (typeof datasetBaselineSummary['FWCI'] === 'number' ? datasetBaselineSummary['FWCI'] : null);
 
     return (
         <div className="flex flex-col space-y-6 overflow-y-auto custom-scrollbar h-full pr-2">
@@ -3352,7 +3365,7 @@ const TlachIADataIndicatorsPanel: React.FC = () => {
                         </h3>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
-                        Global metrics for the loaded dataset filter vs. Web of Science All Items baseline.
+                        Indicadores macro y series temporales consolidadas del corpus completo analizado vs. benchmarks internacionales.
                     </p>
                 </div>
 
@@ -3379,72 +3392,107 @@ const TlachIADataIndicatorsPanel: React.FC = () => {
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-5 shadow-lg">
                 <h4 className="text-sm font-bold text-gray-200 uppercase tracking-wider border-b border-gray-800 pb-2 flex items-center space-x-2">
                     <Database className="w-4 h-4 text-cyan-400" />
-                    <span>Sección 1: Indicadores Baseline Comparativos</span>
+                    <span>Sección 1: Indicadores Macroscópicos del Corpus</span>
                 </h4>
 
-                {/* KPI Cards Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 5 KPI Cards Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                    {/* 1. Documentos Totales */}
                     <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
-                        <span className="text-xs font-semibold text-gray-400">Web of Science Documents</span>
-                        <div className="mt-2 flex items-baseline justify-between">
-                            <div>
-                                <p className="text-2xl font-black text-white">{datasetBaselineSummary?.['Documents']?.toLocaleString() ?? '-'}</p>
-                                <p className="text-[10px] text-cyan-400 font-medium">Dataset Baseline</p>
+                        <span className="text-xs font-semibold text-gray-400">Total Documents</span>
+                        <div className="mt-2">
+                            <p className="text-2xl font-black text-white">
+                                {datasetBaselineSummary['Documents']?.toLocaleString() ?? '-'}
+                            </p>
+                            <div className="mt-1 flex items-center justify-between text-[10px]">
+                                <span className="text-cyan-400 font-medium">Corpus Completo</span>
+                                {datasetBaselineSummary['H-Index'] && (
+                                    <span className="text-gray-400 bg-gray-900 px-1.5 py-0.5 rounded border border-gray-800">
+                                        H-Index: {datasetBaselineSummary['H-Index']}
+                                    </span>
+                                )}
                             </div>
-                            {allItemsBaselineSummary && (
-                                <div className="text-right">
-                                    <p className="text-sm font-bold text-gray-400">{allItemsBaselineSummary['Documents']?.toLocaleString() ?? '-'}</p>
-                                    <p className="text-[10px] text-gray-500">All Items</p>
-                                </div>
-                            )}
                         </div>
                     </div>
 
+                    {/* 2. Citas Totales e Impacto */}
                     <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
                         <span className="text-xs font-semibold text-gray-400">Times Cited</span>
-                        <div className="mt-2 flex items-baseline justify-between">
-                            <div>
-                                <p className="text-2xl font-black text-amber-400">{datasetBaselineSummary?.['Times Cited']?.toLocaleString() ?? '-'}</p>
-                                <p className="text-[10px] text-cyan-400 font-medium">Dataset Baseline</p>
+                        <div className="mt-2">
+                            <p className="text-2xl font-black text-amber-400">
+                                {datasetBaselineSummary['Times Cited']?.toLocaleString() ?? '-'}
+                            </p>
+                            <div className="mt-1 flex items-center justify-between text-[10px]">
+                                <span className="text-amber-300 font-medium">
+                                    {datasetBaselineSummary['Citation Impact'] ? `${datasetBaselineSummary['Citation Impact'].toFixed(2)} citas/doc` : '-'}
+                                </span>
+                                {datasetBaselineSummary['% Docs Cited'] && (
+                                    <span className="text-gray-400 bg-gray-900 px-1.5 py-0.5 rounded border border-gray-800">
+                                        {datasetBaselineSummary['% Docs Cited']}% citados
+                                    </span>
+                                )}
                             </div>
-                            {allItemsBaselineSummary && (
-                                <div className="text-right">
-                                    <p className="text-sm font-bold text-gray-400">{allItemsBaselineSummary['Times Cited']?.toLocaleString() ?? '-'}</p>
-                                    <p className="text-[10px] text-gray-500">All Items</p>
-                                </div>
-                            )}
                         </div>
                     </div>
 
+                    {/* 3. FWCI Normalizado */}
                     <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
-                        <span className="text-xs font-semibold text-gray-400">Category Norm. Citation Impact (CNCI)</span>
-                        <div className="mt-2 flex items-baseline justify-between">
-                            <div>
-                                <p className="text-2xl font-black text-emerald-400">{typeof datasetBaselineSummary?.['Category Normalized Citation Impact'] === 'number' ? datasetBaselineSummary['Category Normalized Citation Impact'].toFixed(2) : '-'}</p>
-                                <p className="text-[10px] text-cyan-400 font-medium">Dataset Baseline</p>
+                        <span className="text-xs font-semibold text-gray-400">Impacto FWCI</span>
+                        <div className="mt-2">
+                            <div className="flex items-baseline space-x-2">
+                                <p className="text-2xl font-black text-emerald-400">
+                                    {fwciVal != null ? fwciVal.toFixed(2) : '-'}
+                                </p>
+                                {fwciVal != null && (
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${fwciVal >= 1.0 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-rose-950 text-rose-300 border border-rose-800'}`}>
+                                        {fwciVal >= 1.0 ? `+${((fwciVal - 1.0) * 100).toFixed(1)}%` : `-${((1.0 - fwciVal) * 100).toFixed(1)}%`}
+                                    </span>
+                                )}
                             </div>
-                            {allItemsBaselineSummary && (
-                                <div className="text-right">
-                                    <p className="text-sm font-bold text-gray-400">{typeof allItemsBaselineSummary['Category Normalized Citation Impact'] === 'number' ? allItemsBaselineSummary['Category Normalized Citation Impact'].toFixed(2) : '-'}</p>
-                                    <p className="text-[10px] text-gray-500">All Items</p>
-                                </div>
-                            )}
+                            <div className="mt-1 flex items-center justify-between text-[10px]">
+                                <span className="text-gray-400">vs. 1.00 Global</span>
+                                {datasetBaselineSummary['% Documents in Top 10%'] && (
+                                    <span className="text-emerald-400 bg-gray-900 px-1.5 py-0.5 rounded border border-gray-800">
+                                        Top 10%: {datasetBaselineSummary['% Documents in Top 10%']}%
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </div>
 
+                    {/* 4. Acceso Abierto */}
                     <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
-                        <span className="text-xs font-semibold text-gray-400">% Documents Cited</span>
-                        <div className="mt-2 flex items-baseline justify-between">
-                            <div>
-                                <p className="text-2xl font-black text-sky-400">{datasetBaselineSummary?.['% Docs Cited'] != null ? `${datasetBaselineSummary['% Docs Cited']}%` : '-'}</p>
-                                <p className="text-[10px] text-cyan-400 font-medium">Dataset Baseline</p>
+                        <span className="text-xs font-semibold text-gray-400">Open Access Total</span>
+                        <div className="mt-2">
+                            <p className="text-2xl font-black text-cyan-300">
+                                {datasetBaselineSummary['% All Open Access Documents'] != null ? `${datasetBaselineSummary['% All Open Access Documents'].toFixed(1)}%` : '-'}
+                            </p>
+                            <div className="mt-1 flex items-center justify-between text-[10px]">
+                                <span className="text-sky-300 font-medium">
+                                    Diamante: {datasetBaselineSummary['% Free to Read / Diamond Documents']?.toFixed(1) ?? '0'}%
+                                </span>
+                                <span className="text-amber-400 font-medium">
+                                    Gold: {datasetBaselineSummary['% Gold Documents']?.toFixed(1) ?? '0'}%
+                                </span>
                             </div>
-                            {allItemsBaselineSummary && (
-                                <div className="text-right">
-                                    <p className="text-sm font-bold text-gray-400">{allItemsBaselineSummary['% Docs Cited'] != null ? `${allItemsBaselineSummary['% Docs Cited']}%` : '-'}</p>
-                                    <p className="text-[10px] text-gray-500">All Items</p>
-                                </div>
-                            )}
+                        </div>
+                    </div>
+
+                    {/* 5. Economía APC vs Diamante */}
+                    <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col justify-between shadow-md">
+                        <span className="text-xs font-semibold text-gray-400">Gasto APC Comercial</span>
+                        <div className="mt-2">
+                            <p className="text-2xl font-black text-purple-400">
+                                {datasetBaselineSummary['Estimated APC Paid (USD)'] != null 
+                                    ? `$${(datasetBaselineSummary['Estimated APC Paid (USD)'] / 1e6).toFixed(1)}M` 
+                                    : '-'}
+                            </p>
+                            <div className="mt-1 flex items-center justify-between text-[10px]">
+                                <span className="text-emerald-400 font-medium" title="Ahorro estimado generado por la vía Diamante">
+                                    Ahorro: ${datasetBaselineSummary['Estimated Diamond Savings (USD)'] != null ? `${(datasetBaselineSummary['Estimated Diamond Savings (USD)'] / 1e6).toFixed(1)}M` : '-'}
+                                </span>
+                                <span className="text-gray-400 font-mono">USD</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3454,23 +3502,23 @@ const TlachIADataIndicatorsPanel: React.FC = () => {
                     <table className="w-full text-xs text-left">
                         <thead className="bg-gray-950 text-gray-400 font-semibold border-b border-gray-800 sticky top-0">
                             <tr>
-                                <th className="py-3 px-4 bg-gray-950">Bibliometric Indicator</th>
-                                <th className="py-3 px-4 text-right text-cyan-400 bg-gray-950">Dataset Baseline</th>
-                                <th className="py-3 px-4 text-right text-gray-400 bg-gray-950">Baseline for All Items</th>
+                                <th className="py-3 px-4 bg-gray-950">Indicador Cienciométrico (TlachIA Metrics)</th>
+                                <th className="py-3 px-4 text-right text-cyan-400 bg-gray-950">Corpus Dataset Baseline</th>
+                                <th className="py-3 px-4 text-right text-gray-400 bg-gray-950">Benchmark Mundial / Referencia</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-800/60 bg-gray-900/40">
                             {indicators.map(indKey => {
                                 const val1 = datasetBaselineSummary?.[indKey];
-                                const val2 = allItemsBaselineSummary?.[indKey];
+                                const val2 = worldBenchmarkSummary?.[indKey];
                                 return (
                                     <tr key={indKey} className="hover:bg-gray-800/40 transition-colors">
                                         <td className="py-2.5 px-4 font-medium text-gray-200">{indKey}</td>
                                         <td className="py-2.5 px-4 text-right font-bold text-cyan-300">
-                                            {typeof val1 === 'number' ? (val1 % 1 !== 0 ? val1.toFixed(2) : val1.toLocaleString()) : (val1 ?? '-')}
+                                            {formatMetric(indKey, val1)}
                                         </td>
                                         <td className="py-2.5 px-4 text-right font-semibold text-gray-400">
-                                            {typeof val2 === 'number' ? (val2 % 1 !== 0 ? val2.toFixed(2) : val2.toLocaleString()) : (val2 ?? '-')}
+                                            {val2 != null ? formatMetric(indKey, val2) : '—'}
                                         </td>
                                     </tr>
                                 );
@@ -3484,26 +3532,26 @@ const TlachIADataIndicatorsPanel: React.FC = () => {
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-6 shadow-lg">
                 <h4 className="text-sm font-bold text-gray-200 uppercase tracking-wider border-b border-gray-800 pb-2 flex items-center space-x-2">
                     <TrendingUp className="w-4 h-4 text-cyan-400" />
-                    <span>Section 2: Baseline Time Series Charts</span>
+                    <span>Sección 2: Series de Tiempo Históricas del Corpus</span>
                 </h4>
 
-                {/* Chart 1: Web of Science Documents & Times Cited Growth */}
+                {/* Chart 1: Document & Citation Growth */}
                 <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col space-y-3">
                     <div className="flex justify-between items-center flex-wrap gap-2">
                         <div>
-                            <h5 className="text-sm font-bold text-white">Document & Citation Growth</h5>
-                            <p className="text-[11px] text-gray-400">Time series evolution of Web of Science Documents and Times Cited by publication year.</p>
+                            <h5 className="text-sm font-bold text-white">Crecimiento Histórico de Publicaciones y Citas</h5>
+                            <p className="text-[11px] text-gray-400">Evolución temporal del volumen de producción y citas acumuladas por año de publicación.</p>
                         </div>
                         <ExportButtons
                             containerId="chart-baseline-growth"
                             filename="baseline_document_citation_growth"
-                            chartTitle="Baseline Document & Citation Growth"
+                            chartTitle="Corpus Baseline: Crecimiento de Documentos y Citas"
                             chartType="trend"
                             chartData={growthChartData}
-                            dataPrompt={`Time series of Web of Science production and citations (Reference Baseline).\n` +
-                                `Years included: ${growthChartData.map((d: any) => d.year).join(', ')}.\n` +
-                                `Annual breakdown:\n` +
-                                growthChartData.map((d: any) => `- Year ${d.year}: WoS Documents = ${d['All Items WoS Docs']}, Times Cited = ${d['All Items Times Cited']}`).join('\n')
+                            dataPrompt={`Serie temporal histórica de producción científica y citas del Corpus TlachIA Metrics.\n` +
+                                `Años incluidos: ${growthChartData.map((d: any) => d.year).join(', ')}.\n` +
+                                `Resumen anual:\n` +
+                                growthChartData.map((d: any) => `- Año ${d.year}: Documentos = ${d['Documents']}, Citas = ${d['Times Cited']}`).join('\n')
                             }
                         />
                     </div>
@@ -3517,14 +3565,8 @@ const TlachIADataIndicatorsPanel: React.FC = () => {
                                 <YAxis yAxisId="right" orientation="right" stroke="#f59e0b" tick={{ fontSize: 10, fill: '#fbbf24' }} />
                                 <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem', fontSize: '12px' }} />
                                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-                                <Line yAxisId="left" type="monotone" dataKey="All Items WoS Docs" stroke="#06b6d4" strokeWidth={2.5} dot={false} name="All Items WoS Docs (Eje Izq.)" />
-                                <Line yAxisId="right" type="monotone" dataKey="All Items Times Cited" stroke="#f59e0b" strokeWidth={2.5} dot={false} name="All Items Times Cited (Eje Der.)" />
-                                {growthChartData.some(d => d.isDistinct) && (
-                                    <>
-                                        <Line yAxisId="left" type="monotone" dataKey="Dataset WoS Docs" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Dataset WoS Docs (Eje Izq.)" />
-                                        <Line yAxisId="right" type="monotone" dataKey="Dataset Times Cited" stroke="#d97706" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Dataset Times Cited (Eje Der.)" />
-                                    </>
-                                )}
+                                <Line yAxisId="left" type="monotone" dataKey="Documents" stroke="#06b6d4" strokeWidth={2.5} dot={false} name="Documentos / Artículos (Eje Izq.)" />
+                                <Line yAxisId="right" type="monotone" dataKey="Times Cited" stroke="#f59e0b" strokeWidth={2.5} dot={false} name="Citas Recibidas (Eje Der.)" />
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
@@ -3534,25 +3576,25 @@ const TlachIADataIndicatorsPanel: React.FC = () => {
                 <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-4 flex flex-col space-y-3">
                     <div className="flex justify-between items-center flex-wrap gap-2">
                         <div>
-                            <h5 className="text-sm font-bold text-white">Selectable Indicator Over Time</h5>
-                            <p className="text-[11px] text-gray-400">Select any indicator to inspect its annual trend.</p>
+                            <h5 className="text-sm font-bold text-white">Trayectoria Anual de Indicadores Especializados</h5>
+                            <p className="text-[11px] text-gray-400">Selecciona cualquier indicador para examinar su comportamiento histórico y compararlo con el benchmark internacional.</p>
                         </div>
                         <div className="flex items-center space-x-3">
                             <ExportButtons
                                 containerId="chart-baseline-indicator"
                                 filename={`baseline_${currentInd.replace(/\s+/g, '_')}`}
-                                chartTitle={`Baseline Indicator Trend: ${currentInd}`}
+                                chartTitle={`Línea Base: ${currentInd}`}
                                 chartType="trend"
                                 chartData={indicatorChartData}
-                                dataPrompt={`Time series trend for indicator "${currentInd}" across the reference baseline (TlachIA Metrics Baseline).\n` +
-                                    `Values by publication year:\n` +
-                                    indicatorChartData.map((d: any) => `- Year ${d.year}: Baseline = ${d['Baseline for All Items']}`).join('\n')
+                                dataPrompt={`Serie temporal anual para el indicador "${currentInd}" del Corpus de TlachIA Metrics.\n` +
+                                    `Valores por año de publicación:\n` +
+                                    indicatorChartData.map((d: any) => `- Año ${d.year}: Dataset = ${d['Dataset Baseline']}, Benchmark = ${d['World Benchmark']}`).join('\n')
                                 }
                             />
                             <select
                                 value={currentInd}
                                 onChange={e => setSelectedIndicator(e.target.value)}
-                                className="bg-gray-900 border border-gray-700 text-xs text-gray-200 rounded-lg px-3 py-1.5 font-bold focus:outline-none focus:border-cyan-500 max-w-[280px] truncate"
+                                className="bg-gray-900 border border-gray-700 text-xs text-gray-200 rounded-lg px-3 py-1.5 font-bold focus:outline-none focus:border-cyan-500 max-w-[320px] truncate"
                             >
                                 {indicators.map(ind => (
                                     <option key={ind} value={ind}>{ind}</option>
@@ -3569,9 +3611,9 @@ const TlachIADataIndicatorsPanel: React.FC = () => {
                                 <YAxis stroke="#64748b" tick={{ fontSize: 10, fill: '#cbd5e1' }} />
                                 <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '0.75rem', fontSize: '12px' }} />
                                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-                                <Line type="monotone" dataKey="Baseline for All Items" stroke="#10b981" strokeWidth={2.5} dot={false} name={`All Items Baseline (${currentInd})`} />
-                                {indicatorChartData.some(d => d.isDistinct) && (
-                                    <Line type="monotone" dataKey="Dataset Baseline" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name={`Dataset Baseline (${currentInd})`} />
+                                <Line type="monotone" dataKey="Dataset Baseline" stroke="#06b6d4" strokeWidth={2.5} dot={false} name={`Corpus Dataset (${currentInd})`} />
+                                {hasWorldBenchmarkInTrend && (
+                                    <Line type="monotone" dataKey="World Benchmark" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Benchmark Mundial / Referencia" />
                                 )}
                             </LineChart>
                         </ResponsiveContainer>

@@ -863,7 +863,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
       const baselineData = data.baseline || null;
       const defaultSource = baselineData?.default_source || null;
-      const defaultUnit = names.includes('Locations') ? 'Locations' : (names[0] || null);
+      // If baseline data exists, default to 'Data Indicators' tab
+      const defaultUnit = (baselineData && defaultSource) ? 'Data Indicators' : (names.includes('Locations') ? 'Locations' : (names[0] || null));
 
       set({
         tlachiaUnitNames: names,

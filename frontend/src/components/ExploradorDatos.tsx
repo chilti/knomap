@@ -654,6 +654,11 @@ export const ExploradorDatos: React.FC = () => {
               margin-bottom: 16px;
               flex-shrink: 0;
             }
+            .header-titles {
+              display: flex;
+              flex-direction: column;
+              gap: 2px;
+            }
             .title {
               font-size: 16px;
               font-weight: 900;
@@ -667,6 +672,38 @@ export const ExploradorDatos: React.FC = () => {
               font-weight: bold;
               text-transform: uppercase;
               letter-spacing: 0.1em;
+            }
+            .export-actions {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+            }
+            .export-btn {
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              padding: 7px 14px;
+              background-color: ${getPopupTheme().card};
+              color: ${getPopupTheme().text};
+              border: 1px solid ${getPopupTheme().border};
+              border-radius: 8px;
+              font-size: 11px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.06em;
+              cursor: pointer;
+              transition: all 0.2s ease;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+            }
+            .export-btn:hover {
+              background-color: ${getPopupTheme().accent};
+              color: #050508;
+              border-color: ${getPopupTheme().accent};
+              box-shadow: 0 0 12px ${getPopupTheme().accent}55;
+              transform: translateY(-1px);
+            }
+            .export-btn:active {
+              transform: translateY(0);
             }
             .chart-container {
               flex: 1;
@@ -709,8 +746,20 @@ export const ExploradorDatos: React.FC = () => {
         </head>
         <body>
           <div class="header-bar">
-            <span class="title">${mapTitle}</span>
-            <span class="subtitle">knoMap Premium Export</span>
+            <div class="header-titles">
+              <span class="title">${mapTitle}</span>
+              <span class="subtitle">knoMap Premium Export</span>
+            </div>
+            <div class="export-actions">
+              <button id="btnDownloadPng" class="export-btn" title="Download High-Resolution PNG">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>PNG</span>
+              </button>
+              <button id="btnDownloadSvg" class="export-btn" title="Download Scalable Vector (SVG)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>SVG</span>
+              </button>
+            </div>
           </div>
           <div class="chart-container" id="zoomWrap">
             ${clonedSvg.outerHTML}
@@ -750,6 +799,93 @@ export const ExploradorDatos: React.FC = () => {
               wrap.addEventListener('dblclick', function() {
                 scale = 1; tx = 0; ty = 0; apply();
               });
+
+              function getFilename(ext) {
+                const safe = (${JSON.stringify(mapTitle)}).replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_').toLowerCase();
+                return (safe || 'knomap_map') + '.' + ext;
+              }
+
+              // Download SVG
+              const btnSvg = document.getElementById('btnDownloadSvg');
+              if (btnSvg) {
+                btnSvg.addEventListener('click', function() {
+                  const currentSvg = wrap.querySelector('svg');
+                  if (!currentSvg) return;
+                  const cloned = currentSvg.cloneNode(true);
+                  cloned.removeAttribute('style');
+                  cloned.classList.remove('dragging');
+
+                  const serializer = new XMLSerializer();
+                  let source = serializer.serializeToString(cloned);
+                  if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                    source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+                  }
+                  const svgData = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<?xml version="1.0" standalone="no"?>\\r\\n' + source);
+                  const a = document.createElement('a');
+                  a.href = svgData;
+                  a.download = getFilename('svg');
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                });
+              }
+
+              // Download PNG (High Resolution rasterization at 2400px)
+              const btnPng = document.getElementById('btnDownloadPng');
+              if (btnPng) {
+                btnPng.addEventListener('click', function() {
+                  const currentSvg = wrap.querySelector('svg');
+                  if (!currentSvg) return;
+                  const cloned = currentSvg.cloneNode(true);
+                  cloned.removeAttribute('style');
+                  cloned.classList.remove('dragging');
+
+                  let vbW = 1000, vbH = 800;
+                  const vb = cloned.getAttribute('viewBox');
+                  if (vb) {
+                    const p = vb.trim().split(/[\\s,]+/).map(Number);
+                    if (p.length >= 4 && p[2] > 0 && p[3] > 0) {
+                      vbW = p[2];
+                      vbH = p[3];
+                    }
+                  }
+
+                  const targetW = 2400;
+                  const targetH = Math.round(targetW * (vbH / vbW));
+                  cloned.setAttribute('width', targetW);
+                  cloned.setAttribute('height', targetH);
+
+                  const serializer = new XMLSerializer();
+                  let source = serializer.serializeToString(cloned);
+                  if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                    source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+                  }
+
+                  const svgData = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<?xml version="1.0" standalone="no"?>\\r\\n' + source);
+                  const img = new Image();
+                  img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = targetW;
+                    canvas.height = targetH;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return;
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.fillStyle = '${getPopupTheme().card}';
+                    ctx.fillRect(0, 0, targetW, targetH);
+                    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+                    const pngData = canvas.toDataURL('image/png', 1.0);
+                    const a = document.createElement('a');
+                    a.href = pngData;
+                    a.download = getFilename('png');
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  };
+                  img.src = svgData;
+                });
+              }
             })();
           </script>
         </body>
@@ -781,10 +917,25 @@ export const ExploradorDatos: React.FC = () => {
                  font-family: ui-sans-serif, system-ui, sans-serif; color: ${getPopupTheme().text}; }
           .header { display: flex; align-items: center; justify-content: space-between;
                     padding: 14px 20px; border-bottom: 1px solid ${getPopupTheme().border}; flex-shrink: 0; }
+          .header-titles { display: flex; flex-direction: column; gap: 2px; }
           .title { font-size: 14px; font-weight: 900; text-transform: uppercase;
                    letter-spacing: .08em; color: ${getPopupTheme().text}; }
           .sub { font-size: 10px; color: ${getPopupTheme().accent}; font-weight: 700;
                  text-transform: uppercase; letter-spacing: .12em; }
+          .export-actions { display: flex; align-items: center; gap: 8px; }
+          .export-btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+            background-color: ${getPopupTheme().card}; color: ${getPopupTheme().text};
+            border: 1px solid ${getPopupTheme().border}; border-radius: 8px;
+            font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+            cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+          }
+          .export-btn:hover {
+            background-color: ${getPopupTheme().accent}; color: #050508;
+            border-color: ${getPopupTheme().accent}; box-shadow: 0 0 12px ${getPopupTheme().accent}55;
+            transform: translateY(-1px);
+          }
+          .export-btn:active { transform: translateY(0); }
           .chart { flex: 1; background: ${getPopupTheme().card}; overflow: hidden;
                    margin: 12px; border-radius: 12px;
                    box-shadow: 0 25px 50px -12px rgba(0,0,0,.5);
@@ -799,8 +950,20 @@ export const ExploradorDatos: React.FC = () => {
         </style></head>
         <body>
           <div class="header">
-            <span class="title">UMAP Dimensional Projection (2D)</span>
-            <span class="sub">knoMap — Premium Export</span>
+            <div class="header-titles">
+              <span class="title">UMAP Dimensional Projection (2D)</span>
+              <span class="sub">knoMap — Premium Export</span>
+            </div>
+            <div class="export-actions">
+              <button id="btnDownloadPng" class="export-btn" title="Download High-Resolution PNG">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>PNG</span>
+              </button>
+              <button id="btnDownloadSvg" class="export-btn" title="Download Scalable Vector (SVG)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>SVG</span>
+              </button>
+            </div>
           </div>
           <div class="chart" id="zoomWrap">
             ${cloned.outerHTML}
@@ -836,6 +999,88 @@ export const ExploradorDatos: React.FC = () => {
               wrap.addEventListener('dblclick', function() {
                 scale = 1; tx = 0; ty = 0; apply();
               });
+
+              // Download SVG
+              const btnSvg = document.getElementById('btnDownloadSvg');
+              if (btnSvg) {
+                btnSvg.addEventListener('click', function() {
+                  const currentSvg = wrap.querySelector('svg');
+                  if (!currentSvg) return;
+                  const cloned = currentSvg.cloneNode(true);
+                  cloned.removeAttribute('style');
+                  cloned.classList.remove('dragging');
+
+                  const serializer = new XMLSerializer();
+                  let source = serializer.serializeToString(cloned);
+                  if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                    source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+                  }
+                  const svgData = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<?xml version="1.0" standalone="no"?>\\r\\n' + source);
+                  const a = document.createElement('a');
+                  a.href = svgData;
+                  a.download = 'knomap_umap_projection.svg';
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                });
+              }
+
+              // Download PNG
+              const btnPng = document.getElementById('btnDownloadPng');
+              if (btnPng) {
+                btnPng.addEventListener('click', function() {
+                  const currentSvg = wrap.querySelector('svg');
+                  if (!currentSvg) return;
+                  const cloned = currentSvg.cloneNode(true);
+                  cloned.removeAttribute('style');
+                  cloned.classList.remove('dragging');
+
+                  let vbW = 700, vbH = 450;
+                  const vb = cloned.getAttribute('viewBox');
+                  if (vb) {
+                    const p = vb.trim().split(/[\\s,]+/).map(Number);
+                    if (p.length >= 4 && p[2] > 0 && p[3] > 0) {
+                      vbW = p[2];
+                      vbH = p[3];
+                    }
+                  }
+
+                  const targetW = 2400;
+                  const targetH = Math.round(targetW * (vbH / vbW));
+                  cloned.setAttribute('width', targetW);
+                  cloned.setAttribute('height', targetH);
+
+                  const serializer = new XMLSerializer();
+                  let source = serializer.serializeToString(cloned);
+                  if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                    source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+                  }
+
+                  const svgData = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<?xml version="1.0" standalone="no"?>\\r\\n' + source);
+                  const img = new Image();
+                  img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = targetW;
+                    canvas.height = targetH;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return;
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.fillStyle = '${getPopupTheme().card}';
+                    ctx.fillRect(0, 0, targetW, targetH);
+                    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+                    const pngData = canvas.toDataURL('image/png', 1.0);
+                    const a = document.createElement('a');
+                    a.href = pngData;
+                    a.download = 'knomap_umap_projection_highres.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  };
+                  img.src = svgData;
+                });
+              }
             })();
           </script>
         </body>
@@ -1058,10 +1303,25 @@ export const ExploradorDatos: React.FC = () => {
                  font-family: ui-sans-serif, system-ui, sans-serif; color: ${getPopupTheme().text}; }
           .header { width: 100%; display: flex; align-items: center; justify-content: space-between;
                     padding: 14px 24px; border-bottom: 1px solid ${getPopupTheme().border}; flex-shrink: 0; }
+          .header-titles { display: flex; flex-direction: column; gap: 2px; }
           .title { font-size: 14px; font-weight: 900; text-transform: uppercase;
                    letter-spacing: .08em; color: ${getPopupTheme().text}; }
           .sub { font-size: 10px; color: ${getPopupTheme().accent}; font-weight: 700;
                  text-transform: uppercase; letter-spacing: .12em; }
+          .export-actions { display: flex; align-items: center; gap: 8px; }
+          .export-btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+            background-color: ${getPopupTheme().card}; color: ${getPopupTheme().text};
+            border: 1px solid ${getPopupTheme().border}; border-radius: 8px;
+            font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+            cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+          }
+          .export-btn:hover {
+            background-color: ${getPopupTheme().accent}; color: #050508;
+            border-color: ${getPopupTheme().accent}; box-shadow: 0 0 12px ${getPopupTheme().accent}55;
+            transform: translateY(-1px);
+          }
+          .export-btn:active { transform: translateY(0); }
           .chart { flex: 1; background: ${getPopupTheme().card};
                    box-shadow: 0 25px 50px -12px rgba(0,0,0,.5);
                    display: flex; align-items: center; justify-content: center;
@@ -1074,8 +1334,16 @@ export const ExploradorDatos: React.FC = () => {
         </style></head>
         <body>
           <div class="header">
-            <span class="title">${name}</span>
-            <span class="sub">UMAP Variable Heatmap — knoMap</span>
+            <div class="header-titles">
+              <span class="title">${name}</span>
+              <span class="sub">UMAP Variable Heatmap — knoMap</span>
+            </div>
+            <div class="export-actions">
+              <button id="btnDownloadPng" class="export-btn" title="Download High-Resolution PNG">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>PNG</span>
+              </button>
+            </div>
           </div>
           <div class="chart" id="zoomWrap">
             <img id="heatmapImg" src="${dataUrl}" />
@@ -1111,6 +1379,20 @@ export const ExploradorDatos: React.FC = () => {
               wrap.addEventListener('dblclick', function() {
                 scale = 1; tx = 0; ty = 0; apply();
               });
+
+              // Download PNG
+              const btnPng = document.getElementById('btnDownloadPng');
+              if (btnPng) {
+                btnPng.addEventListener('click', function() {
+                  const safeName = (${JSON.stringify(name)}).replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_').toLowerCase();
+                  const a = document.createElement('a');
+                  a.href = '${dataUrl}';
+                  a.download = (safeName || 'umap_heatmap') + '_highres.png';
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                });
+              }
             })();
           </script>
         </body>
