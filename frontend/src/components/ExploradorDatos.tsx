@@ -44,6 +44,7 @@ import { TrainingErrorPanel } from './TrainingErrorPanel';
 import { parseTrajectoryEntity } from '../utils/timeSeries';
 import { SendToAssistantButton } from './SendToAssistantButton';
 import { denormalizeValue } from '../utils/normalization';
+import { buildEnrichedSomClusterContext, computeAllComponentStats } from '../utils/somGeometry';
 import { LongitudinalSomViewer } from './LongitudinalSomViewer';
 import { useAuthStore } from '../store/authStore';
 
@@ -399,56 +400,39 @@ export const ExploradorDatos: React.FC = () => {
   const somTitleName = activeSomRun?.name || (fileName ? `SOM - ${fileName.replace(/\.[^/.]+$/, '')}` : `SOM ${config.clusteringAlgorithm === 'agglomerative' ? 'Agglomerative' : 'DBSCAN'} Clusters Map`);
   const unitAnalysisName = activeSomRun?.provenance?.unitName || (activeSomRun?.name?.includes('Locations') ? 'Locations' : (fileName ? fileName.replace(/\.[^/.]+$/, '') : 'Entidades / Documentos'));
 
-  // Detailed cluster breakdown including centroid vectors, sizes, and sample labels
+  // Global & SOM statistics per component variable (raw + denormalized codebook)
+  const componentColStats = useMemo(() => {
+    if (!compNames || compNames.length === 0) return [];
+    const baseMatrix = (originalDataMatrix && originalDataMatrix.length > 0) ? originalDataMatrix : dataMatrix;
+    return computeAllComponentStats(compNames, result?.weights, normalizationInfo, baseMatrix);
+  }, [compNames, result, normalizationInfo, originalDataMatrix, dataMatrix]);
+
+  // Detailed cluster breakdown + component-plane characterization for AI Assistant
   const allClustersSummary = useMemo(() => {
     if (!result || !result.weights || !result.clustering || !dataMatrix || dataMatrix.length === 0 || compNames.length === 0) {
       return '';
     }
 
-    const { weights, clustering, bmus } = result;
-    const numFeatures = compNames.length;
-    const clusters = Array.from(new Set(clustering.filter(c => c !== -1))).sort((a, b) => a - b);
-
-    const summaries = clusters.map(cId => {
-      const clusterNeuronIndices: number[] = [];
-      const clusterNeuronSet = new Set<number>();
-      clustering.forEach((c, idx) => {
-        if (c === cId) {
-          clusterNeuronIndices.push(idx);
-          clusterNeuronSet.add(idx);
-        }
-      });
-
-      // Centroid Vector (Average of neuron reference weights in this cluster)
-      const centroidVector = new Array(numFeatures).fill(0);
-      clusterNeuronIndices.forEach(nIdx => {
-        const w = weights[nIdx];
-        if (w) {
-          for (let f = 0; f < numFeatures; f++) centroidVector[f] += (w[f] ?? 0);
-        }
-      });
-      for (let f = 0; f < numFeatures; f++) {
-        centroidVector[f] /= Math.max(1, clusterNeuronIndices.length);
-      }
-
-      // Mapped entities from data
-      const mappedEntities = labels.filter((_, idx) => bmus && clusterNeuronSet.has(bmus[idx]));
-
-      // Custom cluster label if user renamed it
-      const customClusterName = (clusterLabels && clusterLabels[cId]) ? clusterLabels[cId] : `Cluster ${cId + 1}`;
-
-      // Top distinguishing dimensions for this centroid
-      const compWithValues = compNames.map((name, f) => ({ name, val: centroidVector[f] }));
-      compWithValues.sort((a, b) => b.val - a.val);
-      const topDimensions = compWithValues.slice(0, 6).map(cv => `${cv.name}: ${typeof cv.val === 'number' ? cv.val.toFixed(3) : cv.val}`).join(', ');
-
-      return `• ${customClusterName} (${clusterNeuronIndices.length} neurons, ${mappedEntities.length} "${unitAnalysisName}" entities assigned):\n` +
-             `   - Centroid Vector (Top weighted variables): [${topDimensions}]\n` +
-             `   - Sample of assigned entities: ${mappedEntities.slice(0, 10).join(', ') || 'No directly assigned entities'}`;
+    return buildEnrichedSomClusterContext({
+      rows: config.rows,
+      cols: config.cols,
+      somTitleName,
+      unitAnalysisName,
+      clusteringAlgorithm: config.clusteringAlgorithm,
+      nClusters: config.nClusters,
+      labels,
+      dataMatrix,
+      compNames,
+      weights: result.weights,
+      clustering: result.clustering,
+      bmus: result.bmus || [],
+      clusterLabels,
+      normalizationInfo,
+      rawColStats: componentColStats,
+      globalScaleSource,
+      colorScale: somColorScale
     });
-
-    return summaries.join('\n\n');
-  }, [result, dataMatrix, compNames, labels, clusterLabels, unitAnalysisName]);
+  }, [result, dataMatrix, compNames, labels, clusterLabels, unitAnalysisName, somTitleName, config.rows, config.cols, config.clusteringAlgorithm, config.nClusters, normalizationInfo, componentColStats, globalScaleSource, somColorScale]);
 
   // Construct Radar Chart Data
   const clusterRadarData = useMemo(() => {
@@ -2971,22 +2955,39 @@ export const ExploradorDatos: React.FC = () => {
                             viewSource="som"
                             chartType="hex_map"
                             targetElementId="comp-viewport-clustering"
+                            sourceInfo={{
+                              tabId: 'som',
+                              tabLabel: 'SOM & UMAP',
+                              subView: `${config.clusteringAlgorithm === 'agglomerative' ? 'Agglomerative Clusters' : 'DBSCAN Clusters'} + Component Planes`,
+                              chartTypeLabel: 'Clustering & Component Hex Maps',
+                              experimentId: activeRunId,
+                              experimentName: somTitleName,
+                              unitName: unitAnalysisName,
+                              originType: activeSomRun?.provenance?.originType || matrixOrigin,
+                              fileName,
+                              gridSize: [config.rows, config.cols],
+                              entitiesCount: labels?.length || dataMatrix?.length || 0,
+                              indicatorsCount: compNames.length
+                            }}
                             data={{
                               hexGrid: result?.hexGrid ? result.hexGrid.map((h: any) => ({ x: h.x, y: h.y, index: h.index, row: h.row, col: h.col })) : [],
                               clustering: result?.clustering,
                               frequencies: result?.frequencies,
                               rows: config.rows,
-                              cols: config.cols
+                              cols: config.cols,
+                              compNames,
+                              normalizationInfo,
+                              colorScale: somColorScale,
+                              globalScaleSource,
+                              componentScaleConfigs,
+                              clusterLabels,
+                              rawColStats: componentColStats,
+                              weights:
+                                result?.weights && result.weights.length * compNames.length <= 30000
+                                  ? result.weights.map((row: number[]) => row.map(v => Number(v.toFixed(4))))
+                                  : undefined
                             }}
-                            dataContextPrompt={`Self-Organizing Map (SOM) Hexagonal Grid (${config.rows}x${config.cols}).\n` +
-                              `Active Experiment / Model: "${somTitleName}".\n` +
-                              `Mapped Unit of Analysis: "${unitAnalysisName}".\n` +
-                              `Clustering Algorithm: ${config.clusteringAlgorithm} with ${config.nClusters} clusters.\n` +
-                              `Total Mapped Entities: ${labels?.length || dataMatrix?.length || 0}.\n` +
-                              `Analyzed Variables / Indicators (${compNames.length}): ${compNames.slice(0, 15).join(', ')}.\n\n` +
-                              `CLUSTER BREAKDOWN & CENTROID VECTORS:\n` +
-                              allClustersSummary
-                            }
+                            dataContextPrompt={allClustersSummary}
                             buttonText="AI Assistant"
                           />
                           <button
@@ -3046,6 +3047,22 @@ export const ExploradorDatos: React.FC = () => {
                               badge="SOM & UMAP"
                               viewSource="som"
                               chartType="radar"
+                              sourceInfo={{
+                                tabId: 'som',
+                                tabLabel: 'SOM & UMAP',
+                                subView: 'Cluster Profile Radar',
+                                chartTypeLabel: 'Radar Profile',
+                                experimentId: activeRunId,
+                                experimentName: somTitleName,
+                                unitName: unitAnalysisName,
+                                originType: activeSomRun?.provenance?.originType || matrixOrigin,
+                                fileName,
+                                clusterId: selectedClusterId,
+                                clusterLabel: (clusterLabels && clusterLabels[selectedClusterId]) || `Cluster ${selectedClusterId + 1}`,
+                                gridSize: [config.rows, config.cols],
+                                entitiesCount: labels?.length || dataMatrix?.length || 0,
+                                indicatorsCount: compNames.length
+                              }}
                               data={clusterRadarData.chartData || []}
                               dataContextPrompt={`Radar Profile for ${(clusterLabels && clusterLabels[selectedClusterId]) || `Cluster ${selectedClusterId + 1}`} in the SOM Map.\n` +
                                 `Model / Experiment: "${somTitleName}".\n` +
@@ -3364,6 +3381,20 @@ export const ExploradorDatos: React.FC = () => {
                           viewSource="som"
                           chartType="hex_map"
                           targetElementId="comp-viewport-umatrix"
+                          sourceInfo={{
+                            tabId: 'som',
+                            tabLabel: 'SOM & UMAP',
+                            subView: 'U-Matrix (Topological Distances)',
+                            chartTypeLabel: 'U-Matrix Hex Map',
+                            experimentId: activeRunId,
+                            experimentName: somTitleName,
+                            unitName: unitAnalysisName,
+                            originType: activeSomRun?.provenance?.originType || matrixOrigin,
+                            fileName,
+                            gridSize: [config.rows, config.cols],
+                            entitiesCount: labels?.length || dataMatrix?.length || 0,
+                            indicatorsCount: compNames.length
+                          }}
                           data={{
                             hexGrid: result?.hexGrid ? result.hexGrid.map((h: any) => ({ x: h.x, y: h.y, index: h.index, row: h.row, col: h.col })) : [],
                             umatrix: result?.umatrix,
@@ -3410,6 +3441,20 @@ export const ExploradorDatos: React.FC = () => {
                           viewSource="som"
                           chartType="hex_map"
                           targetElementId="comp-viewport-qe"
+                          sourceInfo={{
+                            tabId: 'som',
+                            tabLabel: 'SOM & UMAP',
+                            subView: 'Quantization Error Map',
+                            chartTypeLabel: 'Quantization Error Hex Map',
+                            experimentId: activeRunId,
+                            experimentName: somTitleName,
+                            unitName: unitAnalysisName,
+                            originType: activeSomRun?.provenance?.originType || matrixOrigin,
+                            fileName,
+                            gridSize: [config.rows, config.cols],
+                            entitiesCount: labels?.length || dataMatrix?.length || 0,
+                            indicatorsCount: compNames.length
+                          }}
                           data={{
                             hexGrid: result?.hexGrid ? result.hexGrid.map((h: any) => ({ x: h.x, y: h.y, index: h.index, row: h.row, col: h.col })) : [],
                             quantizationErrors: result?.quantizationErrors,

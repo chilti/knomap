@@ -926,6 +926,15 @@ def build_tlachia_inventory(payload_path_or_zip: Union[str, Dict[str, Any]]) -> 
                 for root, _, files in os.walk(session_dir):
                     for file in files:
                         extracted_files.append(os.path.join(root, file))
+        elif os.path.isdir(fp):
+            for root, _, files in os.walk(fp):
+                for file in files:
+                    src_f = os.path.join(root, file)
+                    rel = os.path.relpath(src_f, fp)
+                    tgt_f = os.path.join(session_dir, rel)
+                    os.makedirs(os.path.dirname(tgt_f), exist_ok=True)
+                    shutil.copy2(src_f, tgt_f)
+                    extracted_files.append(tgt_f)
         else:
             dest = os.path.join(session_dir, os.path.basename(fp))
             shutil.copy2(fp, dest)

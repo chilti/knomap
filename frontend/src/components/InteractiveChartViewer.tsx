@@ -1,25 +1,114 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   CartesianGrid, Legend
 } from 'recharts';
 import type { ChartSnapshot } from '../store/aiStore';
-import { Eye, Image as ImageIcon, Download, Copy, Check, Layers, Sparkles } from 'lucide-react';
+import { useSomStore } from '../store/somStore';
+import { denormalizeValue } from '../utils/normalization';
+import {
+  SOM_FLAT_HEX_APOTEMA,
+  buildComponentChromaScale,
+  computeAllComponentStats,
+  getFlatHexPolygonPoints,
+  getHexClusterBorders,
+  resolveComponentScaleBounds,
+  type SomPaletteName
+} from '../utils/somGeometry';
+import { Eye, Image as ImageIcon, Download, Copy, Check, Layers, Sparkles, Grid3X3, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface InteractiveChartViewerProps {
   snapshot: ChartSnapshot;
+  resolvedExperimentId?: string | null;
   onOpenOriginal?: () => void;
 }
 
-export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ snapshot }) => {
-  const [viewMode, setViewMode] = useState<'svg' | 'interactive' | 'image'>(
+export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({
+  snapshot,
+  resolvedExperimentId
+}) => {
+  const { savedRuns, result: activeSomResult, compNames: activeCompNames, normalizationInfo: activeNormInfo, originalDataMatrix: activeOrigMatrix, dataMatrix: activeDataMatrix, config: activeConfig } = useSomStore();
+  const [viewMode, setViewMode] = useState<'svg' | 'interactive' | 'components' | 'image'>(
     snapshot.svgMarkup ? 'svg' : 'interactive'
   );
   const [copied, setCopied] = useState(false);
   const [hoveredNode, setHoveredNode] = useState<any>(null);
+  const [hoveredCompCell, setHoveredCompCell] = useState<{ compName: string; neuronIndex: number; realVal: number; normVal: number; clusterId: number } | null>(null);
+  const [compPage, setCompPage] = useState(0);
+  const [compSearch, setCompSearch] = useState('');
+  const [showClusterBorders, setShowClusterBorders] = useState(true);
+  const [compPalette, setCompPalette] = useState<SomPaletteName>(
+    (snapshot.data?.colorScale as SomPaletteName) || 'standard'
+  );
 
   const { chartType, data, config, thumbnailPng, svgMarkup } = snapshot;
+
+  // Resolve component-plane dataset from snapshot directly or fallback to matched savedRun / active SOM state
+  const componentPlaneModel = useMemo(() => {
+    if (chartType !== 'hex_map') return null;
+
+    const expId = snapshot.sourceInfo?.experimentId || resolvedExperimentId || null;
+    const matchedRun = expId ? savedRuns.find(r => r.id === expId) : undefined;
+    const activeMatches =
+      !matchedRun &&
+      activeSomResult?.weights?.length &&
+      data?.rows === activeConfig?.rows &&
+      data?.cols === activeConfig?.cols;
+
+    const hexGrid = data?.hexGrid || matchedRun?.result?.hexGrid || (activeMatches ? activeSomResult?.hexGrid : null) || [];
+    const weights: number[][] | undefined =
+      data?.weights || matchedRun?.result?.weights || (activeMatches ? activeSomResult?.weights : undefined);
+    const compNames: string[] =
+      data?.compNames || matchedRun?.compNames || (activeMatches ? activeCompNames : []) || [];
+    const clustering: number[] =
+      data?.clustering || matchedRun?.result?.clustering || (activeMatches ? activeSomResult?.clustering : []) || [];
+    const rows: number = Number(data?.rows || matchedRun?.config?.rows || (activeMatches ? activeConfig?.rows : 0) || 0);
+    const cols: number = Number(data?.cols || matchedRun?.config?.cols || (activeMatches ? activeConfig?.cols : 0) || 0);
+
+    if (!hexGrid.length || !weights?.length || !compNames.length || !rows || !cols) {
+      return null;
+    }
+
+    const normalizationInfo =
+      data?.normalizationInfo ?? matchedRun?.normalizationInfo ?? (activeMatches ? activeNormInfo : null);
+    const baseMatrix =
+      matchedRun?.originalDataMatrix ||
+      matchedRun?.dataMatrix ||
+      (activeMatches ? activeOrigMatrix || activeDataMatrix : null);
+
+    const stats =
+      Array.isArray(data?.rawColStats) && data.rawColStats.length === compNames.length
+        ? data.rawColStats
+        : computeAllComponentStats(compNames, weights, normalizationInfo, baseMatrix);
+
+    return {
+      hexGrid,
+      weights,
+      compNames,
+      clustering,
+      rows,
+      cols,
+      normalizationInfo,
+      stats,
+      componentScaleConfigs: data?.componentScaleConfigs || matchedRun?.componentScaleConfigs || {},
+      globalScaleSource: (data?.globalScaleSource as 'raw' | 'weights') || 'raw'
+    };
+  }, [chartType, snapshot, resolvedExperimentId, savedRuns, activeSomResult, activeConfig, activeCompNames, activeNormInfo, activeOrigMatrix, activeDataMatrix, data]);
+
+  useEffect(() => {
+    setCompPage(0);
+    setCompSearch('');
+    setHoveredNode(null);
+    setHoveredCompCell(null);
+    setCompPalette((snapshot.data?.colorScale as SomPaletteName) || 'standard');
+    setViewMode(prev => {
+      if (prev === 'components' && !componentPlaneModel) {
+        return snapshot.svgMarkup ? 'svg' : 'interactive';
+      }
+      return snapshot.svgMarkup ? 'svg' : 'interactive';
+    });
+  }, [snapshot]);
 
   const handleCopyData = () => {
     try {
@@ -297,6 +386,8 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
     const hexGrid = data?.hexGrid || [];
     const clusters = data?.clustering || [];
     const frequencies = data?.frequencies || [];
+    const rows = Number(data?.rows || 0);
+    const cols = Number(data?.cols || 0);
 
     if (!Array.isArray(hexGrid) || hexGrid.length === 0) {
       return (
@@ -306,65 +397,33 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
       );
     }
 
-    // Compute bounding box for SVG viewbox
-    const xs = hexGrid.map((h: any) => h.x);
-    const ys = hexGrid.map((h: any) => h.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-
-    // Dynamically deduce the true circumradius R based on minimum distance between grid neighbors
-    let r = 1.0;
-    if (hexGrid.length >= 2) {
-      let minDistance = Infinity;
-      const sampleLimit = Math.min(hexGrid.length, 50);
-      for (let i = 0; i < sampleLimit; i++) {
-        for (let j = i + 1; j < sampleLimit; j++) {
-          const dx = hexGrid[i].x - hexGrid[j].x;
-          const dy = hexGrid[i].y - hexGrid[j].y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d > 0.001 && d < minDistance) {
-            minDistance = d;
-          }
-        }
-      }
-      if (minDistance < Infinity) {
-        // Pointy-topped hexagon center-to-center distance is sqrt(3) * R
-        r = minDistance / Math.sqrt(3);
-      }
-    }
-
-    const padding = r * 1.5;
-    const width = (maxX - minX) + padding * 2;
-    const height = (maxY - minY) + padding * 2;
-    const strokeW = Math.max(0.04, r * 0.08);
-    const fontSz = r * 0.55;
+    const minX = -1.2;
+    const minY = -1.2 * SOM_FLAT_HEX_APOTEMA;
+    const maxX = Math.max(...hexGrid.map((h: any) => h.x)) + 1.2;
+    const maxY = Math.max(...hexGrid.map((h: any) => h.y)) + 1.2;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const fontSz = 0.55;
     const showTextOnCells = hexGrid.length <= 400;
 
     return (
       <div className="w-full flex flex-col items-center justify-center p-2">
-        <svg 
-          viewBox={`${minX - padding} ${minY - padding} ${width} ${height}`} 
+        <svg
+          viewBox={`${minX} ${minY} ${width} ${height}`}
           className="w-auto max-w-full"
           style={{ maxHeight: '340px' }}
         >
           {hexGrid.map((node: any, idx: number) => {
             const clusterId = clusters[idx] !== undefined ? clusters[idx] : 0;
-            const color = clusterId === -1 
-              ? '#334155' 
-              : `hsl(${((clusterId * 137.5) % 360 + 360) % 360}, 70%, 50%)`;
+            const color = clusterId === -1
+              ? '#334155'
+              : `hsl(${((clusterId * 137.5) % 360 + 360) % 360}, 70%, 55%)`;
             const rawFreq = frequencies[idx];
             const parsedFreq = typeof rawFreq === 'number' ? Math.round(rawFreq) : parseInt(rawFreq, 10) || 0;
-            
-            // Hexagon points
-            const points = Array.from({ length: 6 }).map((_, i) => {
-              const angle = (Math.PI / 3) * i - Math.PI / 6;
-              return `${(node.x + r * Math.cos(angle)).toFixed(3)},${(node.y + r * Math.sin(angle)).toFixed(3)}`;
-            }).join(' ');
+            const points = getFlatHexPolygonPoints(node.x, node.y, 1.0);
 
             return (
-              <g 
+              <g
                 key={idx}
                 onMouseEnter={() => setHoveredNode({ ...node, clusterId, freq: parsedFreq })}
                 onMouseLeave={() => setHoveredNode(null)}
@@ -373,9 +432,9 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
                 <polygon
                   points={points}
                   fill={color}
-                  fillOpacity={0.85}
+                  fillOpacity={0.9}
                   stroke="#050508"
-                  strokeWidth={`${strokeW.toFixed(3)}`}
+                  strokeWidth={0.04}
                   className="group-hover:stroke-white group-hover:fill-opacity-100 transition"
                 />
                 {showTextOnCells && parsedFreq > 0 && (
@@ -386,9 +445,9 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
                     dominantBaseline="middle"
                     fill="#ffffff"
                     stroke="#000000"
-                    strokeWidth={`${(fontSz * 0.22).toFixed(3)}`}
+                    strokeWidth={(fontSz * 0.22).toFixed(3)}
                     paintOrder="stroke fill"
-                    fontSize={`${fontSz.toFixed(3)}`}
+                    fontSize={fontSz.toFixed(3)}
                     fontWeight="900"
                     pointerEvents="none"
                     className="select-none font-sans"
@@ -399,13 +458,193 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
               </g>
             );
           })}
+          {clusters.length > 0 && rows > 0 && cols > 0 && hexGrid.map((node: any) =>
+            getHexClusterBorders(node.row, node.col, rows, cols, hexGrid, clusters, 1.0).map(([x1, y1, x2, y2], bIdx) => (
+              <line
+                key={`${node.index}_b_${bIdx}`}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="#000000"
+                strokeWidth={0.06}
+                strokeLinecap="round"
+                className="pointer-events-none"
+              />
+            ))
+          )}
         </svg>
 
         {hoveredNode && (
           <div className="mt-2 text-xs bg-gray-950 border border-indigo-500/40 px-3 py-1.5 rounded-lg text-gray-300 shadow-lg">
-            Neuron #{hoveredNode.index} (Row: {hoveredNode.row}, Col: {hoveredNode.col}) • 
-            <span className="text-indigo-300 font-semibold ml-1">Cluster {hoveredNode.clusterId + 1}</span> • 
+            Neuron #{hoveredNode.index} (Row: {hoveredNode.row}, Col: {hoveredNode.col}) •
+            <span className="text-indigo-300 font-semibold ml-1">Cluster {hoveredNode.clusterId + 1}</span> •
             <span className="text-emerald-400 font-semibold ml-1">{hoveredNode.freq} documents</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // 5b. Render Optional Component Planes Grid (for characterizing SOM clusters)
+  const renderComponentMaps = () => {
+    if (!componentPlaneModel) {
+      return (
+        <div className="p-6 text-center text-xs text-gray-400">
+          Component plane weights are not available for this entry.
+        </div>
+      );
+    }
+
+    const { hexGrid, weights, compNames, clustering, rows, cols, normalizationInfo, stats, componentScaleConfigs, globalScaleSource } = componentPlaneModel;
+    const minX = -1.2;
+    const minY = -1.2 * SOM_FLAT_HEX_APOTEMA;
+    const width = Math.max(...hexGrid.map((h: any) => h.x)) + 1.2 - minX;
+    const height = Math.max(...hexGrid.map((h: any) => h.y)) + 1.2 - minY;
+
+    const indexedComps = compNames
+      .map((name, idx) => ({ name, idx }))
+      .filter(item => !compSearch.trim() || item.name.toLowerCase().includes(compSearch.trim().toLowerCase()));
+
+    const pageSize = 9;
+    const totalPages = Math.max(1, Math.ceil(indexedComps.length / pageSize));
+    const safePage = Math.min(compPage, totalPages - 1);
+    const pageItems = indexedComps.slice(safePage * pageSize, (safePage + 1) * pageSize);
+
+    const fmtVal = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(1) : Math.abs(v) >= 10 ? v.toFixed(2) : v.toFixed(3));
+
+    return (
+      <div className="w-full space-y-3">
+        {/* Component Maps Controls Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 bg-gray-900/70 border border-gray-800 rounded-xl text-[11px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-gray-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showClusterBorders}
+                onChange={(e) => setShowClusterBorders(e.target.checked)}
+                className="rounded border-gray-700 bg-gray-950 text-indigo-500"
+              />
+              <span>Cluster Borders</span>
+            </label>
+
+            <span className="text-gray-700">|</span>
+
+            <select
+              value={compPalette}
+              onChange={(e) => setCompPalette(e.target.value as SomPaletteName)}
+              className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1 text-[11px] text-gray-200 cursor-pointer"
+            >
+              <option value="standard">Green–Yellow–Red</option>
+              <option value="viridis">Viridis</option>
+              <option value="cividis">Cividis</option>
+            </select>
+
+            {compNames.length > 6 && (
+              <div className="relative flex items-center">
+                <Search className="w-3 h-3 text-gray-500 absolute left-2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={compSearch}
+                  onChange={(e) => { setCompSearch(e.target.value); setCompPage(0); }}
+                  placeholder="Filter variables..."
+                  className="bg-gray-950 border border-gray-700 rounded-lg pl-6 pr-2 py-0.5 text-[11px] text-gray-200 w-36 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            )}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={safePage === 0}
+                onClick={() => setCompPage(p => Math.max(0, p - 1))}
+                className="p-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-200 cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-gray-300 font-semibold">
+                Page {safePage + 1} / {totalPages} ({indexedComps.length} vars)
+              </span>
+              <button
+                type="button"
+                disabled={safePage >= totalPages - 1}
+                onClick={() => setCompPage(p => Math.min(totalPages - 1, p + 1))}
+                className="p-1 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-200 cursor-pointer"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Component Hex Maps Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {pageItems.map(({ name, idx: fIdx }) => {
+            const bounds = resolveComponentScaleBounds(stats[fIdx], componentScaleConfigs[fIdx], globalScaleSource);
+            const colorFn = buildComponentChromaScale(compPalette, bounds);
+            const gradColors = `${colorFn(bounds.min)}, ${colorFn(bounds.mid)}, ${colorFn(bounds.max)}`;
+
+            return (
+              <div key={fIdx} className="bg-gray-900/70 border border-gray-800 rounded-xl p-2.5 flex flex-col">
+                <div className="text-[11px] font-bold text-gray-200 truncate mb-1.5" title={name}>
+                  {name}
+                </div>
+                <svg
+                  viewBox={`${minX} ${minY} ${width} ${height}`}
+                  className="w-full h-36"
+                >
+                  {hexGrid.map((node: any, nIdx: number) => {
+                    const normW = weights[nIdx]?.[fIdx] ?? 0;
+                    const realVal = denormalizeValue(normW, fIdx, normalizationInfo);
+                    const fill = colorFn(realVal);
+                    const cid = clustering[nIdx] ?? 0;
+                    return (
+                      <polygon
+                        key={nIdx}
+                        points={getFlatHexPolygonPoints(node.x, node.y, 1.0)}
+                        fill={fill}
+                        stroke="#1f2937"
+                        strokeWidth={0.025}
+                        onMouseEnter={() => setHoveredCompCell({ compName: name, neuronIndex: node.index, realVal, normVal: normW, clusterId: cid })}
+                        onMouseLeave={() => setHoveredCompCell(null)}
+                      />
+                    );
+                  })}
+                  {showClusterBorders && clustering.length > 0 && hexGrid.map((node: any) =>
+                    getHexClusterBorders(node.row, node.col, rows, cols, hexGrid, clustering, 1.0).map(([x1, y1, x2, y2], bIdx) => (
+                      <line
+                        key={`${node.index}_cb_${bIdx}`}
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        stroke="#000000"
+                        strokeWidth={0.065}
+                        strokeLinecap="round"
+                        className="pointer-events-none"
+                      />
+                    ))
+                  )}
+                </svg>
+                <div className="mt-1.5 space-y-0.5">
+                  <div className="h-1.5 rounded-full w-full" style={{ background: `linear-gradient(to right, ${gradColors})` }} />
+                  <div className="flex justify-between text-[9px] text-gray-400 font-mono">
+                    <span>{fmtVal(bounds.min)}</span>
+                    <span>{fmtVal(bounds.mid)}</span>
+                    <span>{fmtVal(bounds.max)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {hoveredCompCell && (
+          <div className="text-xs bg-gray-950 border border-indigo-500/40 px-3 py-1.5 rounded-lg text-gray-300 shadow-lg text-center">
+            <span className="font-semibold text-indigo-300">{hoveredCompCell.compName}</span> • Neuron #{hoveredCompCell.neuronIndex} (Cluster {hoveredCompCell.clusterId + 1}) •
+            Real: <strong className="text-white">{fmtVal(hoveredCompCell.realVal)}</strong> · SOM norm: <span className="text-emerald-400">{hoveredCompCell.normVal.toFixed(3)}</span>
           </div>
         )}
       </div>
@@ -530,6 +769,21 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
             <span>Interactive</span>
           </button>
 
+          {componentPlaneModel && (
+            <button
+              onClick={() => setViewMode('components')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                viewMode === 'components'
+                  ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              }`}
+              title="Optionally draw SOM Component Maps to characterize clusters"
+            >
+              <Grid3X3 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Component Maps ({componentPlaneModel.compNames.length})</span>
+            </button>
+          )}
+
           {thumbnailPng && (
             <button
               onClick={() => setViewMode('image')}
@@ -581,12 +835,14 @@ export const InteractiveChartViewer: React.FC<InteractiveChartViewerProps> = ({ 
       </div>
 
       {/* Main View Area */}
-      <div className="relative p-3 flex items-center justify-center min-h-[260px] max-h-[500px] overflow-auto custom-scrollbar">
+      <div className={`relative p-3 flex items-center justify-center min-h-[260px] ${viewMode === 'components' ? 'max-h-[680px]' : 'max-h-[500px]'} overflow-auto custom-scrollbar`}>
         {viewMode === 'svg' && svgMarkup ? (
           <div 
             className="w-full h-auto max-h-[460px] overflow-auto custom-scrollbar flex items-center justify-center pointer-events-auto select-none bg-white rounded-xl p-2 border border-gray-200 shadow-sm [&>svg]:max-h-[440px] [&>svg]:w-auto [&>svg]:max-w-full [&>svg]:h-auto [&>svg]:mx-auto [&>svg]:rounded-lg"
             dangerouslySetInnerHTML={{ __html: svgMarkup }}
           />
+        ) : viewMode === 'components' && componentPlaneModel ? (
+          renderComponentMaps()
         ) : viewMode === 'interactive' ? (
           renderInteractiveContent()
         ) : thumbnailPng ? (

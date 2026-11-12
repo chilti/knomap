@@ -1066,8 +1066,17 @@ export const LongitudinalSomViewer: React.FC = () => {
 
           <SendToAssistantButton
             title={`Longitudinal SOM Map (${activeLongitudinalPeriod})`}
+            badge="PATHSOM"
             viewSource="som"
             chartType="hex_map"
+            sourceInfo={{
+              tabId: 'longitudinal',
+              tabLabel: 'Longitudinal SOM (PathSOM)',
+              subView: `Timeline Map (${activeSubTab})`,
+              chartTypeLabel: 'Longitudinal Hexagonal Map',
+              period: activeLongitudinalPeriod || null,
+              originType: 'longitudinal_som'
+            }}
             dataContextPrompt={`Longitudinal SOM Evolutionary Map for period ${activeLongitudinalPeriod}`}
             data={{
               activePeriod: activeLongitudinalPeriod,

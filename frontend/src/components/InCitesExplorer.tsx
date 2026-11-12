@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download, Database, TrendingUp, Filter, Check, HelpCircle } from 'lucide-react';
+import { Upload, Activity, BarChart2, CheckSquare, Square, ChevronDown, ChevronRight, Loader2, Download, Database, TrendingUp, Filter, Check, HelpCircle, ExternalLink } from 'lucide-react';
 import { useSomStore, getApiUrl } from '../store/somStore';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
@@ -12,8 +12,10 @@ import chroma from 'chroma-js';
 import SunburstChart from './SunburstChart';
 import { AIAssistantCard } from './AIAssistantCard';
 import { SendToAssistantButton } from './SendToAssistantButton';
+import type { SourceProvenance } from '../store/aiStore';
+import { EXPLORER_CONTAINER_SUBVIEWS } from '../utils/assistantProvenance';
 
-import { exportChartAsSVG, exportChartAsPNG } from '../utils/chartExport';
+import { exportChartAsSVG, exportChartAsPNG, openChartStandalone } from '../utils/chartExport';
 
 const ExportButtons: React.FC<{ 
     containerId: string; 
@@ -22,7 +24,8 @@ const ExportButtons: React.FC<{
     chartType?: 'bubble' | 'trend' | 'bar' | 'radar' | 'scatter' | 'network' | 'table' | 'custom';
     chartData?: any;
     dataPrompt?: string;
-}> = ({ containerId, filename, chartTitle, chartType = 'trend', chartData, dataPrompt }) => {
+    sourceInfo?: Partial<SourceProvenance>;
+}> = ({ containerId, filename, chartTitle, chartType = 'trend', chartData, dataPrompt, sourceInfo }) => {
     const formattedTitle = chartTitle || filename.replace(/_/g, ' ').toUpperCase();
     const promptText = dataPrompt || (chartData ? `Datos de la visualización ${formattedTitle}:\n\`\`\`json\n${typeof chartData === 'string' ? chartData : JSON.stringify(chartData, null, 2).slice(0, 3500)}\n\`\`\`` : `Gráfica generada en InCites Explorer: ${formattedTitle}`);
 
@@ -34,10 +37,27 @@ const ExportButtons: React.FC<{
                 viewSource="incites"
                 chartType={chartType}
                 targetElementId={containerId}
+                sourceInfo={{
+                    tabId: 'incites',
+                    tabLabel: 'InCites Explorer',
+                    subView: EXPLORER_CONTAINER_SUBVIEWS[containerId] || formattedTitle,
+                    unitName: containerId.startsWith('chart-baseline') ? 'InCites Baseline' : undefined,
+                    originType: 'incites',
+                    ...sourceInfo
+                }}
                 data={chartData || []}
                 dataContextPrompt={promptText}
                 buttonText="AI Assistant"
             />
+            <button
+                type="button"
+                onClick={() => openChartStandalone(containerId, formattedTitle)}
+                className="px-2 py-1 text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg border border-gray-700 flex items-center space-x-1 transition-all shadow-sm cursor-pointer"
+                title="Open Standalone View in New Window"
+            >
+                <ExternalLink className="w-3 h-3 text-cyan-400" />
+                <span>Popup</span>
+            </button>
             <button
                 onClick={() => exportChartAsSVG(containerId, filename)}
                 className="px-2 py-1 text-[10px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 flex items-center space-x-1 transition-all shadow-sm"
@@ -75,7 +95,10 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
         incitesFilterIndicator,
         incitesFilterMinValue,
         incitesIsFilterActive,
-        incitesIsFilterModalOpen
+        incitesIsFilterModalOpen,
+        incitesSelectedEntitiesByUnit,
+        incitesEntityLimitByUnit,
+        incitesEntitySortByByUnit
     } = useSomStore();
     const sidebarTab = incitesSidebarTab || 'profiles';
     const setSidebarTab = (tab: 'profiles' | 'temporal') => setIncitesState({ incitesSidebarTab: tab });
@@ -97,9 +120,46 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
     const [useRecent, setUseRecent] = useState<boolean>(false);
     const [barInd1, setBarInd1] = useState<string>('');
     const [barInd2, setBarInd2] = useState<string>('');
-    const [entityLimit, setEntityLimit] = useState<number | 'all' | 'custom'>(25);
-    const [entitySortBy, setEntitySortBy] = useState<string>('');
-    const [selectedChartEntities, setSelectedChartEntities] = useState<string[]>([]);
+    
+    // Chart entities limit & sorting state backed by Zustand store per unit
+    const entityLimit = incitesEntityLimitByUnit[unitName] ?? 25;
+    const entitySortBy = incitesEntitySortByByUnit[unitName] || (unit?.indicators?.includes('Share') ? 'Share' : (unit?.indicators?.includes('Web of Science Documents') ? 'Web of Science Documents' : (unit?.indicators?.[0] || '')));
+
+    const setEntityLimit = (lim: number | 'all' | 'custom') => {
+        setIncitesState({
+            incitesEntityLimitByUnit: {
+                ...useSomStore.getState().incitesEntityLimitByUnit,
+                [unitName]: lim
+            }
+        });
+    };
+
+    const setEntitySortBy = (sort: string) => {
+        setIncitesState({
+            incitesEntitySortByByUnit: {
+                ...useSomStore.getState().incitesEntitySortByByUnit,
+                [unitName]: sort
+            }
+        });
+    };
+
+    const selectedChartEntities = useMemo(() => {
+        if (incitesSelectedEntitiesByUnit[unitName] !== undefined) {
+            return incitesSelectedEntitiesByUnit[unitName];
+        }
+        if (!unit || !unit.profile || !entitySortBy) return [];
+        const profileToUse = (useRecent && unit.profile_5years && unit.profile_5years.length > 0) ? unit.profile_5years : unit.profile;
+        const sorted = [...profileToUse].sort((a: any, b: any) => {
+            const valA = typeof a[entitySortBy] === 'number' ? a[entitySortBy] : parseFloat(String(a[entitySortBy] || '').replace('%', '').replace(',', '.')) || 0;
+            const valB = typeof b[entitySortBy] === 'number' ? b[entitySortBy] : parseFloat(String(b[entitySortBy] || '').replace('%', '').replace(',', '.')) || 0;
+            return valB - valA;
+        });
+        let topEntities = sorted.map((r: any) => String(r.entity));
+        if (entityLimit !== 'all') {
+            topEntities = topEntities.slice(0, typeof entityLimit === 'number' ? entityLimit : 25);
+        }
+        return topEntities;
+    }, [incitesSelectedEntitiesByUnit, unitName, unit, entitySortBy, useRecent, entityLimit]);
     
     // 4D Bubble Chart indicators
     const [bubbleIndX, setBubbleIndX] = useState<string>('');
@@ -107,6 +167,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
     const [bubbleIndSize, setBubbleIndSize] = useState<string>('');
     const [bubbleIndColor, setBubbleIndColor] = useState<string>('');
     const [showBubbleLabels, setShowBubbleLabels] = useState<boolean>(true);
+    const [showBubbleMedians, setShowBubbleMedians] = useState<boolean>(true);
 
     // New Visualizations state
     const [radarEntities, setRadarEntities] = useState<string[]>([]);
@@ -168,7 +229,8 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
     }, [unit]);
 
     useEffect(() => {
-        if (!unit || !unit.profile || !entitySortBy || entityLimit === 'custom') return;
+        if (!unit || !unit.profile || !entitySortBy) return;
+        if (entityLimit === 'custom') return;
         const profileToUse = (useRecent && unit.profile_5years && unit.profile_5years.length > 0) ? unit.profile_5years : unit.profile;
         const sorted = [...profileToUse].sort((a: any, b: any) => {
             const valA = typeof a[entitySortBy] === 'number' ? a[entitySortBy] : parseFloat(String(a[entitySortBy] || '').replace('%', '').replace(',', '.')) || 0;
@@ -178,10 +240,21 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
         
         let topEntities = sorted.map((r: any) => String(r.entity));
         if (entityLimit !== 'all') {
-            topEntities = topEntities.slice(0, entityLimit);
+            topEntities = topEntities.slice(0, typeof entityLimit === 'number' ? entityLimit : 25);
         }
-        setSelectedChartEntities(topEntities);
-    }, [unit, useRecent, entityLimit, entitySortBy]);
+
+        const current = incitesSelectedEntitiesByUnit[unitName];
+        if (current && current.length === topEntities.length && current.every((v, i) => v === topEntities[i])) {
+            return;
+        }
+
+        setIncitesState({
+            incitesSelectedEntitiesByUnit: {
+                ...useSomStore.getState().incitesSelectedEntitiesByUnit,
+                [unitName]: topEntities
+            }
+        });
+    }, [unit, useRecent, entityLimit, entitySortBy, unitName]);
 
     const toggleProfileIndicator = (ind: string) => {
         setSelectedProfileIndicators(prev =>
@@ -190,10 +263,19 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
     };
 
     const toggleChartEntity = (entity: string) => {
-        setSelectedChartEntities(prev =>
-            prev.includes(entity) ? prev.filter(e => e !== entity) : [...prev, entity]
-        );
-        setEntityLimit('custom');
+        const next = selectedChartEntities.includes(entity)
+            ? selectedChartEntities.filter(e => e !== entity)
+            : [...selectedChartEntities, entity];
+        setIncitesState({
+            incitesSelectedEntitiesByUnit: {
+                ...useSomStore.getState().incitesSelectedEntitiesByUnit,
+                [unitName]: next
+            },
+            incitesEntityLimitByUnit: {
+                ...useSomStore.getState().incitesEntityLimitByUnit,
+                [unitName]: 'custom'
+            }
+        });
     };
 
     // Extract unique entities according to the Temporal Heatmap Matrix ranking order
@@ -433,11 +515,11 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
 
     const bubbleChartData = useMemo(() => {
         if (!activeProfile || !bubbleIndX || !bubbleIndY || !bubbleIndSize || !bubbleIndColor) {
-            return { points: [], minColor: 0, maxColor: 1, minSize: 0, maxSize: 1 };
+            return { points: [], minColor: 0, maxColor: 1, minSize: 0, maxSize: 1, medianX: 0, medianY: 0 };
         }
 
         const filtered = activeProfile.filter((r: any) => selectedChartEntities.includes(r.entity));
-        if (filtered.length === 0) return { points: [], minColor: 0, maxColor: 1, minSize: 0, maxSize: 1 };
+        if (filtered.length === 0) return { points: [], minColor: 0, maxColor: 1, minSize: 0, maxSize: 1, medianX: 0, medianY: 0 };
 
         let minColor = Infinity;
         let maxColor = -Infinity;
@@ -469,6 +551,17 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
         if (minSize === Infinity) minSize = 0;
         if (maxSize === -Infinity || maxSize === minSize) maxSize = minSize + 1;
 
+        const calcMedian = (vals: number[]): number => {
+            if (vals.length === 0) return 0;
+            const sorted = [...vals].filter(v => typeof v === 'number' && !isNaN(v)).sort((a, b) => a - b);
+            if (sorted.length === 0) return 0;
+            const mid = Math.floor(sorted.length / 2);
+            return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+        };
+
+        const medianX = calcMedian(points.map((p: any) => p.x));
+        const medianY = calcMedian(points.map((p: any) => p.y));
+
         const colorScale = chroma.scale(['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921']).domain([minColor, maxColor]);
 
         const minR = 6;
@@ -494,7 +587,9 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
             maxColor,
             minSize,
             maxSize,
-            colorScale
+            colorScale,
+            medianX,
+            medianY
         };
     }, [activeProfile, selectedChartEntities, bubbleIndX, bubbleIndY, bubbleIndSize, bubbleIndColor]);
 
@@ -1681,7 +1776,7 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                                 chartData={bubbleChartData.points}
                                                 dataPrompt={`4D Bubble Chart for "${unitName}" unit.\n` +
                                                     `Total compared entities: ${bubbleChartData.points.length}.\n` +
-                                                    `X-Axis: ${bubbleIndX} | Y-Axis: ${bubbleIndY} | Size: ${bubbleIndSize} | Color: ${bubbleIndColor}.\n` +
+                                                    `X-Axis: ${bubbleIndX} (Median: ${typeof bubbleChartData.medianX === 'number' ? bubbleChartData.medianX.toFixed(2) : bubbleChartData.medianX}) | Y-Axis: ${bubbleIndY} (Median: ${typeof bubbleChartData.medianY === 'number' ? bubbleChartData.medianY.toFixed(2) : bubbleChartData.medianY}) | Size: ${bubbleIndSize} | Color: ${bubbleIndColor}.\n` +
                                                     `Sample of analyzed entities across all 4 dimensions:\n` +
                                                     bubbleChartData.points.slice(0, 25).map((p: any) =>
                                                         `- ${p.entity}: ${bubbleIndX}=${typeof p.x === 'number' ? p.x.toFixed(2) : p.x}, ${bubbleIndY}=${typeof p.y === 'number' ? p.y.toFixed(2) : p.y}, ${bubbleIndSize}=${typeof p.size === 'number' ? p.size.toFixed(2) : p.size}, ${bubbleIndColor}=${typeof p.colorVal === 'number' ? p.colorVal.toFixed(2) : p.colorVal}`
@@ -1696,6 +1791,15 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                                     className="w-3.5 h-3.5 text-blue-600 bg-gray-950 border-gray-700 rounded"
                                                 />
                                                 <span>Show Labels</span>
+                                            </label>
+                                            <label className="flex items-center space-x-1.5 cursor-pointer text-xs text-gray-300 mr-1" title="Show dashed median quadrant lines for X and Y axes">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={showBubbleMedians}
+                                                    onChange={e => setShowBubbleMedians(e.target.checked)}
+                                                    className="w-3.5 h-3.5 text-blue-600 bg-gray-950 border-gray-700 rounded"
+                                                />
+                                                <span>Show Medians</span>
                                             </label>
 
                                             {/* Filter Trigger Button */}
@@ -1830,6 +1934,36 @@ const UnitPanel: React.FC<{ unitName: string; unit: any }> = ({ unitName, unit }
                                                         label={{ value: bubbleIndY, angle: -90, position: 'left', offset: -5, fill: '#334155', fontSize: 11, fontWeight: 'bold' }}
                                                     />
                                                     <ZAxis type="number" dataKey="size" range={[100, 1000]} name={bubbleIndSize} />
+                                                    {showBubbleMedians && bubbleChartData.points.length > 0 && (
+                                                        <>
+                                                            <ReferenceLine
+                                                                x={bubbleChartData.medianX}
+                                                                stroke="#64748b"
+                                                                strokeDasharray="4 4"
+                                                                strokeWidth={1.5}
+                                                                label={{
+                                                                    value: `Median: ${typeof bubbleChartData.medianX === 'number' ? bubbleChartData.medianX.toFixed(2) : bubbleChartData.medianX}`,
+                                                                    fill: '#64748b',
+                                                                    fontSize: 10,
+                                                                    position: 'top',
+                                                                    fontWeight: 600
+                                                                }}
+                                                            />
+                                                            <ReferenceLine
+                                                                y={bubbleChartData.medianY}
+                                                                stroke="#64748b"
+                                                                strokeDasharray="4 4"
+                                                                strokeWidth={1.5}
+                                                                label={{
+                                                                    value: `Median: ${typeof bubbleChartData.medianY === 'number' ? bubbleChartData.medianY.toFixed(2) : bubbleChartData.medianY}`,
+                                                                    fill: '#64748b',
+                                                                    fontSize: 10,
+                                                                    position: 'right',
+                                                                    fontWeight: 600
+                                                                }}
+                                                            />
+                                                        </>
+                                                    )}
                                                     <RechartsTooltip
                                                         cursor={{ strokeDasharray: '3 3', stroke: '#64748b' }}
                                                         content={({ active, payload }) => {
@@ -2954,7 +3088,7 @@ export const InCitesExplorer: React.FC = () => {
                                     </div>
                                 )}
                                 {!isLoadingUnit && currentUnit && (
-                                    <UnitPanel unitName={activeUnit!} unit={currentUnit} />
+                                    <UnitPanel key={activeUnit} unitName={activeUnit!} unit={currentUnit} />
                                 )}
                                 {!isLoadingUnit && !currentUnit && activeUnit && (
                                     <div className="flex items-center justify-center h-full text-gray-600">

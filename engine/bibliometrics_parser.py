@@ -12,9 +12,11 @@ for _cls in (nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph):
         _cls.node = property(lambda self: self.nodes)
 import pandas as pd
 
-_lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib')
-if _lib_dir not in sys.path:
-    sys.path.insert(0, _lib_dir)
+_engine_dir = os.path.dirname(os.path.abspath(__file__))
+_lib_dir = os.path.join(_engine_dir, 'lib')
+for _p in [_engine_dir, _lib_dir]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 try:
     import metaknowledge as mk
@@ -1698,7 +1700,7 @@ def _parse_wos_records(filepath):
 # =============================================================================
 
 def read_and_generate_bibliometrics(
-    filepath,
+    filepath=None,
     network_type="co-occurrence",
     custom_tag="DE",
     max_terms=100,
@@ -1709,8 +1711,26 @@ def read_and_generate_bibliometrics(
     thesaurus_filepath=None,
     relevance_ratio=0.60,
     temporal_window=1,
-    include_eda=False
+    include_eda=False,
+    file_path=None,
+    **kwargs
 ):
+    if isinstance(filepath, dict):
+        payload = filepath
+        filepath = payload.get("filepath") or payload.get("file_path")
+        network_type = payload.get("network_type", network_type)
+        custom_tag = payload.get("custom_tag", custom_tag)
+        max_terms = payload.get("max_terms", max_terms)
+        min_cooccurrence = payload.get("min_cooccurrence", min_cooccurrence)
+        temporal = payload.get("temporal", temporal)
+        extraction_source = payload.get("extraction_source", extraction_source)
+        counting_method = payload.get("counting_method", counting_method)
+        thesaurus_filepath = payload.get("thesaurus_filepath", thesaurus_filepath)
+        relevance_ratio = payload.get("relevance_ratio", relevance_ratio)
+        temporal_window = payload.get("temporal_window", temporal_window)
+        include_eda = payload.get("include_eda", include_eda)
+    elif not filepath and file_path:
+        filepath = file_path
     """
     Reads a bibliometrics file and generates a co-occurrence / citation network.
 

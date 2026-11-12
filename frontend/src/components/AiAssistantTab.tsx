@@ -1,12 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAiStore, type ReportEntry } from '../store/aiStore';
+import { useSomStore } from '../store/somStore';
+import { resolveEntryProvenance } from '../utils/assistantProvenance';
 import { InteractiveChartViewer } from './InteractiveChartViewer';
 import { StudyContextModal } from './StudyContextModal';
 import { McpAgentsModal } from './McpAgentsModal';
 
 import {
   Sparkles, Bot, Send, Trash2, RefreshCw, FileText, Download,
-  Check, Loader2, Key, Cpu, Wrench, CheckCircle2, Eye, Copy
+  Check, Loader2, Key, Cpu, Wrench, CheckCircle2, Eye, Copy,
+  ChevronRight, ChevronDown, Database, Layers, FileSpreadsheet
 } from 'lucide-react';
 
 export const AiAssistantTab: React.FC = () => {
@@ -30,11 +33,14 @@ export const AiAssistantTab: React.FC = () => {
     clearAgentMessages
   } = useAiStore();
 
+  const { savedRuns } = useSomStore();
   const [inputQuestion, setInputQuestion] = useState('');
   const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [copiedMd, setCopiedMd] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [expandedContextMap, setExpandedContextMap] = useState<Record<string, boolean>>({});
+  const [expandedSystemMap, setExpandedSystemMap] = useState<Record<string, boolean>>({});
   const contentContainerRef = useRef<HTMLDivElement>(null);
   const agentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -45,6 +51,10 @@ export const AiAssistantTab: React.FC = () => {
   };
 
   const activeEntry: ReportEntry | undefined = entries.find(e => e.id === activeEntryId) || entries[entries.length - 1];
+  const activeProvenance = useMemo(
+    () => (activeEntry ? resolveEntryProvenance(activeEntry, savedRuns) : null),
+    [activeEntry, savedRuns]
+  );
 
 
   // Scroll to bottom of agent chat when new messages arrive
@@ -407,33 +417,47 @@ export const AiAssistantTab: React.FC = () => {
                 </h2>
               </div>
               <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
-                {entries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    onClick={() => setActiveEntryId(entry.id)}
-                    className={`p-3 rounded-xl border transition cursor-pointer ${
-                      entry.id === (activeEntry?.id)
-                        ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-sm'
-                        : 'bg-gray-950/40 border-gray-850 text-gray-300 hover:bg-gray-800/40 hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
-                        {entry.badge}
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteEntry(entry.id);
-                        }}
-                        className="text-gray-500 hover:text-red-400 p-1 rounded"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                {entries.map((entry) => {
+                  const prov = resolveEntryProvenance(entry, savedRuns);
+                  const sidebarSourceText = [
+                    prov.subView,
+                    prov.experimentName && prov.experimentName !== entry.title ? prov.experimentName : null,
+                    prov.unitName
+                  ].filter(Boolean).join(' · ');
+
+                  return (
+                    <div
+                      key={entry.id}
+                      onClick={() => setActiveEntryId(entry.id)}
+                      className={`p-3 rounded-xl border transition cursor-pointer ${
+                        entry.id === (activeEntry?.id)
+                          ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-sm'
+                          : 'bg-gray-950/40 border-gray-850 text-gray-300 hover:bg-gray-800/40 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                          {entry.badge}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteEntry(entry.id);
+                          }}
+                          className="text-gray-500 hover:text-red-400 p-1 rounded"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="text-xs font-semibold line-clamp-1">{entry.title}</div>
+                      {sidebarSourceText && (
+                        <div className="text-[10px] text-gray-400 line-clamp-1 mt-0.5" title={sidebarSourceText}>
+                          {sidebarSourceText}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-xs font-semibold line-clamp-1">{entry.title}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </aside>
 
@@ -455,6 +479,39 @@ export const AiAssistantTab: React.FC = () => {
                     <h2 className="text-lg font-bold text-white mt-0.5">
                       {activeEntry.title}
                     </h2>
+                    {activeProvenance && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[11px]">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">
+                          <Layers className="w-3 h-3" />
+                          <span>{activeProvenance.tabLabel}</span>
+                          {activeProvenance.subView && <span className="text-indigo-200/80">· {activeProvenance.subView}</span>}
+                        </span>
+                        {activeProvenance.experimentName && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-300">
+                            <Database className="w-3 h-3" />
+                            <span>Exp: {activeProvenance.experimentName}</span>
+                          </span>
+                        )}
+                        {(activeProvenance.unitName || activeProvenance.fileName) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-800/80 border border-gray-700 text-gray-300">
+                            <FileSpreadsheet className="w-3 h-3 text-gray-400" />
+                            <span>
+                              {[activeProvenance.unitName, activeProvenance.fileName].filter(Boolean).join(' · ')}
+                            </span>
+                          </span>
+                        )}
+                        {(activeProvenance.gridSize || activeProvenance.entitiesCount || activeProvenance.indicatorsCount) && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-gray-900 border border-gray-800 text-gray-400">
+                            {[
+                              activeProvenance.gridSize ? `${activeProvenance.gridSize[0]}×${activeProvenance.gridSize[1]}` : null,
+                              activeProvenance.entitiesCount ? `${activeProvenance.entitiesCount} entities` : null,
+                              activeProvenance.indicatorsCount ? `${activeProvenance.indicatorsCount} vars` : null,
+                              activeProvenance.period ? `Period: ${activeProvenance.period}` : null
+                            ].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -471,32 +528,134 @@ export const AiAssistantTab: React.FC = () => {
 
                 {/* Scrollable Content (Chart + Conversation) */}
                 <div ref={contentContainerRef} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-                  <InteractiveChartViewer snapshot={activeEntry.snapshot} />
+                  <InteractiveChartViewer
+                    key={activeEntry.id}
+                    snapshot={activeEntry.snapshot}
+                    resolvedExperimentId={activeProvenance?.experimentId}
+                  />
 
                   <div className="space-y-4">
-                    {activeEntry.messages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`flex gap-3 text-sm ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                      >
-                        {msg.role === 'assistant' && (
-                          <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0 mt-1">
-                            <Bot className="w-4 h-4" />
+                    {(() => {
+                      const hasExtraContext = Boolean(activeEntry.dataContextPrompt || activeEntry.systemPrompt);
+                      const isContextOpen = !!expandedContextMap[activeEntry.id];
+                      const isSystemOpen = !!expandedSystemMap[activeEntry.id];
+                      const firstMsgIsUser = activeEntry.messages[0]?.role === 'user';
+
+                      const extraContextDrawer = hasExtraContext ? (
+                        <div className="bg-gray-900/50 border border-gray-800/90 rounded-xl overflow-hidden">
+                          <div className="flex items-center justify-between px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedContextMap(prev => ({
+                                  ...prev,
+                                  [activeEntry.id]: !isContextOpen
+                                }))
+                              }
+                              className="flex items-center gap-1.5 text-[11px] font-medium text-gray-400 hover:text-indigo-300 transition cursor-pointer"
+                            >
+                              {isContextOpen ? (
+                                <ChevronDown className="w-3.5 h-3.5 text-indigo-400" />
+                              ) : (
+                                <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+                              )}
+                              <Database className="w-3 h-3 text-indigo-400/80" />
+                              <span>
+                                {isContextOpen ? 'Hide extra data context sent to LLM' : 'Show extra data context sent to LLM'}
+                              </span>
+                              <span className="text-[10px] text-gray-500 font-mono">
+                                ({(activeEntry.dataContextPrompt || '').length.toLocaleString()} chars)
+                              </span>
+                            </button>
+
+                            {isContextOpen && activeEntry.dataContextPrompt && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyMsg(`${activeEntry.id}_ctx`, activeEntry.dataContextPrompt)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 cursor-pointer"
+                                title="Copy structured LLM data context"
+                              >
+                                {copiedMsgId === `${activeEntry.id}_ctx` ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-emerald-400" />
+                                    <span>Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" />
+                                    <span>Copy</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
                           </div>
-                        )}
-                        <div
-                          className={`max-w-3xl rounded-2xl p-4 leading-relaxed ${
-                            msg.role === 'user'
-                              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-br-none'
-                              : 'bg-gray-900/90 border border-gray-800 text-gray-200 rounded-bl-none'
-                          }`}
-                        >
-                          <div className="whitespace-pre-wrap text-xs sm:text-sm">
-                            {msg.content}
-                          </div>
+
+                          {isContextOpen && (
+                            <div className="px-3 pb-3 pt-1 border-t border-gray-800/80 space-y-2.5">
+                              {activeEntry.dataContextPrompt && (
+                                <pre className="text-[11px] leading-relaxed text-gray-300 bg-gray-950/90 border border-gray-800 rounded-lg p-3 overflow-auto max-h-72 whitespace-pre-wrap font-mono custom-scrollbar">
+                                  {activeEntry.dataContextPrompt}
+                                </pre>
+                              )}
+
+                              {activeEntry.systemPrompt && (
+                                <div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedSystemMap(prev => ({
+                                        ...prev,
+                                        [activeEntry.id]: !isSystemOpen
+                                      }))
+                                    }
+                                    className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-300 cursor-pointer"
+                                  >
+                                    {isSystemOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                    <span>System Prompt & Study Directives</span>
+                                  </button>
+                                  {isSystemOpen && (
+                                    <pre className="mt-1.5 text-[10px] leading-relaxed text-gray-400 bg-gray-950/70 border border-gray-800/80 rounded-lg p-2.5 overflow-auto max-h-48 whitespace-pre-wrap font-mono custom-scrollbar">
+                                      {activeEntry.systemPrompt}
+                                    </pre>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      ) : null;
+
+                      return (
+                        <>
+                          {!firstMsgIsUser && extraContextDrawer}
+                          {activeEntry.messages.map((msg, msgIdx) => (
+                            <React.Fragment key={msg.id}>
+                              <div
+                                className={`flex gap-3 text-sm ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                              >
+                                {msg.role === 'assistant' && (
+                                  <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0 mt-1">
+                                    <Bot className="w-4 h-4" />
+                                  </div>
+                                )}
+                                <div
+                                  className={`max-w-3xl rounded-2xl p-4 leading-relaxed ${
+                                    msg.role === 'user'
+                                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-br-none'
+                                      : 'bg-gray-900/90 border border-gray-800 text-gray-200 rounded-bl-none'
+                                  }`}
+                                >
+                                  <div className="whitespace-pre-wrap text-xs sm:text-sm">
+                                    {msg.content}
+                                  </div>
+                                </div>
+                              </div>
+                              {msgIdx === 0 && firstMsgIsUser && extraContextDrawer}
+                            </React.Fragment>
+                          ))}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 

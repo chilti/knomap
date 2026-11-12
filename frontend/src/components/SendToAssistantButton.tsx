@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import html2canvas from 'html2canvas';
-import { useAiStore, type ChartSnapshot } from '../store/aiStore';
+import { useAiStore, type ChartSnapshot, type SourceProvenance } from '../store/aiStore';
 import { useSomStore } from '../store/somStore';
 import { Sparkles, Check, Loader2 } from 'lucide-react';
 import { getSerializedSvg, convertSvgStringToPngDataUrl } from '../utils/chartExport';
+import { buildResolvedSourceProvenance, buildSourceSubtitle } from '../utils/assistantProvenance';
 
 interface SendToAssistantButtonProps {
   title: string;
@@ -12,6 +13,8 @@ interface SendToAssistantButtonProps {
   chartType: 'hex_map' | 'bubble' | 'trend' | 'bar' | 'radar' | 'scatter' | 'network' | 'table' | 'custom';
   data: any;
   config?: any;
+  sourceInfo?: Partial<SourceProvenance>;
+  subtitle?: string;
   dataContextPrompt: string;
   initialPrompt?: string;
   targetRef?: React.RefObject<HTMLElement | null>;
@@ -29,6 +32,8 @@ export const SendToAssistantButton: React.FC<SendToAssistantButtonProps> = ({
   chartType,
   data,
   config,
+  sourceInfo,
+  subtitle,
   dataContextPrompt,
   initialPrompt,
   targetRef,
@@ -94,10 +99,27 @@ export const SendToAssistantButton: React.FC<SendToAssistantButtonProps> = ({
       }
     }
 
+    const storeState = useSomStore.getState();
+    const resolvedSource = buildResolvedSourceProvenance(viewSource, chartType, sourceInfo, {
+      activeTab: storeState.activeTab,
+      activeRunId: storeState.activeRunId,
+      savedRuns: storeState.savedRuns,
+      fileName: storeState.fileName,
+      incitesActiveUnit: storeState.incitesActiveUnit,
+      tlachiaActiveUnit: storeState.tlachiaActiveUnit,
+      semanticFileName: storeState.semanticFileName,
+      dimFileName: storeState.dimFileName,
+      compNames: storeState.compNames,
+      labels: storeState.labels,
+      config: storeState.config
+    });
+
     const snapshot: ChartSnapshot = {
       viewSource,
       chartType,
       title,
+      subtitle: subtitle || buildSourceSubtitle(resolvedSource),
+      sourceInfo: resolvedSource,
       data,
       config,
       thumbnailPng,

@@ -488,11 +488,29 @@ export const SemanticBibliometrics: React.FC = () => {
       </div>
 
       <div className="absolute top-4 right-4 z-20 flex items-center space-x-2">
+        <button
+          type="button"
+          onClick={() => window.open('./semantic_map.html', '_blank')}
+          className="p-1.5 bg-gray-950 border border-gray-800 hover:border-indigo-500 text-gray-300 hover:text-white rounded-xl transition cursor-pointer flex items-center space-x-1 px-2.5 shadow-lg"
+          title="Open Standalone Map in New Window"
+        >
+          <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Popup</span>
+        </button>
         <SendToAssistantButton
           title="Semantic Literature Map (Embeddings & Clusters)"
           badge="SEMANTICS"
           viewSource="semantic"
           chartType="scatter"
+          sourceInfo={{
+            tabId: 'semantic',
+            tabLabel: 'Semantic Maps',
+            subView: 'Semantic Literature UMAP + Clusters',
+            chartTypeLabel: 'Semantic 2D Scatter Map',
+            fileName: semanticFileName || null,
+            indicator: semanticEmbedModel || null,
+            entitiesCount: semanticRecords?.length || null
+          }}
           data={semantic2DCoords ? semantic2DCoords.map((c, i) => ({
             x: c.x,
             y: c.y,

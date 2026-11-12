@@ -354,6 +354,9 @@ interface SOMState {
   incitesFilterCountries: string[];
   incitesIsFilterActive: boolean;
   incitesIsFilterModalOpen: boolean;
+  incitesSelectedEntitiesByUnit: Record<string, string[]>;
+  incitesEntityLimitByUnit: Record<string, number | 'all' | 'custom'>;
+  incitesEntitySortByByUnit: Record<string, string>;
   cloudProjectId: string | null;
   cloudProjectTitle: string | null;
   setIncitesState: (state: Partial<{
@@ -370,7 +373,10 @@ interface SOMState {
     incitesFilterMinValue: number | string,
     incitesFilterCountries: string[],
     incitesIsFilterActive: boolean,
-    incitesIsFilterModalOpen: boolean
+    incitesIsFilterModalOpen: boolean,
+    incitesSelectedEntitiesByUnit: Record<string, string[]>,
+    incitesEntityLimitByUnit: Record<string, number | 'all' | 'custom'>,
+    incitesEntitySortByByUnit: Record<string, string>
   }>) => void;
   uploadInCitesFiles: (formData: FormData) => Promise<void>;
   // TlachIA Metrics Data State
@@ -388,6 +394,9 @@ interface SOMState {
   tlachiaFilterCountries: string[];
   tlachiaIsFilterActive: boolean;
   tlachiaIsFilterModalOpen: boolean;
+  tlachiaSelectedEntitiesByUnit: Record<string, string[]>;
+  tlachiaEntityLimitByUnit: Record<string, number | 'all' | 'custom'>;
+  tlachiaEntitySortByByUnit: Record<string, string>;
   setTlachiaState: (state: Partial<{
     tlachiaUnitNames: string[] | null,
     tlachiaUnitCache: Record<string, any>,
@@ -402,7 +411,10 @@ interface SOMState {
     tlachiaFilterMinValue: number | string,
     tlachiaFilterCountries: string[],
     tlachiaIsFilterActive: boolean,
-    tlachiaIsFilterModalOpen: boolean
+    tlachiaIsFilterModalOpen: boolean,
+    tlachiaSelectedEntitiesByUnit: Record<string, string[]>,
+    tlachiaEntityLimitByUnit: Record<string, number | 'all' | 'custom'>,
+    tlachiaEntitySortByByUnit: Record<string, string>
   }>) => void;
   uploadTlachIAFiles: (formData: FormData) => Promise<void>;
   ensureAllTlachiaUnitsCached: () => Promise<void>;
@@ -680,6 +692,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
   incitesFilterCountries: [],
   incitesIsFilterActive: false,
   incitesIsFilterModalOpen: false,
+  incitesSelectedEntitiesByUnit: {},
+  incitesEntityLimitByUnit: {},
+  incitesEntitySortByByUnit: {},
   setIncitesState: (newState) => set((state) => ({ ...state, ...newState })),
   uploadInCitesFiles: async (formData: FormData) => {
     set({
@@ -689,7 +704,10 @@ export const useSomStore = create<SOMState>((set, get) => ({
       incitesLlmCache: {},
       incitesActiveUnit: null,
       incitesBaseline: null,
-      incitesSelectedBaselineSource: null
+      incitesSelectedBaselineSource: null,
+      incitesSelectedEntitiesByUnit: {},
+      incitesEntityLimitByUnit: {},
+      incitesEntitySortByByUnit: {}
     });
 
     try {
@@ -808,6 +826,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
   tlachiaFilterCountries: [],
   tlachiaIsFilterActive: false,
   tlachiaIsFilterModalOpen: false,
+  tlachiaSelectedEntitiesByUnit: {},
+  tlachiaEntityLimitByUnit: {},
+  tlachiaEntitySortByByUnit: {},
   setTlachiaState: (newState) => set((state) => ({ ...state, ...newState })),
   uploadTlachIAFiles: async (formData: FormData) => {
     set({
@@ -817,7 +838,10 @@ export const useSomStore = create<SOMState>((set, get) => ({
       tlachiaLlmCache: {},
       tlachiaActiveUnit: null,
       tlachiaBaseline: null,
-      tlachiaSelectedBaselineSource: null
+      tlachiaSelectedBaselineSource: null,
+      tlachiaSelectedEntitiesByUnit: {},
+      tlachiaEntityLimitByUnit: {},
+      tlachiaEntitySortByByUnit: {}
     });
 
     try {
@@ -2330,6 +2354,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
       savedRuns: syncedSavedRuns,
       activeRunId: state.activeRunId,
       pendingProvenance: state.pendingProvenance,
+      somSizeMode: state.somSizeMode,
+      longitudinalNormType: state.longitudinalNormType,
 
       // Preprocessed Bibliometrics
       documentCount: state.documentCount,
@@ -2376,6 +2402,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       // InCites Explorer State
       incitesUnitNames: state.incitesUnitNames,
       incitesUnitCache: state.incitesUnitCache,
+      incitesLlmCache: state.incitesLlmCache,
       incitesActiveUnit: state.incitesActiveUnit,
       incitesSidebarTab: state.incitesSidebarTab,
       incitesBaseline: state.incitesBaseline,
@@ -2385,6 +2412,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
       incitesFilterMinValue: state.incitesFilterMinValue,
       incitesFilterCountries: state.incitesFilterCountries || [],
       incitesIsFilterActive: state.incitesIsFilterActive,
+      incitesSelectedEntitiesByUnit: state.incitesSelectedEntitiesByUnit,
+      incitesEntityLimitByUnit: state.incitesEntityLimitByUnit,
+      incitesEntitySortByByUnit: state.incitesEntitySortByByUnit,
 
       // TlachIA Metrics Explorer State
       tlachiaUnitNames: state.tlachiaUnitNames,
@@ -2399,6 +2429,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
       tlachiaFilterCountries: state.tlachiaFilterCountries || [],
       tlachiaIsFilterActive: state.tlachiaIsFilterActive,
       tlachiaLlmCache: state.tlachiaLlmCache,
+      tlachiaSelectedEntitiesByUnit: state.tlachiaSelectedEntitiesByUnit,
+      tlachiaEntityLimitByUnit: state.tlachiaEntityLimitByUnit,
+      tlachiaEntitySortByByUnit: state.tlachiaEntitySortByByUnit,
 
       // Dimensionality Reduction State
       dimData: state.dimData,
@@ -2431,6 +2464,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
       clusterLabels: state.clusterLabels,
       showClusterLabels: state.showClusterLabels,
       showLabelsOnComponents: state.showLabelsOnComponents,
+      componentScaleConfigs: state.componentScaleConfigs,
+      globalScaleSource: state.globalScaleSource,
 
       // AI Assistant & Scientific Reports State (Visual Snapshots, SVGs, Context & Dialogues)
       aiReport: useAiStore.getState().getReportPayload()
@@ -2475,6 +2510,8 @@ export const useSomStore = create<SOMState>((set, get) => ({
           savedRuns: projectData.savedRuns || [],
           activeRunId: projectData.activeRunId || null,
           pendingProvenance: projectData.pendingProvenance || null,
+          somSizeMode: projectData.somSizeMode || 'small',
+          longitudinalNormType: projectData.longitudinalNormType || 'global_zscore',
 
           // Preprocessed Bibliometrics
           documentCount: projectData.documentCount || 0,
@@ -2498,6 +2535,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
           // Semantic Bibliometrics
           semanticRecords: projectData.semanticRecords || null,
           semanticEmbeddings: projectData.semanticEmbeddings || null,
+          semanticEmbeddingsCount: projectData.semanticEmbeddingsCount ?? (projectData.semanticEmbeddings?.length || 0),
           semanticIntrinsicData: projectData.semanticIntrinsicData || null,
           semantic2DCoords: projectData.semantic2DCoords || null,
           semanticClusters: projectData.semanticClusters || null,
@@ -2514,6 +2552,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
           // InCites Explorer State
           incitesUnitNames: projectData.incitesUnitNames || null,
           incitesUnitCache: projectData.incitesUnitCache || {},
+          incitesLlmCache: projectData.incitesLlmCache || {},
           incitesActiveUnit: projectData.incitesActiveUnit || null,
           incitesSidebarTab: projectData.incitesSidebarTab || 'profiles',
           incitesBaseline: projectData.incitesBaseline || null,
@@ -2523,6 +2562,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
           incitesFilterMinValue: projectData.incitesFilterMinValue || '',
           incitesFilterCountries: projectData.incitesFilterCountries || [],
           incitesIsFilterActive: projectData.incitesIsFilterActive || false,
+          incitesSelectedEntitiesByUnit: projectData.incitesSelectedEntitiesByUnit || {},
+          incitesEntityLimitByUnit: projectData.incitesEntityLimitByUnit || {},
+          incitesEntitySortByByUnit: projectData.incitesEntitySortByByUnit || {},
 
           // TlachIA Metrics Explorer State
           tlachiaUnitNames: projectData.tlachiaUnitNames || null,
@@ -2537,6 +2579,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
           tlachiaFilterCountries: projectData.tlachiaFilterCountries || [],
           tlachiaIsFilterActive: projectData.tlachiaIsFilterActive || false,
           tlachiaLlmCache: projectData.tlachiaLlmCache || {},
+          tlachiaSelectedEntitiesByUnit: projectData.tlachiaSelectedEntitiesByUnit || {},
+          tlachiaEntityLimitByUnit: projectData.tlachiaEntityLimitByUnit || {},
+          tlachiaEntitySortByByUnit: projectData.tlachiaEntitySortByByUnit || {},
 
           // Dimensionality Reduction State
           dimData: projectData.dimData || null,
@@ -2575,12 +2620,16 @@ export const useSomStore = create<SOMState>((set, get) => ({
           labelStyleOverrides: projectData.labelStyleOverrides || {},
           clusterLabels: projectData.clusterLabels || {},
           showClusterLabels: projectData.showClusterLabels ?? true,
-          showLabelsOnComponents: projectData.showLabelsOnComponents ?? false
+          showLabelsOnComponents: projectData.showLabelsOnComponents ?? false,
+          componentScaleConfigs: projectData.componentScaleConfigs || {},
+          globalScaleSource: projectData.globalScaleSource || 'raw'
         });
 
         // Restore AI Assistant & Report State
         if (projectData.aiReport) {
           useAiStore.getState().loadReportPayload(projectData.aiReport, projectData.cloudProjectId || projectData.fileName);
+        } else {
+          useAiStore.getState().clearReport();
         }
       } else {
         alert('Invalid or corrupted .knoMap file format.');
@@ -2616,6 +2665,11 @@ export const useSomStore = create<SOMState>((set, get) => ({
       cooccurrenceCsv: null,
       pendingNetworkCsv: null,
       pendingNetworkOrigin: null,
+      edaReport: null,
+      sankeyData: null,
+      termGrowth: null,
+      longitudinalResults: null,
+      cooccurrenceMatricesByPeriod: null,
       result: null,
       isCmaSmoothingActive: false,
       cmaWindowSize: 3,
@@ -2623,6 +2677,7 @@ export const useSomStore = create<SOMState>((set, get) => ({
       // Semantic Bibliometrics
       semanticRecords: null,
       semanticEmbeddings: null,
+      semanticEmbeddingsCount: 0,
       semanticIntrinsicData: null,
       semantic2DCoords: null,
       semanticClusters: null,
@@ -2639,11 +2694,28 @@ export const useSomStore = create<SOMState>((set, get) => ({
       // InCites Explorer State
       incitesUnitNames: null,
       incitesUnitCache: {},
+      incitesLlmCache: {},
       incitesActiveUnit: null,
       incitesSidebarTab: 'profiles',
       incitesBaseline: null,
       incitesSelectedBaselineSource: null,
       incitesIsUploading: false,
+      incitesSelectedEntitiesByUnit: {},
+      incitesEntityLimitByUnit: {},
+      incitesEntitySortByByUnit: {},
+
+      // TlachIA Metrics Explorer State
+      tlachiaUnitNames: null,
+      tlachiaUnitCache: {},
+      tlachiaLlmCache: {},
+      tlachiaActiveUnit: null,
+      tlachiaSidebarTab: 'profiles',
+      tlachiaBaseline: null,
+      tlachiaSelectedBaselineSource: null,
+      tlachiaIsUploading: false,
+      tlachiaSelectedEntitiesByUnit: {},
+      tlachiaEntityLimitByUnit: {},
+      tlachiaEntitySortByByUnit: {},
 
       // Dimensionality Reduction State
       dimData: null,
@@ -2662,7 +2734,9 @@ export const useSomStore = create<SOMState>((set, get) => ({
 
       // UI Preferences
       labelSearchQuery: '',
-      excludedLabels: new Set()
+      excludedLabels: new Set(),
+      componentScaleConfigs: {},
+      globalScaleSource: 'raw'
     });
   },
 

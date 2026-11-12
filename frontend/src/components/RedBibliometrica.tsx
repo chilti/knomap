@@ -7,6 +7,7 @@ import { VosViewerContainer, networkToVosJson } from './vos/VosViewerContainer';
 import { VosExportModal } from './vos/VosExportModal';
 import { BiblioEdaReport } from './BiblioEdaReport';
 import { BarChart2 } from 'lucide-react';
+import { openChartStandalone } from '../utils/chartExport';
 
 interface ForceNode extends d3Force.SimulationNodeDatum {
   id: string;
@@ -564,12 +565,35 @@ export const RedBibliometrica: React.FC = () => {
             <span>Export Map</span>
           </button>
 
+          <button
+            onClick={() => {
+              if (viewerMode === 'vosviewer') {
+                window.open('./vosviewer_map.html', '_blank');
+              } else {
+                openChartStandalone('chart-bibliometric-network', `Bibliometric Network (${selectedYear})`);
+              }
+            }}
+            className="px-3 py-1.5 bg-gray-900 border border-gray-800 hover:border-cyan-500 rounded-lg text-xs font-bold text-gray-300 hover:text-white transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+            title="Open Standalone View in New Window"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Popup</span>
+          </button>
+
           {(network || vosviewerJson) && (
             <SendToAssistantButton
               title={`Co-occurrence Bibliometric Network (${selectedYear})`}
               badge="NETWORKS"
               viewSource="networks"
               chartType="network"
+              sourceInfo={{
+                tabId: 'networks',
+                tabLabel: 'Bibliometrics',
+                subView: onlyLargestComponent ? 'Largest Connected Component Network' : 'Full Bibliometric Network',
+                chartTypeLabel: 'Co-occurrence Network Graph',
+                period: String(selectedYear),
+                entitiesCount: totalItemsCount
+              }}
               data={{
                 nodes: (nodes || []).map(n => ({ id: n.id, label: n.label, freq: n.frequency })),
                 links: (links || []).map(l => ({
@@ -631,7 +655,7 @@ export const RedBibliometrica: React.FC = () => {
       </div>
 
       {/* Main Visualizer Area */}
-      <div className="flex-1 relative bg-gray-950 rounded-xl overflow-hidden border border-gray-800 flex items-center justify-center min-h-[620px]">
+      <div id="chart-bibliometric-network" className="flex-1 relative bg-gray-950 rounded-xl overflow-hidden border border-gray-800 flex items-center justify-center min-h-[620px]">
         {viewerMode === 'eda' ? (
           <BiblioEdaReport />
         ) : (!network && !vosviewerJson) ? (

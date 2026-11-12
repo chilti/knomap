@@ -6,9 +6,9 @@ import {
 } from 'recharts';
 import { 
   Award, FileText, Globe, Users, BookOpen, RefreshCw, AlertCircle,
-  TrendingUp, Layers, Compass, Share2, BarChart2, Download, Zap
+  TrendingUp, Layers, Compass, Share2, BarChart2, Download, Zap, ExternalLink
 } from 'lucide-react';
-import { exportChartAsPNG, exportChartAsSVG } from '../utils/chartExport';
+import { exportChartAsPNG, exportChartAsSVG, openChartStandalone } from '../utils/chartExport';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -89,6 +89,16 @@ const ChartExportButton: React.FC<{
 
   return (
     <div className="inline-flex items-center space-x-1 bg-gray-800/90 p-0.5 rounded-lg border border-gray-700/70 shadow-sm select-none">
+      <button
+        type="button"
+        onClick={() => openChartStandalone(containerId, filename.replace(/_/g, ' '))}
+        title="Open chart in standalone window"
+        className="flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold text-gray-300 hover:text-white hover:bg-cyan-600/90 active:scale-95 transition-all rounded cursor-pointer"
+      >
+        <ExternalLink className="w-3 h-3 text-cyan-400" />
+        <span>Popup</span>
+      </button>
+      <div className="w-[1px] h-3 bg-gray-700 mx-0.5" />
       <button
         type="button"
         onClick={handleExportPng}

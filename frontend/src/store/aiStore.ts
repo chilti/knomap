@@ -60,11 +60,31 @@ export interface StudyContext {
   updatedAt: string;
 }
 
+export interface SourceProvenance {
+  tabId: 'som' | 'incites' | 'tlachia' | 'networks' | 'semantic' | 'dimreduction' | 'longitudinal' | 'custom';
+  tabLabel: string;
+  subView?: string;
+  chartTypeLabel?: string;
+  experimentId?: string | null;
+  experimentName?: string | null;
+  unitName?: string | null;
+  originType?: string | null;
+  fileName?: string | null;
+  period?: string | null;
+  indicator?: string | null;
+  clusterId?: number | null;
+  clusterLabel?: string | null;
+  gridSize?: [number, number] | null;
+  entitiesCount?: number | null;
+  indicatorsCount?: number | null;
+}
+
 export interface ChartSnapshot {
   viewSource: 'som' | 'incites' | 'tlachia' | 'networks' | 'semantic' | 'dimreduction' | 'custom';
   chartType: 'hex_map' | 'bubble' | 'trend' | 'bar' | 'radar' | 'scatter' | 'network' | 'table' | 'custom';
   title: string;
   subtitle?: string;
+  sourceInfo?: SourceProvenance;
   data: any;
   config?: {
     xAxisKey?: string;
@@ -167,7 +187,13 @@ interface AiState {
   exportReportMarkdown: () => string;
   exportReportPdf: () => Promise<void>;
   initForProject: (projectId?: string | null) => void;
-  getReportPayload: () => { studyContext: StudyContext | null; entries: ReportEntry[]; activeEntryId: string | null };
+  getReportPayload: () => {
+    studyContext: StudyContext | null;
+    entries: ReportEntry[];
+    activeEntryId: string | null;
+    assistantMode: 'copilot' | 'autonomous_agent';
+    agentMessages: AgentMessage[];
+  };
   loadReportPayload: (payload: any, projectId?: string | null) => void;
   clearReport: () => void;
 }
@@ -179,21 +205,43 @@ const getStorageKey = (projectId?: string | null) => {
   return `${STORAGE_PREFIX}${projectId || 'default'}`;
 };
 
+const createDefaultAgentMessages = (): AgentMessage[] => [
+  {
+    id: 'welcome-agent',
+    role: 'assistant',
+    content: '¡Hola! Soy el Agente Científico Autónomo de knoMap. Puedo inspeccionar datasets, entrenar redes neuronales SOM, calcular dimensiones intrínsecas y generar mapas interactivos y reportes completos. ¿En qué investigación deseas que trabajemos hoy?',
+    timestamp: new Date().toISOString()
+  }
+];
+
 /**
- * Safely persists reports to browser localStorage, automatically pruning heavy base64
- * thumbnails when approaching the ~5MB quota limit so analysis calls never fail.
+ * Safely persists reports and autonomous agent dialogues to browser localStorage,
+ * automatically pruning heavy base64 thumbnails or HTML artifacts when approaching
+ * the ~5MB quota limit so analysis calls never fail.
  */
-const safePersistReport = (key: string, studyContext: StudyContext | null, entries: ReportEntry[]) => {
+const safePersistReport = (
+  key: string,
+  studyContext: StudyContext | null,
+  entries: ReportEntry[],
+  assistantMode: 'copilot' | 'autonomous_agent' = 'copilot',
+  agentMessages: AgentMessage[] = []
+) => {
+  const stripAgentArtifacts = (msgs: AgentMessage[]) =>
+    msgs.map(m => ({
+      ...m,
+      artifacts: m.artifacts?.map(a => ({ type: a.type, title: a.title }))
+    }));
+
   try {
     // 1. Attempt standard full save
-    localStorage.setItem(key, JSON.stringify({ studyContext, entries }));
+    localStorage.setItem(key, JSON.stringify({ studyContext, entries, assistantMode, agentMessages }));
     return;
   } catch (e: any) {
-    console.warn('[aiStore] localStorage quota reached, pruning older thumbnails:', e?.message);
+    console.warn('[aiStore] localStorage quota reached, pruning older thumbnails/artifacts:', e?.message);
   }
 
   try {
-    // 2. Strip heavy base64 thumbnailPng from older entries (keep only newest)
+    // 2. Strip heavy base64 thumbnailPng from older entries (keep only newest) and agent HTML artifacts
     const prunedEntries = entries.map((entry, idx) => {
       if (idx === entries.length - 1) return entry;
       return {
@@ -204,37 +252,58 @@ const safePersistReport = (key: string, studyContext: StudyContext | null, entri
         }
       };
     });
-    localStorage.setItem(key, JSON.stringify({ studyContext, entries: prunedEntries }));
+    localStorage.setItem(key, JSON.stringify({
+      studyContext,
+      entries: prunedEntries,
+      assistantMode,
+      agentMessages: stripAgentArtifacts(agentMessages)
+    }));
     return;
   } catch (e: any) {
     console.warn('[aiStore] Pruned persistence failed, stripping all thumbnails from storage:', e?.message);
   }
 
+  const compactSnapshotForStorage = (snap: ChartSnapshot): ChartSnapshot => {
+    const cleanData =
+      snap.data && typeof snap.data === 'object' && !Array.isArray(snap.data) && snap.data.weights
+        ? { ...snap.data, weights: undefined, weightsOmittedInLocalStorage: true }
+        : snap.data;
+    return {
+      ...snap,
+      thumbnailPng: null,
+      data: cleanData
+    };
+  };
+
   try {
-    // 3. Strip all thumbnailPng from localStorage (in-memory state still retains them)
+    // 3. Strip all thumbnailPng and heavy weights arrays from localStorage (in-memory state still retains them)
     const lightweightEntries = entries.map(entry => ({
       ...entry,
-      snapshot: {
-        ...entry.snapshot,
-        thumbnailPng: null
-      }
+      snapshot: compactSnapshotForStorage(entry.snapshot)
     }));
-    localStorage.setItem(key, JSON.stringify({ studyContext, entries: lightweightEntries }));
+    localStorage.setItem(key, JSON.stringify({
+      studyContext,
+      entries: lightweightEntries,
+      assistantMode,
+      agentMessages: stripAgentArtifacts(agentMessages)
+    }));
     return;
   } catch (e: any) {
     console.warn('[aiStore] Lightweight persistence failed, keeping last 8 entries:', e?.message);
   }
 
   try {
-    // 4. Keep only the last 8 entries
+    // 4. Keep only the last 8 entries and last 12 agent messages
     const minimalEntries = entries.slice(-8).map(entry => ({
       ...entry,
-      snapshot: {
-        ...entry.snapshot,
-        thumbnailPng: null
-      }
+      snapshot: compactSnapshotForStorage(entry.snapshot)
     }));
-    localStorage.setItem(key, JSON.stringify({ studyContext, entries: minimalEntries }));
+    localStorage.setItem(key, JSON.stringify({
+      studyContext,
+      entries: minimalEntries,
+      assistantMode,
+      agentMessages: stripAgentArtifacts(agentMessages.slice(-12))
+    }));
   } catch (finalErr) {
     console.warn('[aiStore] Unable to persist to localStorage (quota exhausted):', finalErr);
   }
@@ -273,27 +342,20 @@ export const useAiStore = create<AiState>((set, get) => ({
 
   // Agent State
   assistantMode: 'copilot',
-  agentMessages: [
-    {
-      id: 'welcome-agent',
-      role: 'assistant',
-      content: '¡Hola! Soy el Agente Científico Autónomo de knoMap. Puedo inspeccionar datasets, entrenar redes neuronales SOM, calcular dimensiones intrínsecas y generar mapas interactivos y reportes completos. ¿En qué investigación deseas que trabajemos hoy?',
-      timestamp: new Date().toISOString()
-    }
-  ],
+  agentMessages: createDefaultAgentMessages(),
   isAgentRunning: false,
 
-  setAssistantMode: (mode) => set({ assistantMode: mode }),
-  clearAgentMessages: () => set({
-    agentMessages: [
-      {
-        id: 'welcome-agent',
-        role: 'assistant',
-        content: '¡Hola! Soy el Agente Científico Autónomo de knoMap. ¿En qué investigación deseas que trabajemos hoy?',
-        timestamp: new Date().toISOString()
-      }
-    ]
-  }),
+  setAssistantMode: (mode) => {
+    set({ assistantMode: mode });
+    const key = getStorageKey(get().currentProjectId);
+    safePersistReport(key, get().studyContext, get().entries, mode, get().agentMessages);
+  },
+  clearAgentMessages: () => {
+    const resetMsgs = createDefaultAgentMessages();
+    set({ agentMessages: resetMsgs });
+    const key = getStorageKey(get().currentProjectId);
+    safePersistReport(key, get().studyContext, get().entries, get().assistantMode, resetMsgs);
+  },
 
   sendAgentMessage: async (text: string) => {
     if (!text.trim() || get().isAgentRunning) return;
@@ -421,10 +483,15 @@ export const useAiStore = create<AiState>((set, get) => ({
         projectId: data.project_id
       };
 
-      set(state => ({
-        agentMessages: [...state.agentMessages, assistantMsg],
-        isAgentRunning: false
-      }));
+      set(state => {
+        const updatedMsgs = [...state.agentMessages, assistantMsg];
+        const key = getStorageKey(state.currentProjectId);
+        safePersistReport(key, state.studyContext, state.entries, state.assistantMode, updatedMsgs);
+        return {
+          agentMessages: updatedMsgs,
+          isAgentRunning: false
+        };
+      });
     } catch (err: any) {
       const errorMsg: AgentMessage = {
         id: `agent-err-${Date.now()}`,
@@ -432,10 +499,15 @@ export const useAiStore = create<AiState>((set, get) => ({
         content: `Error al comunicar con el agente: ${err.message || 'Error de red. Verifica la conexión con el servidor de knoMap.'}`,
         timestamp: new Date().toISOString()
       };
-      set(state => ({
-        agentMessages: [...state.agentMessages, errorMsg],
-        isAgentRunning: false
-      }));
+      set(state => {
+        const updatedMsgs = [...state.agentMessages, errorMsg];
+        const key = getStorageKey(state.currentProjectId);
+        safePersistReport(key, state.studyContext, state.entries, state.assistantMode, updatedMsgs);
+        return {
+          agentMessages: updatedMsgs,
+          isAgentRunning: false
+        };
+      });
     }
   },
 
@@ -519,7 +591,7 @@ export const useAiStore = create<AiState>((set, get) => ({
     
     // Save to localStorage safely
     const key = getStorageKey(get().currentProjectId);
-    safePersistReport(key, updated, get().entries);
+    safePersistReport(key, updated, get().entries, get().assistantMode, get().agentMessages);
   },
 
   openContextModal: () => set({ isContextModalOpen: true }),
@@ -528,7 +600,9 @@ export const useAiStore = create<AiState>((set, get) => ({
   getReportPayload: () => ({
     studyContext: get().studyContext,
     entries: get().entries,
-    activeEntryId: get().activeEntryId
+    activeEntryId: get().activeEntryId,
+    assistantMode: get().assistantMode,
+    agentMessages: get().agentMessages
   }),
 
   loadReportPayload: (payload: any, projectId?: string | null) => {
@@ -537,23 +611,33 @@ export const useAiStore = create<AiState>((set, get) => ({
     const entries = Array.isArray(payload.entries) ? payload.entries : [];
     const studyContext = payload.studyContext || null;
     const activeEntryId = payload.activeEntryId || (entries.length > 0 ? entries[entries.length - 1].id : null);
+    const assistantMode = payload.assistantMode === 'autonomous_agent' ? 'autonomous_agent' : 'copilot';
+    const agentMessages = (Array.isArray(payload.agentMessages) && payload.agentMessages.length > 0)
+      ? payload.agentMessages
+      : createDefaultAgentMessages();
 
     set({
       currentProjectId: pid,
       studyContext,
       entries,
-      activeEntryId
+      activeEntryId,
+      assistantMode,
+      agentMessages,
+      isAgentRunning: false
     });
 
     const key = getStorageKey(pid);
-    safePersistReport(key, studyContext, entries);
+    safePersistReport(key, studyContext, entries, assistantMode, agentMessages);
   },
 
   clearReport: () => {
     set({
       studyContext: null,
       entries: [],
-      activeEntryId: null
+      activeEntryId: null,
+      assistantMode: 'copilot',
+      agentMessages: createDefaultAgentMessages(),
+      isAgentRunning: false
     });
   },
 
@@ -564,11 +648,18 @@ export const useAiStore = create<AiState>((set, get) => ({
       const raw = localStorage.getItem(key);
       if (raw) {
         const parsed = JSON.parse(raw);
+        const agentMessages = (Array.isArray(parsed.agentMessages) && parsed.agentMessages.length > 0)
+          ? parsed.agentMessages
+          : createDefaultAgentMessages();
+        const assistantMode = parsed.assistantMode === 'autonomous_agent' ? 'autonomous_agent' : 'copilot';
         set({
           currentProjectId: pid,
           studyContext: parsed.studyContext || null,
           entries: parsed.entries || [],
-          activeEntryId: parsed.entries?.length ? parsed.entries[parsed.entries.length - 1].id : null
+          activeEntryId: parsed.entries?.length ? parsed.entries[parsed.entries.length - 1].id : null,
+          assistantMode,
+          agentMessages,
+          isAgentRunning: false
         });
         return;
       }
@@ -580,7 +671,10 @@ export const useAiStore = create<AiState>((set, get) => ({
       currentProjectId: pid,
       studyContext: null,
       entries: [],
-      activeEntryId: null
+      activeEntryId: null,
+      assistantMode: 'copilot',
+      agentMessages: createDefaultAgentMessages(),
+      isAgentRunning: false
     });
   },
 
@@ -609,7 +703,7 @@ export const useAiStore = create<AiState>((set, get) => ({
 
     // Save to localStorage safely
     const key = getStorageKey(get().currentProjectId);
-    safePersistReport(key, get().studyContext, updatedEntries);
+    safePersistReport(key, get().studyContext, updatedEntries, get().assistantMode, get().agentMessages);
 
     if (autoAnalyze) {
       const userText = initialUserPrompt || `Write a two to three paragraph scientific analysis in peer-reviewed journal style discussing the figure "${newEntry.title}". Describe the overall observed structure, elaborate on the empirical quantitative contrasts and findings, and synthesize the methodological and scientometric implications.`;
@@ -709,7 +803,7 @@ export const useAiStore = create<AiState>((set, get) => ({
 
         // Save to localStorage safely (never throws)
         const key = getStorageKey(get().currentProjectId);
-        safePersistReport(key, get().studyContext, finalEntries);
+        safePersistReport(key, get().studyContext, finalEntries, get().assistantMode, get().agentMessages);
       }
     } catch (err: any) {
       console.error('Error calling LLM analyze:', err);
@@ -765,13 +859,13 @@ export const useAiStore = create<AiState>((set, get) => ({
 
     // Save to localStorage safely
     const key = getStorageKey(get().currentProjectId);
-    safePersistReport(key, get().studyContext, updatedEntries);
+    safePersistReport(key, get().studyContext, updatedEntries, get().assistantMode, get().agentMessages);
   },
 
   clearAllEntries: () => {
     set({ entries: [], activeEntryId: null });
     const key = getStorageKey(get().currentProjectId);
-    safePersistReport(key, get().studyContext, []);
+    safePersistReport(key, get().studyContext, [], get().assistantMode, get().agentMessages);
   },
 
   setActiveEntryId: (entryId: string | null) => {
@@ -799,7 +893,22 @@ export const useAiStore = create<AiState>((set, get) => ({
 
     entries.forEach((entry, idx) => {
       md += `### ${idx + 1}. ${entry.title} [${entry.badge}]\n\n`;
-      md += `*Added: ${new Date(entry.createdAt).toLocaleString()}*\n\n`;
+      md += `*Added: ${new Date(entry.createdAt).toLocaleString()}*\n`;
+      const src = entry.snapshot?.sourceInfo;
+      if (src) {
+        const metaParts = [
+          src.tabLabel && `Source: ${src.tabLabel}`,
+          src.subView && `View: ${src.subView}`,
+          src.experimentName && `Experiment: ${src.experimentName}`,
+          src.unitName && `Unit: ${src.unitName}`,
+          src.fileName && `File: ${src.fileName}`,
+          src.gridSize && `Grid: ${src.gridSize[0]}x${src.gridSize[1]}`
+        ].filter(Boolean);
+        if (metaParts.length > 0) md += `*${metaParts.join(' · ')}*\n`;
+      } else if (entry.snapshot?.subtitle) {
+        md += `*${entry.snapshot.subtitle}*\n`;
+      }
+      md += `\n`;
 
       if (entry.dataContextPrompt) {
         md += `#### Visualization Data\n\n\`\`\`\n${entry.dataContextPrompt}\n\`\`\`\n\n`;

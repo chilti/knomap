@@ -160,6 +160,15 @@ export const DimReduction: React.FC = () => {
                   badge="DIM REDUCTION"
                   viewSource="dimreduction"
                   chartType="custom"
+                  sourceInfo={{
+                    tabId: 'dimreduction',
+                    tabLabel: 'Dim Reduction',
+                    subView: 'Intrinsic Dimension Ceiling (MLE P95)',
+                    chartTypeLabel: 'Intrinsic Dimension Estimate',
+                    fileName: dimFileName || null,
+                    entitiesCount: dimData?.length || null,
+                    indicatorsCount: dimData?.[0]?.length || null
+                  }}
                   data={dimCeilingResult}
                   dataContextPrompt={`Intrinsic Dimension Ceiling Estimation (${dimFileName || 'Dataset'}).\nRecommended K (95th Percentile MLE): ${dimCeilingResult.estimated_dimension.toFixed(1)}.\nMedian: ${dimCeilingResult.metrics.median.toFixed(2)}, Mean: ${dimCeilingResult.metrics.mean.toFixed(2)}, P90: ${dimCeilingResult.metrics.p90.toFixed(2)}, Max: ${dimCeilingResult.metrics.max.toFixed(2)}.\nTotal records: ${dimData?.length || 0}, Original features: ${dimData?.[0]?.length || 0}.`}
                   buttonText="AI Assistant"
@@ -240,6 +249,16 @@ export const DimReduction: React.FC = () => {
                   badge="DIM REDUCTION"
                   viewSource="dimreduction"
                   chartType="custom"
+                  sourceInfo={{
+                    tabId: 'dimreduction',
+                    tabLabel: 'Dim Reduction',
+                    subView: `Manual Estimator (${dimManualResult.algorithm})`,
+                    chartTypeLabel: 'Intrinsic Dimension Estimate',
+                    indicator: dimManualResult.algorithm,
+                    fileName: dimFileName || null,
+                    entitiesCount: dimData?.length || null,
+                    indicatorsCount: dimData?.[0]?.length || null
+                  }}
                   data={dimManualResult}
                   dataContextPrompt={`Intrinsic Dimension Estimation (${dimFileName || 'Dataset'}) via ${dimManualResult.algorithm}.\nCalculated dimension: ${dimManualResult.estimated_dimension.toFixed(2)}.\nTotal records: ${dimData?.length || 0}.`}
                   buttonText="AI Assistant"
