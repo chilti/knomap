@@ -321,7 +321,7 @@ export const SemanticBibliometrics: React.FC = () => {
 
             {semantic2DCoords && (
               <div className="bg-emerald-950 bg-opacity-20 border border-emerald-800/40 rounded-xl p-3 text-xs text-emerald-400 font-bold flex items-center space-x-2">
-                <span>✓ Reduction ready — {semanticIntrinsicData?.length || 0} points in K={semanticTargetD}D + 2D</span>
+                <span>✓ Reduction ready — {semantic2DCoords?.length || semanticIntrinsicData?.length || 0} points in K={semanticTargetD}D + 2D</span>
               </div>
             )}
           </div>

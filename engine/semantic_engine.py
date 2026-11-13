@@ -96,6 +96,16 @@ def extract_doi(record):
                         
     return ""
 
+def _cache_semantic_records(records):
+    try:
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        cache_path = os.path.join(temp_dir, "semantic_records_cache.json")
+        with open(cache_path, "w", encoding="utf-8") as _f_rec:
+            json.dump(records, _f_rec)
+    except Exception as _e_rec:
+        print(f"[semantic_engine] Notice: could not cache records: {_e_rec}")
+
 def handle_parse(params):
     filepath = params.get("filepath", "")
     use_mesh = params.get("use_mesh", True)
@@ -194,6 +204,7 @@ def handle_parse(params):
                 "concatenated_text": concatenated_text,
                 "extras": extras
             })
+        _cache_semantic_records(records)
         return {"success": True, "records": records}
 
     if len(RC) == 0:
@@ -293,14 +304,7 @@ def handle_parse(params):
             "extras": extras
         })
 
-    try:
-        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
-        os.makedirs(temp_dir, exist_ok=True)
-        cache_path = os.path.join(temp_dir, "semantic_records_cache.json")
-        with open(cache_path, "w", encoding="utf-8") as _f_rec:
-            json.dump(records, _f_rec)
-    except Exception as _e_rec:
-        print(f"[semantic_engine] Notice: could not cache records: {_e_rec}")
+    _cache_semantic_records(records)
         
     return {"success": True, "records": records}
 
@@ -431,23 +435,40 @@ def handle_reduce(params):
         
         # 1. Intrinsic Dimension Estimation
         if estimate_mode == "ceiling":
-            # In manifold learning, a representative sample of 2,000 points yields the same MLE p95 in ~0.04s
-            if X.shape[0] > 2500:
-                np.random.seed(42)
-                sample_idx = np.random.choice(X.shape[0], 2000, replace=False)
-                X_est = X[sample_idx]
-            else:
-                X_est = X
+            # Filter non-finite rows and deduplicate identical vectors to avoid zero-distance NaNs in MLE
+            X_clean = X[np.all(np.isfinite(X), axis=1)]
+            X_clean = np.unique(X_clean, axis=0)
+            if X_clean.shape[0] < 5:
+                return {
+                    "success": False,
+                    "error": f"Insufficient unique finite embeddings ({X_clean.shape[0]}) to estimate intrinsic dimension."
+                }
 
-            model = skdim.id.MLE()
-            local_dims = model.fit_transform_pw(X_est)
-            
-            p50 = float(np.percentile(local_dims, 50))
-            p90 = float(np.percentile(local_dims, 90))
-            p95 = float(np.percentile(local_dims, 95))
-            p_max = float(np.max(local_dims))
-            p_mean = float(np.mean(local_dims))
-            
+            # In manifold learning, a representative sample of 2,000 points yields the same MLE p95 in ~0.04s
+            if X_clean.shape[0] > 2500:
+                np.random.seed(42)
+                sample_idx = np.random.choice(X_clean.shape[0], 2000, replace=False)
+                X_est = X_clean[sample_idx]
+            else:
+                X_est = X_clean
+
+            n_neighbors = min(20, max(2, X_est.shape[0] - 2))
+            model = skdim.id.MLE(K=n_neighbors)
+            local_dims = np.asarray(model.fit_transform_pw(X_est), dtype=np.float64)
+            valid_dims = local_dims[np.isfinite(local_dims)]
+
+            if valid_dims.size == 0:
+                return {
+                    "success": False,
+                    "error": "MLE intrinsic dimension estimation produced no finite values (embeddings may be degenerate or collinear)."
+                }
+
+            p50 = float(np.percentile(valid_dims, 50))
+            p90 = float(np.percentile(valid_dims, 90))
+            p95 = float(np.percentile(valid_dims, 95))
+            p_max = float(np.max(valid_dims))
+            p_mean = float(np.mean(valid_dims))
+
             estimated_d = int(np.ceil(p95))
             metrics = {
                 "mean": p_mean,
@@ -483,10 +504,23 @@ def handle_reduce(params):
                 "TwoNN": skdim.id.TwoNN
             }
             if algorithm_name in estimator_map:
+                X_clean = X[np.all(np.isfinite(X), axis=1)]
+                X_clean = np.unique(X_clean, axis=0)
+                if X_clean.shape[0] < 5:
+                    return {
+                        "success": False,
+                        "error": f"Insufficient unique finite embeddings ({X_clean.shape[0]}) to estimate intrinsic dimension."
+                    }
                 model = estimator_map[algorithm_name]()
-                model.fit(X)
-                estimated_d = int(np.ceil(float(model.dimension_)))
-                metrics = {"estimated": float(model.dimension_)}
+                model.fit(X_clean)
+                raw_dim = float(model.dimension_)
+                if not np.isfinite(raw_dim):
+                    return {
+                        "success": False,
+                        "error": f"{algorithm_name} produced a non-finite intrinsic dimension ({raw_dim})."
+                    }
+                estimated_d = int(np.ceil(raw_dim))
+                metrics = {"estimated": raw_dim}
                 
         # 'manual_k' mode: skip estimation entirely, jump to UMAP with target_dim
         
