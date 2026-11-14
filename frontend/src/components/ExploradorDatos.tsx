@@ -785,7 +785,7 @@ export const ExploradorDatos: React.FC = () => {
               });
 
               function getFilename(ext) {
-                const safe = (${JSON.stringify(mapTitle)}).replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_').toLowerCase();
+                const safe = (${JSON.stringify(mapTitle)}).replace(/[^a-zA-Z0-9_\\-\\s]/g, '').trim().replace(/\\s+/g, '_').toLowerCase();
                 return (safe || 'knomap_map') + '.' + ext;
               }
 
@@ -801,7 +801,7 @@ export const ExploradorDatos: React.FC = () => {
 
                   const serializer = new XMLSerializer();
                   let source = serializer.serializeToString(cloned);
-                  if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                  if (!source.match(/^<svg[^>]+xmlns="http:\\/\\/www\\.w3\\.org\\/2000\\/svg"/)) {
                     source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
                   }
                   const svgData = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<?xml version="1.0" standalone="no"?>\\r\\n' + source);
@@ -841,7 +841,7 @@ export const ExploradorDatos: React.FC = () => {
 
                   const serializer = new XMLSerializer();
                   let source = serializer.serializeToString(cloned);
-                  if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                  if (!source.match(/^<svg[^>]+xmlns="http:\\/\\/www\\.w3\\.org\\/2000\\/svg"/)) {
                     source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
                   }
 
@@ -996,7 +996,7 @@ export const ExploradorDatos: React.FC = () => {
 
                   const serializer = new XMLSerializer();
                   let source = serializer.serializeToString(cloned);
-                  if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                  if (!source.match(/^<svg[^>]+xmlns="http:\\/\\/www\\.w3\\.org\\/2000\\/svg"/)) {
                     source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
                   }
                   const svgData = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<?xml version="1.0" standalone="no"?>\\r\\n' + source);
@@ -1036,7 +1036,7 @@ export const ExploradorDatos: React.FC = () => {
 
                   const serializer = new XMLSerializer();
                   let source = serializer.serializeToString(cloned);
-                  if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                  if (!source.match(/^<svg[^>]+xmlns="http:\\/\\/www\\.w3\\.org\\/2000\\/svg"/)) {
                     source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
                   }
 
